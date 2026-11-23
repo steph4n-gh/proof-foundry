@@ -1,0 +1,23 @@
+{
+  "schema": "fleet-submission/1",
+  "mission": "erdos-combinatorics",
+  "lemma_id": "E-sch-002",
+  "kind": "proof",
+  "at": "2026-11-23T12:53:53.824Z",
+  "file": "missions/erdos-combinatorics/lean/Erdos/Claims/E_sch_002.lean",
+  "theorem": "Erdos.Claims.E_sch_002.schur_three_ge_13",
+  "signature": "Erdos.Claims.E_sch_002.schur_three_ge_13 :\n  ∃ col, Erdos.IsSumFreeColoring 13 3 col",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "checked_at": "2026-11-23T12:53:53.823Z",
+    "duration_ms": 3730,
+    "axioms": [
+      "propext"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "742d0ea6a692ceef9b2d9664ca6df19831ca00d003c607ee906ca21ea3999fd6",
+    "core_hash": "c66bb11af66a1933de3bc3b60d78b3f6ed195e15da46a6d90cd8dd60e0e44657",
+    "by_seat": "seat-redteam-1"
+  }
+}
