@@ -39,6 +39,16 @@
         { "id": "S-num-003", "expect": "proof" },
         { "id": "S-num-004", "expect": "proof" }
       ]
+    },
+    {
+      "id": "OBJ-sci-minimax-koth",
+      "title": "King of the Hill: Float64-Lattice Minimax Polynomials for libm (exp & sin)",
+      "tier": "Deterministic Record Hunt",
+      "finish_line": "Optimize pure float64 polynomial coefficients evaluated against an exact 128-bit BigInt oracle (beat Chebyshev toward float64-lattice Remez optima for exp and sin).",
+      "required": [
+        { "id": "S-rec-exp", "expect": { "record_at_most": 420 } },
+        { "id": "S-rec-sin", "expect": { "record_at_most": 1220 } }
+      ]
     }
   ]
 }

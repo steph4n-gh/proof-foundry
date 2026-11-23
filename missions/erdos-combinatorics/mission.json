@@ -126,6 +126,16 @@
         { "id": "E-vdw-001", "expect": "proof" },
         { "id": "E-vdw-002", "expect": "proof" }
       ]
+    },
+    {
+      "id": "OBJ-erdos-koth-records",
+      "title": "King of the Hill Frontier: Ramsey R(5,5) Avoidance & 11-Mark Golomb Rulers",
+      "tier": "Open World Record",
+      "finish_line": "Push the R(5,5) K5/I5-free avoidance record (current world record = 42, UB = 47) and shrink the 11-mark Golomb ruler down to exact optimal length 72.",
+      "required": [
+        { "id": "E-rec-r55", "expect": { "record_at_least": 42 } },
+        { "id": "E-rec-gol11", "expect": { "record_at_most": 72 } }
+      ]
     }
   ]
 }

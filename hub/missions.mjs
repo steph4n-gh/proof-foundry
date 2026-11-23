@@ -69,7 +69,8 @@ export function computeRecordTargets(missionSlug, lemma, kind, score) {
   const tag = kind === "record_bound" ? `not_s${score}` : `s${score}`;
   const stem = rec.file_stem || lemma.id.replace(/-/g, "_");
   const claimsDir = rec.claims_dir || `missions/${missionSlug}/lean/Claims`;
-  const artifactFile = `${claimsDir}/${stem}_${tag}.lean`;
+  const ext = rec.artifact_ext || ".lean";
+  const artifactFile = `${claimsDir}/${stem}_${tag}${ext}`;
   const submissionBasename = `${lemma.id}.${kind}.s${score}.json`;
   const submissionFile = `missions/${missionSlug}/submissions/${submissionBasename}`;
   const tpl = rec.theorem_template || `${stem}_{tag}.record`;
@@ -201,6 +202,32 @@ export function loadAllMissionsSummary() {
 export function allowedArtifactDirsForMission(mission) {
   const dirs = mission.judge?.allowed_dirs || [];
   return dirs.map((d) => (path.isAbsolute(d) ? d : path.resolve(ROOT, d)));
+}
+
+export function readMissionStatementFile(mission, relPath) {
+  if (!relPath || typeof relPath !== "string") return null;
+  const candidate = path.resolve(ROOT, relPath);
+  if (!candidate.endsWith(".lean") && !candidate.endsWith(".json")) return null;
+  const allowedDirs = [
+    ...allowedArtifactDirsForMission(mission),
+    path.join(mission.paths.dir, "specs"),
+  ];
+  try {
+    if (fs.lstatSync(candidate).isSymbolicLink()) return null;
+    const real = fs.realpathSync(candidate);
+    const ok = allowedDirs.some((dir) => {
+      try {
+        const realDir = fs.realpathSync(dir);
+        return real.startsWith(realDir + path.sep);
+      } catch {
+        return false;
+      }
+    });
+    if (!ok) return null;
+    return fs.readFileSync(real, "utf8");
+  } catch {
+    return null;
+  }
 }
 
 export function readAllowedArtifactFile(mission, relPath) {
@@ -730,7 +757,7 @@ export function deriveMissionState(slug = DEFAULT_MISSION, { excludeSubmissionFi
     if (l.statement_file) statementHashes[l.statement_file] = sha256RelFile(l.statement_file);
   }
   const currentHashes = {
-    coreHash: sha256RelFile(mission.judge?.core_file),
+    coreHash: sha256RelFile(mission.judge?.core_file || mission.judge?.harness_file),
     statementHashes,
   };
 

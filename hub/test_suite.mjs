@@ -11,7 +11,16 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { applySubmissionsPure, computeTrustSeal, deriveMissionState, computeRecordTargets, isRungConquered } from "./missions.mjs";
+import {
+  listMissionSlugs,
+  loadMission,
+  applySubmissionsPure,
+  computeTrustSeal,
+  deriveMissionState,
+  computeRecordTargets,
+  isRungConquered,
+} from "./missions.mjs";
+import { checkCommandArtifact } from "./judges/command.mjs";
 import { parseGitRawZ, classifyEntries, verifyPrEntries, validateRecordImprovement } from "./pr_gate.mjs";
 import { readEvents } from "./build_site.mjs";
 
@@ -323,23 +332,39 @@ const buildRun = spawnSync("node", ["hub/build_site.mjs", "--offline"], { encodi
 const afterErdos = fs.readFileSync("missions/erdos-combinatorics/state.json", "utf8");
 assert(buildRun.status === 0 && beforeErdos === afterErdos && fs.existsSync("dist/PROOFS.md"), "build_site.mjs is pure (state.json byte-identical) & emits dist/PROOFS.md", buildRun.stderr);
 
-// Verify ALL frozen Statements/*.lean across ALL Lean missions compile cleanly with Lean 4.36.0
-const statementSuites = [
-  { leanDir: "missions/erdos-combinatorics/lean", target: "Erdos", stmtDir: "Erdos/Statements" },
-  { leanDir: "lean", target: "PnP", stmtDir: "PnP/Statements" },
-  { leanDir: "missions/sorting-networks/lean", target: "SortNet", stmtDir: "SortNet/Statements" },
-];
-for (const suite of statementSuites) {
-  const absLeanDir = path.resolve(suite.leanDir);
-  const b = spawnSync("lake", ["build", suite.target], { cwd: absLeanDir, encoding: "utf8" });
-  assert(b.status === 0, `Core library builds cleanly: ${suite.target}`, (b.stdout || "") + (b.stderr || ""));
-  const absStmtDir = path.join(absLeanDir, suite.stmtDir);
-  if (!fs.existsSync(absStmtDir)) continue;
-  const files = fs.readdirSync(absStmtDir).filter((f) => f.endsWith(".lean") && !f.startsWith("_Test")).sort();
-  for (const f of files) {
-    const rel = path.join(suite.stmtDir, f);
-    const r = spawnSync("lake", ["env", "lean", rel], { cwd: absLeanDir, encoding: "utf8" });
-    assert(r.status === 0, `Frozen statement compiles cleanly: ${suite.target}/${f}`, (r.stdout || "") + (r.stderr || ""));
+// Dynamically verify ALL Lean missions: Core builds, ALL frozen Statements/*.lean compile, AND ALL Lean KotH `Record_mono` type-check in exact direction!
+for (const slug of listMissionSlugs()) {
+  const m = loadMission(slug);
+  if (m.judge?.type !== "lean4") continue;
+  const absLeanDir = path.resolve(m.judge.lean_dir);
+  const target = m.judge.lake_target;
+  const b = spawnSync("lake", ["build", target], { cwd: absLeanDir, encoding: "utf8" });
+  assert(b.status === 0, `Core library builds cleanly: ${target} (${slug})`, (b.stdout || "") + (b.stderr || ""));
+
+  const stmtDir = `${target}/Statements`;
+  const absStmtDir = path.join(absLeanDir, stmtDir);
+  if (fs.existsSync(absStmtDir)) {
+    const files = fs.readdirSync(absStmtDir).filter((f) => f.endsWith(".lean") && !f.startsWith("_Test")).sort();
+    for (const f of files) {
+      const rel = path.join(stmtDir, f);
+      const r = spawnSync("lake", ["env", "lean", rel], { cwd: absLeanDir, encoding: "utf8" });
+      assert(r.status === 0, `Frozen statement compiles cleanly: ${target}/${f}`, (r.stdout || "") + (r.stderr || ""));
+    }
+  }
+
+  // Verify every registered Lean KotH hunt exports exact direction-appropriate `Record_mono`!
+  const { state: ms } = deriveMissionState(slug);
+  for (const l of ms.lemmas || []) {
+    if (l.kind !== "record" || !l.statement_file?.endsWith(".lean")) continue;
+    const isMax = l.record?.direction === "max";
+    const mod = l.statement_def.replace(/\.Record$/, "");
+    const src = fs.readFileSync(path.resolve(l.statement_file), "utf8");
+    const monoSig = isMax
+      ? `∀ {a b : Nat}, a ≤ b → ${mod}.Record b → ${mod}.Record a`
+      : `∀ {a b : Nat}, a ≤ b → ${mod}.Record a → ${mod}.Record b`;
+    const code = `${src}\nexample : ${monoSig} := @${mod}.Record_mono\n`;
+    const r = spawnSync("lake", ["env", "lean", "--stdin"], { cwd: absLeanDir, input: code, encoding: "utf8" });
+    assert(r.status === 0, `KotH Record_mono (${isMax ? "max/downward" : "min/upward"}) verified in Lean 4: ${mod}`, (r.stdout || "") + (r.stderr || ""));
   }
 }
 
@@ -349,22 +374,8 @@ const d2 = deriveMissionState("erdos-combinatorics").state;
 assert(JSON.stringify(d1) === JSON.stringify(d2), "deriveMissionState is deterministic & byte-identical across runs");
 
 // ---------------------------------------------------------------------------
-// 4. KING OF THE HILL: MONOTONICITY, PURE STATE MACHINE & PR GATE MATRIX
+// 4. KING OF THE HILL: PURE STATE MACHINE (MIN + MAX), COMMAND-JUDGE KOTH & PR GATE MATRIX
 // ---------------------------------------------------------------------------
-
-// 4a. Verify EVERY registered King-of-the-Hill frozen statement exports exact `Record_mono` in Lean 4.36!
-const kothMonoChecks = [
-  { leanDir: "missions/sorting-networks/lean", file: "SortNet/Statements/SN_rec_013.lean", mod: "SortNet.Statements.SN_rec_013" },
-  { leanDir: "missions/sorting-networks/lean", file: "SortNet/Statements/SN_rec_014.lean", mod: "SortNet.Statements.SN_rec_014" },
-  { leanDir: "missions/erdos-combinatorics/lean", file: "Erdos/Statements/E_rec_200.lean", mod: "Erdos.Statements.E_rec_200" },
-  { leanDir: "lean", file: "PnP/Statements/L_rec_005.lean", mod: "PnP.Statements.L_rec_005" },
-];
-for (const mc of kothMonoChecks) {
-  const src = fs.readFileSync(path.resolve(mc.leanDir, mc.file), "utf8");
-  const code = `${src}\nexample : ∀ {a b : Nat}, a ≤ b → ${mc.mod}.Record a → ${mc.mod}.Record b := @${mc.mod}.Record_mono\n`;
-  const r = spawnSync("lake", ["env", "lean", "--stdin"], { cwd: path.resolve(mc.leanDir), input: code, encoding: "utf8" });
-  assert(r.status === 0, `KotH Record_mono exact monotonicity verified in Lean 4: ${mc.mod}`, (r.stdout || "") + (r.stderr || ""));
-}
 
 // 4b. Pure KotH derivation: ratchet, delta anti-farming points, non-improving ignored, closure, zero-closure, contradiction, stale hash, git order, replay idempotence
 const recSeed = {
@@ -582,7 +593,152 @@ assert(
   JSON.stringify(fallbackOrder.record_state.points_by_seat)
 );
 
-// 4c. Breakthrough literature guard in validateRecordImprovement
+// 4c. Direction = "max" KotH pure derivation, closure, breakthrough guard & Command-Judge KotH!
+const maxSeed = {
+  meta: { mission: "erdos-combinatorics", updated_at: "2026-01-01T00:00:00Z" },
+  programs: [{ id: "ramsey", key: "ram", title: "Ramsey" }],
+  seats: [],
+  lemmas: [
+    {
+      id: "E-rec-r55",
+      kind: "record",
+      program: "ramsey",
+      title: "R(5,5) Max Hunt",
+      statement_file: "missions/erdos-combinatorics/lean/Erdos/Statements/E_rec_r55.lean",
+      statement_def: "Erdos.Statements.E_rec_r55.Record",
+      record: {
+        direction: "max",
+        unit: "vertices",
+        start_target: 36,
+        literature_best: 42,
+        literature_upper_bound: 47,
+        bound_floor: 48,
+        score_max: 100,
+        file_stem: "E_rec_r55",
+        claims_dir: "missions/erdos-combinatorics/lean/Erdos/Claims",
+        theorem_template: "Erdos.Claims.E_rec_r55_{tag}.record",
+      },
+      status: "conjecture",
+      deps: [],
+    },
+  ],
+  messages: [],
+  whispers: [],
+  checker_runs: [],
+};
+function mkMaxSub(kind, score, seat) {
+  const t = computeRecordTargets("erdos-combinatorics", maxSeed.lemmas[0], kind, score);
+  return {
+    _sub_file: t.submissionBasename,
+    schema: "pf.record.v1",
+    mission: "erdos-combinatorics",
+    lemma_id: "E-rec-r55",
+    kind,
+    score,
+    file: t.artifactFile,
+    theorem: t.theoremName,
+    at: "2026-02-01T00:00:00Z",
+    checker: { ok: true, by_seat: seat, file_hash: `fh_${kind}_${score}`, statement_hash: "max_stmt", core_hash: "core_ok", axioms: [] },
+  };
+}
+const maxHashes = {
+  coreHash: "core_ok",
+  statementHashes: { "missions/erdos-combinatorics/lean/Erdos/Statements/E_rec_r55.lean": "max_stmt" },
+};
+const m38 = mkMaxSub("record", 38, "donor-m1");
+const m42 = mkMaxSub("record", 42, "donor-m2");
+const m48Ub = mkMaxSub("record_bound", 48, "donor-u1");
+const m43Ub = mkMaxSub("record_bound", 43, "donor-u2");
+const maxState = applySubmissionsPure(maxSeed, [m42, m38, m48Ub, m43Ub], {
+  missionSlug: "erdos-combinatorics",
+  gitAddedTs: new Map(), // also exercises missing-git max fallback ordering (38 before 42, 48 before 43!)
+  currentHashes: maxHashes,
+}).state.lemmas[0];
+assert(
+  maxState.record_state.best?.score === 42 &&
+    maxState.record_state.refuted?.score === 43 &&
+    maxState.record_state.refuted?.inclusive_bound === 42 &&
+    maxState.record_state.closed === true &&
+    maxState.record_state.next_target === null &&
+    computeTrustSeal(maxState) === "frozen" &&
+    maxState.record_state.points_by_seat["donor-m1"] === 3 &&
+    maxState.record_state.points_by_seat["donor-m2"] === 4 &&
+    maxState.record_state.points_by_seat["donor-u1"] === 1 &&
+    maxState.record_state.points_by_seat["donor-u2"] === 5 &&
+    isRungConquered(maxState, { record_at_least: 42 }) === true &&
+    isRungConquered(maxState, { record_at_least: 43 }) === false,
+  "KotH direction=max: ratchet up, delta points, upper-bound closure (42 vs ¬43), fallback ordering & record_at_least",
+  JSON.stringify(maxState.record_state)
+);
+const maxBrk = validateRecordImprovement(maxSeed.lemmas[0], "record", 43);
+const maxUbBrk = validateRecordImprovement(maxSeed.lemmas[0], "record_bound", 47);
+assert(
+  maxBrk.ok && maxBrk.requiresMaintainer === true && maxUbBrk.ok && maxUbBrk.requiresMaintainer === true,
+  "KotH direction=max breakthrough guards fire on > literature_best (43>42) and < literature_upper_bound (46<47)",
+  JSON.stringify({ maxBrk, maxUbBrk })
+);
+
+// Command-Judge pure-data minimax KotH test (S-rec-exp)
+const sciMission = loadMission("verified-science-kernels");
+const tmpSciDir = fs.mkdtempSync(path.join(os.tmpdir(), "pf-sci-koth-"));
+try {
+  const expArt = path.join(tmpSciDir, "S_rec_exp_s450.mjs");
+  // Degree-7 Chebyshev coefficients on [-ln2/2, ln2/2] (max error ~413 * 1e-13)
+  fs.writeFileSync(
+    expArt,
+    `export const coeffs = [1.0000000000040923, 0.9999999999944174, 0.4999999990773131, 0.1666666668018312, 0.0416666898932322, 0.0083333301573068, 0.0013887439344572, 0.0001984316503399];\n`
+  );
+  // Wait: compute exact Chebyshev inside the test so rounding never drifts!
+  const M = 64, a = Math.LN2 / 2, deg = 7, c = new Array(deg + 1).fill(0);
+  for (let j = 0; j <= deg; j++) {
+    let s = 0;
+    for (let k = 0; k < M; k++) { const th = (Math.PI * (k + 0.5)) / M; s += Math.exp(a * Math.cos(th)) * Math.cos(j * th); }
+    c[j] = (2 / M) * s;
+  }
+  c[0] /= 2;
+  const mono = new Array(deg + 1).fill(0);
+  let Tprev = [1], Tcur = [0, 1 / a];
+  for (let j = 0; j <= deg; j++) {
+    const T = j === 0 ? Tprev : j === 1 ? Tcur : (() => {
+      const nxt = new Array(j + 1).fill(0);
+      for (let k = 0; k < Tcur.length; k++) nxt[k + 1] += (2 / a) * Tcur[k];
+      for (let k = 0; k < Tprev.length; k++) nxt[k] -= Tprev[k];
+      Tprev = Tcur; Tcur = nxt; return nxt;
+    })();
+    for (let k = 0; k < T.length; k++) mono[k] += c[j] * T[k];
+  }
+  fs.writeFileSync(expArt, `export const coeffs = ${JSON.stringify(mono)};\n`);
+  const rCmdPass = checkCommandArtifact(expArt, "minimax_exp_deg7", {
+    judgeConfig: sciMission.judge,
+    kind: "record",
+    statementFile: "missions/verified-science-kernels/specs/S_rec_exp.json",
+    expectedScore: 450,
+    allowTempForTests: true,
+  });
+  const rCmdFail = checkCommandArtifact(expArt, "minimax_exp_deg7", {
+    judgeConfig: sciMission.judge,
+    kind: "record",
+    statementFile: "missions/verified-science-kernels/specs/S_rec_exp.json",
+    expectedScore: 100,
+    allowTempForTests: true,
+  });
+  const rCmdBound = checkCommandArtifact(expArt, "minimax_exp_deg7", {
+    judgeConfig: sciMission.judge,
+    kind: "record_bound",
+    statementFile: "missions/verified-science-kernels/specs/S_rec_exp.json",
+    expectedScore: 390,
+    allowTempForTests: true,
+  });
+  assert(
+    rCmdPass.ok && rCmdPass.score === 450 && rCmdPass.statement_frozen === true && !rCmdFail.ok && !rCmdBound.ok,
+    "Command-Judge KotH (S-rec-exp 128-bit BigInt oracle): passes ≤450, rejects ≤100, rejects record_bound",
+    JSON.stringify({ rCmdPass, rCmdFail, rCmdBound })
+  );
+} finally {
+  fs.rmSync(tmpSciDir, { recursive: true, force: true });
+}
+
+// 4d. Breakthrough literature guard in validateRecordImprovement
 const brk = validateRecordImprovement(recSeed.lemmas[0], "record", 44);
 assert(brk.ok && brk.requiresMaintainer === true, "KotH breakthrough past literature_best (44 < 45) sets requiresMaintainer=true", JSON.stringify(brk));
 const nonBrk = validateRecordImprovement(recSeed.lemmas[0], "record", 45);

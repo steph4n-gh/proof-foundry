@@ -1,0 +1,13 @@
+{
+  "id": "S-rec-exp",
+  "target": "minimax_exp_deg7",
+  "description": "Minimax degree-7 polynomial p(x) = sum_{k=0..7} c_k x^k approximating exp(x) on [-ln(2)/2, ln(2)/2]",
+  "export_name": "coeffs",
+  "expected_length": 8,
+  "mode": "horner_full",
+  "domain": [-0.34657359027997264, 0.34657359027997264],
+  "grid_points": 4097,
+  "error_scale": 1e13,
+  "unit": "×10⁻¹³ max abs error",
+  "oracle": "exact_128bit_bigint_exp"
+}

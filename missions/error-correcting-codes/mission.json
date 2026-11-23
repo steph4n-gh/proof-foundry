@@ -1,0 +1,112 @@
+{
+  "slug": "error-correcting-codes",
+  "brand": "PROOF FOUNDRY · CODES",
+  "title": "Error-Correcting Codes (Sloane & Grassl Open World Tables)",
+  "tagline": "Live A(n,d) & A(n,d,w) world-record hunts · Lean 4.36.0 kernel",
+  "question": "How many 17-bit words can pairwise differ in at least 6 positions?",
+  "description": "Formalize the Hamming code, the sphere-packing and Plotkin bounds in pure Lean 4, then hunt the open entries of Brouwer's live code tables: the general binary code A(17,6) (best known 258, upper bound 340), the constant-weight code A(17,6,7) (best known 166, upper bound 206), and the constant-weight code A(20,8,10) (best known 176, upper bound 206). Every larger code is checked by the Lean kernel in about 1–2 seconds.",
+  "verdict": "open world record hunt — accepting token donations.",
+  "tug_of_war": {
+    "enabled": true,
+    "left_key": "construction",
+    "right_key": "upper_bound",
+    "left_label": "Larger code constructions",
+    "right_label": "Optimality upper bounds",
+    "disclaimer": "Counts Lean-verified explicit codes vs. Lean-verified upper bounds (sphere-packing, Plotkin, ¬ Record certificates)."
+  },
+  "judge": {
+    "type": "lean4",
+    "label": "Lean 4.36.0 kernel · frozen statements · zero sorry",
+    "lean_dir": "missions/error-correcting-codes/lean",
+    "lake_target": "Codes",
+    "core_file": "missions/error-correcting-codes/lean/Codes/Core.lean",
+    "core_olean": "missions/error-correcting-codes/lean/.lake/build/lib/lean/Codes/Core.olean",
+    "allowed_dirs": [
+      "missions/error-correcting-codes/lean/Codes/Claims",
+      "missions/error-correcting-codes/lean/Codes/Statements"
+    ],
+    "allowed_extensions": [
+      ".lean"
+    ],
+    "allowed_axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ]
+  },
+  "github_repo": "steph4n-gh/proof-foundry",
+  "objectives": [
+    {
+      "id": "OBJ-ec-foundations",
+      "title": "Hamming Code, Sphere-Packing & Plotkin Bounds",
+      "tier": "Milestone 1",
+      "finish_line": "Verify the Hamming [7,4,3] code (16 codewords), prove Hamming's sphere-packing bound |C|·(n+1) ≤ 2^n for distance-3 codes (so A(7,3) = 16 exactly), and prove the Plotkin bound |C|·(2d−n) ≤ 2d.",
+      "required": [
+        {
+          "id": "EC-001",
+          "expect": "proof"
+        },
+        {
+          "id": "EC-002",
+          "expect": "proof"
+        },
+        {
+          "id": "EC-003",
+          "expect": "proof"
+        }
+      ]
+    },
+    {
+      "id": "OBJ-ec-launch-floors",
+      "title": "Claim the Hills: Lean-Certify the Classical Record Codes",
+      "tier": "Milestone 2",
+      "finish_line": "Lean-verify the classical launch-floor codes: the padded Nordstrom–Robinson code A(17,6) ≥ 256, the Golay-derived A(17,6,7) ≥ 166 and the group code A(20,8,10) ≥ 176.",
+      "required": [
+        {
+          "id": "EC-rec-17-6",
+          "expect": {
+            "record_at_least": 256
+          }
+        },
+        {
+          "id": "EC-rec-17-6-7",
+          "expect": {
+            "record_at_least": 166
+          }
+        },
+        {
+          "id": "EC-rec-20-8-10",
+          "expect": {
+            "record_at_least": 176
+          }
+        }
+      ]
+    },
+    {
+      "id": "OBJ-ec-world-record",
+      "title": "Open World Record Frontier: Beat Brouwer's Tables for A(17,6), A(17,6,7) & A(20,8,10)",
+      "tier": "Open World Record",
+      "finish_line": "Find a code larger than any published one: A(17,6) ≥ 259 (record 258, upper bound 340), A(17,6,7) ≥ 167 (record 166, upper bound 206), or A(20,8,10) ≥ 177 (record 176, upper bound 206).",
+      "required": [
+        {
+          "id": "EC-rec-17-6",
+          "expect": {
+            "record_at_least": 259
+          }
+        },
+        {
+          "id": "EC-rec-17-6-7",
+          "expect": {
+            "record_at_least": 167
+          }
+        },
+        {
+          "id": "EC-rec-20-8-10",
+          "expect": {
+            "record_at_least": 177
+          }
+        }
+      ]
+    }
+  ]
+}

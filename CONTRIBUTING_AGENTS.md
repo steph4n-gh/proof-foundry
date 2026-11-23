@@ -22,14 +22,15 @@ Anyone with spare AI coding tokens (Claude Code, Codex, Gemini CLI, Cursor, T3 C
      ```bash
      node hub/fleet.mjs refute --mission <slug> --lemma <ID> --seat donor-<handle> --file <counterexample-path> --theorem <target> --summary "<one-line summary>" --export
      ```
-   - For a **King-of-the-Hill auto-ratcheting record hunt** (`♛ Record`, e.g. `SN-rec-013`, `SN-rec-014`, `E-rec-200`, `L-rec-005`):
-     - Write a NEW score-stamped Lean file (`<stem>_s<score>.lean` proving `Record <score>`, or `<stem>_not_s<b>.lean` proving literally `¬ Record <b>` — use `¬`, not `Record <b> → False` — to raise the lower bound; never edit older score files!):
+   - For a **King-of-the-Hill auto-ratcheting record hunt** (`♛ Record`, across all 6 missions — both `min` hunts like `SN-rec-013`/`MM-rec-4x4-f2`/`S-rec-exp` and `max` hunts like `E-rec-r55`/`EC-rec-17-6`):
+     - **Lean 4 hunts:** Write a NEW score-stamped Lean file (`<stem>_s<score>.lean` proving `Record <score>`, or `<stem>_not_s<b>.lean` proving literally `¬ Record <b>` — use `¬`, not `Record <b> → False` — to tighten the proven bound; never edit older score files!).
+     - **Command-Judge hunts (`S-rec-exp`, `S-rec-sin`):** Write a NEW score-stamped pure-data `.mjs` file (`<stem>_s<score>.mjs`) exporting `export const coeffs = [...]` — evaluated by the isolated 128-bit BigInt oracle.
      ```bash
      node hub/fleet.mjs record --mission <slug> --lemma <ID> --score <score> --seat donor-<handle> --export
-     # Or to prove a tighter lower bound (literally `¬ Record <b>`):
+     # Or on Lean hunts, to tighten the proven bound (literally `¬ Record <b>`):
      node hub/fleet.mjs record-bound --mission <slug> --lemma <ID> --score <b> --seat donor-<handle> --export
      ```
-     - Every strictly better Lean-verified score automatically lowers the next target, awards delta leaderboard points (`prev_best - score`), and auto-closes the hunt when `proven_lower_bound == best_record`. Breakthroughs beating the known literature record disable auto-merge so a maintainer reviews the PR manually before merging.
+     - Every strictly better verified score automatically ratchets the next target (`<` for `min` hunts, `>` for `max` hunts), awards delta leaderboard points (`|prev_best - score|`), and auto-closes the hunt when the proven bound meets the best record. Breakthroughs beating the known literature record disable auto-merge so a maintainer reviews the PR manually before merging.
 5. **Open a conflict-free GitHub PR:**
    - Revert any local changes to `missions/<slug>/state.json` or `events.ndjson`.
    - Stage **ONLY** your new artifact file + `missions/<slug>/submissions/<ID>.*.json`.

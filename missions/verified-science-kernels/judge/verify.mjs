@@ -21,6 +21,8 @@ for (let i = 2; i < process.argv.length; i += 2) {
 const artifactPath = args.artifact;
 const target = args.target;
 const resultPath = args.result;
+const expectedScoreArg = args.score;
+const specPath = args.spec;
 
 function writeResult(obj) {
   fs.writeFileSync(resultPath, JSON.stringify(obj, null, 2), "utf8");
@@ -283,6 +285,149 @@ if (target === "orient2d_exact") {
     signature: "orient2d(ax,ay,bx,by,cx,cy) : exact orientation sign under adversarial near-collinear perturbations",
     checks: ["shewchuk_collinear_battery", "sub_ulp_perturbation_battery"],
     reason: `Passed all ${cases.length} exact-rational 2D orientation stress cases`,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// King-of-the-Hill Pure-Data Minimax Polynomial Verification (Exact 128-Bit BigInt Oracle)
+// ---------------------------------------------------------------------------
+const FIX_BITS = 128n;
+const FIX_ONE = 1n << FIX_BITS;
+
+function floatToFixed128(x) {
+  const d = floatToDyadic(x);
+  if (d.m === 0n) return 0n;
+  const shift = BigInt(d.e) + FIX_BITS;
+  if (shift >= 0n) return d.m << shift;
+  return d.m / (1n << -shift);
+}
+
+function fixed128Exp(xFix) {
+  let term = FIX_ONE;
+  let sum = FIX_ONE;
+  for (let k = 1n; k <= 34n; k++) {
+    term = (term * xFix) / (FIX_ONE * k);
+    if (term === 0n) break;
+    sum += term;
+  }
+  return sum;
+}
+
+function fixed128Sin(xFix) {
+  const x2 = (xFix * xFix) / FIX_ONE;
+  let term = xFix;
+  let sum = xFix;
+  for (let k = 1n; k <= 20n; k++) {
+    term = -(term * x2) / (FIX_ONE * (2n * k) * (2n * k + 1n));
+    if (term === 0n) break;
+    sum += term;
+  }
+  return sum;
+}
+
+function readDataExportInChild(exportName) {
+  const modUrl = pathToFileURL(artifactPath).href;
+  const runnerCode = `
+    const chunks = [];
+    for await (const c of process.stdin) chunks.push(c);
+    const req = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    const mod = await import(req.modUrl);
+    const val = mod[req.exportName];
+    if (!Array.isArray(val)) {
+      process.stdout.write(JSON.stringify({ ok: false, error: "Missing exported array " + req.exportName }));
+      process.exit(0);
+    }
+    if (!val.every((x) => typeof x === "number" && Number.isFinite(x))) {
+      process.stdout.write(JSON.stringify({ ok: false, error: "All elements of " + req.exportName + " must be finite float64 numbers" }));
+      process.exit(0);
+    }
+    process.stdout.write(JSON.stringify({ ok: true, value: val }));
+  `;
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", runnerCode], {
+    input: JSON.stringify({ modUrl, exportName }),
+    encoding: "utf8",
+    timeout: 10000,
+    env: {
+      PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
+      TMPDIR: os.tmpdir(),
+    },
+  });
+  if (child.status !== 0 || !child.stdout) {
+    return { ok: false, error: `Isolated data runner failed (exit=${child.status}): ${(child.stderr || "").slice(0, 400)}` };
+  }
+  try {
+    return JSON.parse(child.stdout);
+  } catch {
+    return { ok: false, error: "Artifact polluted stdout or emitted invalid JSON" };
+  }
+}
+
+if (target === "minimax_exp_deg7" || target === "minimax_sin_deg7") {
+  if (!specPath || !fs.existsSync(specPath)) {
+    writeResult({ ok: false, reason: `Missing frozen spec file for ${target}` });
+  }
+  const spec = JSON.parse(fs.readFileSync(specPath, "utf8"));
+  if (spec.target !== target) {
+    writeResult({ ok: false, reason: `Spec target mismatch: spec has ${spec.target}, expected ${target}` });
+  }
+  const expectedScore = Number(expectedScoreArg);
+  if (!Number.isSafeInteger(expectedScore) || expectedScore < 0) {
+    writeResult({ ok: false, reason: `Invalid expected score: ${expectedScoreArg}` });
+  }
+  const res = readDataExportInChild(spec.export_name || "coeffs");
+  if (!res.ok) writeResult({ ok: false, reason: res.error });
+
+  const coeffs = res.value;
+  if (coeffs.length !== spec.expected_length) {
+    writeResult({ ok: false, reason: `Expected exactly ${spec.expected_length} float64 coefficients, got ${coeffs.length}` });
+  }
+
+  const [lo, hi] = spec.domain;
+  const gridN = Number(spec.grid_points || 4097);
+  const scaleBig = BigInt(Math.round(Number(spec.error_scale)));
+  let maxDiffFix = 0n;
+  let worstX = 0;
+
+  for (let i = 0; i < gridN; i++) {
+    const x = gridN <= 1 ? lo : lo + ((hi - lo) * i) / (gridN - 1);
+    let y;
+    if (spec.mode === "horner_odd") {
+      const x2 = x * x;
+      let acc = coeffs[coeffs.length - 1];
+      for (let j = coeffs.length - 2; j >= 0; j--) acc = acc * x2 + coeffs[j];
+      y = x * acc;
+    } else {
+      let acc = coeffs[coeffs.length - 1];
+      for (let j = coeffs.length - 2; j >= 0; j--) acc = acc * x + coeffs[j];
+      y = acc;
+    }
+    if (!Number.isFinite(y)) {
+      writeResult({ ok: false, reason: `Polynomial evaluated to non-finite value at x=${x}` });
+    }
+    const xFix = floatToFixed128(x);
+    const refFix = spec.oracle === "exact_128bit_bigint_sin" ? fixed128Sin(xFix) : fixed128Exp(xFix);
+    const yFix = floatToFixed128(y);
+    const diff = yFix >= refFix ? yFix - refFix : refFix - yFix;
+    if (diff > maxDiffFix) {
+      maxDiffFix = diff;
+      worstX = x;
+    }
+  }
+
+  // Exact ceiling integer score in units of 1 / error_scale (deterministic across all CPUs!)
+  const measuredScoreBig = (maxDiffFix * scaleBig + (FIX_ONE - 1n)) / FIX_ONE;
+  const measuredScore = measuredScoreBig > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : Number(measuredScoreBig);
+  const ok = measuredScore <= expectedScore;
+  writeResult({
+    ok,
+    score: ok ? expectedScore : measuredScore,
+    measured_score: measuredScore,
+    engine: "Deterministic 128-Bit BigInt Minimax Judge v4 (isolated child)",
+    signature: `${target} ≤ ${expectedScore} (${spec.unit}) [measured=${measuredScore}, worst_x=${worstX.toPrecision(6)}]`,
+    checks: [spec.oracle, `grid_${gridN}`, `horner_float64_${spec.mode}`],
+    reason: ok
+      ? `Verified minimax polynomial error ${measuredScore} ≤ target ${expectedScore} (${spec.unit}) across ${gridN} exact 128-bit reference points`
+      : `Error bound missed: measured ${measuredScore} > target ${expectedScore} (${spec.unit}) at x=${worstX.toPrecision(6)}`,
   });
 }
 
