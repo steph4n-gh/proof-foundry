@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { validateCanonicalNatScore } from "./lean4.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -32,6 +33,70 @@ export function checkCommandArtifact(relOrAbsFile, targetName, opts = {}) {
   const allowedDirs = (cfg.allowed_dirs || []).map((d) => path.resolve(ROOT, d));
   const harnessFile = cfg.harness_file ? path.resolve(ROOT, cfg.harness_file) : null;
   const coreHash = sha256File(harnessFile);
+  const kind = opts.kind || "proof";
+  const isRecordKind = kind === "record" || kind === "record_bound";
+  const specAbs = opts.statementFile ? path.resolve(ROOT, opts.statementFile) : null;
+  const statementHash = specAbs ? sha256File(specAbs) : null;
+
+  if (kind === "record_bound") {
+    return {
+      ok: false,
+      judge: "command",
+      reason: "Command Judge does not support impossibility bound proofs (record_bound)",
+      file: relOrAbsFile,
+      theorem: targetName,
+      axioms: [],
+      duration_ms: Date.now() - started,
+      lean_version: judgeLabel,
+      file_hash: null,
+      core_hash: coreHash,
+      statement_frozen: false,
+      statement_hash: statementHash,
+      score: null,
+      output: "",
+    };
+  }
+
+  let scoreStr = null;
+  if (kind === "record") {
+    scoreStr = validateCanonicalNatScore(opts.expectedScore);
+    if (scoreStr === null) {
+      return {
+        ok: false,
+        judge: "command",
+        reason: `Invalid canonical Nat score for record: ${JSON.stringify(opts.expectedScore)}`,
+        file: relOrAbsFile,
+        theorem: targetName,
+        axioms: [],
+        duration_ms: Date.now() - started,
+        lean_version: judgeLabel,
+        file_hash: null,
+        core_hash: coreHash,
+        statement_frozen: false,
+        statement_hash: statementHash,
+        score: null,
+        output: "",
+      };
+    }
+    if (!specAbs || !statementHash) {
+      return {
+        ok: false,
+        judge: "command",
+        reason: `Missing frozen spec file for Command-Judge record hunt: ${opts.statementFile || "(none)"}`,
+        file: relOrAbsFile,
+        theorem: targetName,
+        axioms: [],
+        duration_ms: Date.now() - started,
+        lean_version: judgeLabel,
+        file_hash: null,
+        core_hash: coreHash,
+        statement_frozen: false,
+        statement_hash: null,
+        score: null,
+        output: "",
+      };
+    }
+  }
 
   const absFile = path.isAbsolute(relOrAbsFile)
     ? relOrAbsFile
@@ -123,7 +188,9 @@ export function checkCommandArtifact(relOrAbsFile, targetName, opts = {}) {
       "--artifact", realFile,
       "--target", String(targetName || ""),
       "--result", resultJsonPath,
-      "--kind", String(opts.kind || "proof"),
+      "--kind", String(kind),
+      ...(scoreStr !== null ? ["--score", scoreStr] : []),
+      ...(specAbs ? ["--spec", specAbs] : []),
     ];
     const run = spawnSync(bin, args, {
       encoding: "utf8",
@@ -153,11 +220,16 @@ export function checkCommandArtifact(relOrAbsFile, targetName, opts = {}) {
     }
 
     const parsed = JSON.parse(fs.readFileSync(resultJsonPath, "utf8"));
-    const finalOk = run.status === 0 && Boolean(parsed.ok);
+    let finalOk = run.status === 0 && Boolean(parsed.ok);
+    let reason = parsed.reason || (finalOk ? `Verified by ${judgeLabel}` : `Rejected by ${judgeLabel} (exit=${run.status})`);
+    if (isRecordKind && finalOk && Number(parsed.score) !== Number(scoreStr)) {
+      finalOk = false;
+      reason = `Harness score mismatch: got ${parsed.score}, expected ${scoreStr}`;
+    }
     return {
       ok: finalOk,
       judge: "command",
-      reason: parsed.reason || (finalOk ? `Verified by ${judgeLabel}` : `Rejected by ${judgeLabel} (exit=${run.status})`),
+      reason,
       file: relFile,
       theorem: targetName,
       signature: parsed.signature || `${targetName} (${judgeLabel})`,
@@ -166,6 +238,9 @@ export function checkCommandArtifact(relOrAbsFile, targetName, opts = {}) {
       lean_version: parsed.engine || judgeLabel,
       file_hash: fileHash,
       core_hash: coreHash,
+      statement_frozen: Boolean(isRecordKind && statementHash),
+      statement_hash: isRecordKind ? statementHash : null,
+      score: isRecordKind ? Number(scoreStr) : null,
       output: String(parsed.summary || run.stdout || "").trim().slice(0, 2000),
     };
   } finally {

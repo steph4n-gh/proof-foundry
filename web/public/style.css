@@ -162,8 +162,9 @@ code, pre, .mono { font-family: var(--font-mono); }
 .metric-val { font-family: var(--font-display); font-size: 28px; font-weight: 700; line-height: 1.15; }
 .metric-sub { font-size: 11.5px; color: var(--ink-soft); }
 
-/* MISSIONS HUB */
-.missions-hub-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 16px; }
+/* MISSIONS HUB (crisp 3×2 desktop grid for 6 flagship missions) */
+.missions-hub-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1020px) { .missions-hub-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .mission-hub-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; display: flex; flex-direction: column; gap: 12px; min-width: 0; transition: border-color 0.15s, background 0.15s; }
 .mission-hub-card:hover { border-color: var(--border-strong); background: var(--bg-hover); }
 .mission-hub-card.active-mission { border-color: var(--sky); }

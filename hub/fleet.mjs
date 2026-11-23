@@ -357,14 +357,24 @@ if (cmd === "next") {
   const pick = candidates[0];
   let instructions;
   if (pick.kind === "record") {
+    const isMax = pick.record?.direction === "max";
+    const op = isMax ? "≥" : "≤";
+    const isCmd = pick.record?.artifact_ext === ".mjs";
     const targetScore = pick.record_state?.next_target ?? pick.record?.start_target;
     const recTargets = computeRecordTargets(mission.slug, pick, "record", targetScore);
-    instructions = [
-      `1. Read ${mission.judge?.core_file} AND frozen record statement ${pick.statement_file}`,
-      `2. Prove \`theorem ${recTargets.theoremName} : ${pick.statement_def} ${targetScore}\` in ${recTargets.artifactFile} (or any strictly better score s!)`,
-      `3. Verify locally: node hub/fleet.mjs record --mission ${mission.slug} --lemma ${pick.id} --score ${targetScore} --seat donor-<handle> --file ${recTargets.artifactFile} --export`,
-      `4. Open a PR with ONLY ${recTargets.artifactFile} and ${recTargets.submissionFile} (never edit state.json or older record files!).`,
-    ];
+    instructions = isCmd
+      ? [
+          `1. Read ${mission.judge?.harness_file} AND frozen spec ${pick.statement_file}`,
+          `2. Export your candidate data in ${recTargets.artifactFile} targeting score ${op} ${targetScore} ${pick.record?.unit || ""}`,
+          `3. Verify locally: node hub/fleet.mjs record --mission ${mission.slug} --lemma ${pick.id} --score ${targetScore} --seat donor-<handle> --export`,
+          `4. Open a PR with ONLY ${recTargets.artifactFile} and ${recTargets.submissionFile} (never edit state.json or older record files!).`,
+        ]
+      : [
+          `1. Read ${mission.judge?.core_file} AND frozen record statement ${pick.statement_file}`,
+          `2. Prove \`theorem ${recTargets.theoremName} : ${pick.statement_def} ${targetScore}\` in ${recTargets.artifactFile} (or any strictly better score ${op} ${targetScore}!)`,
+          `3. Verify locally: node hub/fleet.mjs record --mission ${mission.slug} --lemma ${pick.id} --score ${targetScore} --seat donor-<handle> --file ${recTargets.artifactFile} --export`,
+          `4. Open a PR with ONLY ${recTargets.artifactFile} and ${recTargets.submissionFile} (never edit state.json or older record files!).`,
+        ];
   } else {
     instructions = [
       `1. Read ${mission.judge?.core_file || mission.judge?.harness_file}${pick.statement_file ? ` AND frozen statement ${pick.statement_file}` : ""}`,

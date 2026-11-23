@@ -1,0 +1,81 @@
+{
+  "slug": "fast-matrix-mul",
+  "brand": "PROOF FOUNDRY · MATMUL",
+  "title": "Fast Matrix Multiplication · Strassen / AlphaTensor Frontier",
+  "tagline": "Exact bilinear rank over the integers and GF(2)",
+  "question": "How few scalar products suffice to multiply two small matrices exactly?",
+  "description": "Prove Strassen’s seven-product construction and the tensor-product composition rule. Then certify smaller integer schemes for 3×3 by 3×4 and 3×4 by 4×5, or improve on AlphaTensor’s 47 products for 4×4 over GF(2).",
+  "verdict": "Open for integer and GF(2) rank certificates.",
+  "tug_of_war": {
+    "enabled": false
+  },
+  "judge": {
+    "type": "lean4",
+    "label": "Lean 4.36.0 kernel · frozen statements · zero sorry",
+    "lean_dir": "missions/fast-matrix-mul/lean",
+    "lake_target": "MatMul",
+    "core_file": "missions/fast-matrix-mul/lean/MatMul/Core.lean",
+    "core_olean": "missions/fast-matrix-mul/lean/.lake/build/lib/lean/MatMul/Core.olean",
+    "allowed_dirs": [
+      "missions/fast-matrix-mul/lean/MatMul/Claims",
+      "missions/fast-matrix-mul/lean/MatMul/Statements"
+    ],
+    "allowed_extensions": [
+      ".lean"
+    ],
+    "allowed_axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ]
+  },
+  "github_repo": "steph4n-gh/proof-foundry",
+  "objectives": [
+    {
+      "id": "OBJ-mm-foundations",
+      "title": "Strassen and composition",
+      "tier": "Foundations",
+      "finish_line": "Verify the two seven-product schemes and prove submultiplicativity over the integers.",
+      "required": [
+        {
+          "id": "MM-001",
+          "expect": "proof"
+        },
+        {
+          "id": "MM-002",
+          "expect": "proof"
+        },
+        {
+          "id": "MM-003",
+          "expect": "proof"
+        }
+      ]
+    },
+    {
+      "id": "OBJ-mm-records",
+      "title": "Match the published product counts",
+      "tier": "Open rank hunts",
+      "finish_line": "Certify integer schemes of at most 29 and 47 products for the rectangular formats and a 4×4 binary scheme of at most 47 products.",
+      "required": [
+        {
+          "id": "MM-rec-3x3x4",
+          "expect": {
+            "record_at_most": 29
+          }
+        },
+        {
+          "id": "MM-rec-4x4-f2",
+          "expect": {
+            "record_at_most": 47
+          }
+        },
+        {
+          "id": "MM-rec-3x4x5",
+          "expect": {
+            "record_at_most": 47
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -11,6 +11,7 @@ import {
   loadMission,
   loadAllMissionsSummary,
   readAllowedArtifactFile,
+  readMissionStatementFile,
   deriveMissionState,
   computeTrustSeal,
   normalizeObjectiveReqs,
@@ -45,9 +46,23 @@ export function readEvents(eventsPath, limit = 160) {
   }
 }
 
+function allKnownClaimIds() {
+  const ids = new Set();
+  for (const slug of listMissionSlugs()) {
+    try {
+      const m = loadMission(slug);
+      if (fs.existsSync(m.paths.stateFile)) {
+        const st = JSON.parse(fs.readFileSync(m.paths.stateFile, "utf8"));
+        for (const l of st.lemmas || []) if (l.id) ids.add(l.id);
+      }
+    } catch {}
+  }
+  return ids;
+}
+
 /**
  * Fetch up to 200 open PRs keyed by `mission/claimId` and bare `claimId`
- * (supports E-ram-001, SN-001, SN-rec-013, E-rec-200, L-rec-005, S-num-003!).
+ * (matches every registered claim ID including MM-rec-4x4-f2, E-rec-r55, S-rec-exp, EC-rec-*, etc.!).
  */
 export function fetchOpenPRs(repo = "steph4n-gh/proof-foundry") {
   const fetchedAt = new Date().toISOString();
@@ -61,6 +76,7 @@ export function fetchOpenPRs(repo = "steph4n-gh/proof-foundry") {
       return { ok: false, fetched_at: fetchedAt, by_mission_claim: {}, by_claim: {} };
     }
     const prs = JSON.parse(res.stdout);
+    const knownIds = allKnownClaimIds();
     const byMissionClaim = {};
     const byClaim = {};
     for (const pr of prs) {
@@ -79,8 +95,10 @@ export function fetchOpenPRs(repo = "steph4n-gh/proof-foundry") {
         if (m) scopedKeys.add(`${m[1]}/${m[2]}`);
       }
       if (scopedKeys.size === 0) {
-        const titleMatches = String(pr.title || "").matchAll(/\b([A-Z]{1,3}-(?:[a-zA-Z0-9]+-)?\d+)\b/g);
-        for (const m of titleMatches) bareIds.add(m[1]);
+        const titleMatches = String(pr.title || "").matchAll(/\b([A-Z]{1,3}-[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*)\b/g);
+        for (const m of titleMatches) {
+          if (knownIds.size === 0 || knownIds.has(m[1])) bareIds.add(m[1]);
+        }
       }
 
       for (const key of scopedKeys) (byMissionClaim[key] = byMissionClaim[key] || []).push(info);
@@ -278,19 +296,27 @@ export function renderMasterProofsMarkdown(snapshots) {
   if (allRecords.length) {
     lines.push("## King of the Hill — Live Auto-Ratcheting Record Hunts");
     lines.push("");
-    lines.push("| Mission | ID | Target | Current Best | Next Target | Proven Lower Bound | Holder | Status |");
+    lines.push("| Mission | ID | Target | Current Best | Next Target | Proven Bound | Holder | Status |");
     lines.push("|---|---|---|---|---|---|---|---|");
     for (const { mission, lemma: l } of allRecords) {
       const rs = l.record_state || {};
       const cfg = l.record || {};
+      const isMax = cfg.direction === "max";
+      const op = isMax ? "≥" : "≤";
+      const boundOp = isMax ? "≤" : "≥";
       const unit = cfg.unit || "";
-      const bestTxt = rs.best ? `**${rs.best.score}** ${unit}` : `*(unclaimed, ceiling ${cfg.start_target})*`;
+      const bestTxt = rs.best ? `**${rs.best.score}** ${unit}` : `*(unclaimed, ${isMax ? "floor" : "ceiling"} ${cfg.start_target})*`;
       const nextTxt = rs.contradiction
         ? "Halted (Contradiction)"
         : rs.closed
         ? "Exact Optimal ✓"
-        : `\`≤ ${rs.next_target ?? cfg.start_target}\``;
-      const lbTxt = rs.refuted ? `≥ ${rs.refuted.inclusive_bound}` : cfg.literature_lower_bound ? `*(lit. ${cfg.literature_lower_bound})*` : "—";
+        : `\`${op} ${rs.next_target ?? cfg.start_target}\``;
+      const litBound = isMax ? cfg.literature_upper_bound : cfg.literature_lower_bound;
+      const lbTxt = rs.refuted
+        ? `${boundOp} ${rs.refuted.inclusive_bound}`
+        : litBound != null
+        ? `*(lit. ${boundOp} ${litBound})*`
+        : "—";
       const holder = rs.best ? `\`${rs.best.seat}\`` : "—";
       const status = rs.contradiction ? "⛔ Contradiction" : rs.closed ? "◆ Closed Optimal" : rs.best ? "♛ Active Hunt" : "○ Open Hunt";
       const safeTitle = String(l.title || "").replace(/\|/g, "\\|");
@@ -354,7 +380,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         lemma: l,
         leanSource: readAllowedArtifactFile(mission, activeFile),
         refutationSource: readAllowedArtifactFile(mission, l.kind === "record" ? l.record_state?.refuted?.file : l.refutation?.counterexample_file),
-        statementSource: l.statement_file ? readAllowedArtifactFile(mission, l.statement_file) : null,
+        statementSource: l.statement_file ? readMissionStatementFile(mission, l.statement_file) : null,
         relatedMessages: (snap.messages || []).filter((m) => m.lemma_id === l.id),
         relatedRuns: (snap.checker_runs || []).filter((r) => r.lemma_id === l.id),
         dependents: snap.lemmas

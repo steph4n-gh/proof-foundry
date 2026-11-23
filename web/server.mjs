@@ -14,6 +14,7 @@ import {
   loadMission,
   loadAllMissionsSummary,
   readAllowedArtifactFile,
+  readMissionStatementFile,
 } from "../hub/missions.mjs";
 import { buildMissionSnapshot, fetchOpenPRs, renderMasterProofsMarkdown } from "../hub/build_site.mjs";
 
@@ -189,7 +190,7 @@ const server = http.createServer((req, res) => {
     const boundFile = lemma.kind === "record" ? lemma.record_state?.refuted?.file : lemma.refutation?.counterexample_file;
     const leanSource = readAllowedArtifactFile(mission, activeFile);
     const refutationSource = readAllowedArtifactFile(mission, boundFile);
-    const statementSource = lemma.statement_file ? readAllowedArtifactFile(mission, lemma.statement_file) : null;
+    const statementSource = lemma.statement_file ? readMissionStatementFile(mission, lemma.statement_file) : null;
     const relatedMessages = (snap.messages || []).filter((m) => m.lemma_id === id);
     const relatedRuns = (snap.checker_runs || []).filter((r) => r.lemma_id === id);
     const dependents = (snap.lemmas || [])

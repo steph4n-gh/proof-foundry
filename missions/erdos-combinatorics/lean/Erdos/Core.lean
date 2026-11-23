@@ -41,6 +41,13 @@ def HasK4 {n : Nat} (G : SimpleGraph n) : Prop :=
     G.adj a b = true ∧ G.adj a c = true ∧ G.adj a d = true ∧
     G.adj b c = true ∧ G.adj b d = true ∧ G.adj c d = true
 
+/-- Graph contains a 5-clique (K5). -/
+def HasK5 {n : Nat} (G : SimpleGraph n) : Prop :=
+  ∃ v0 v1 v2 v3 v4 : Fin n,
+    G.adj v0 v1 = true ∧ G.adj v0 v2 = true ∧ G.adj v0 v3 = true ∧ G.adj v0 v4 = true ∧
+    G.adj v1 v2 = true ∧ G.adj v1 v3 = true ∧ G.adj v1 v4 = true ∧
+    G.adj v2 v3 = true ∧ G.adj v2 v4 = true ∧ G.adj v3 v4 = true
+
 /-- Graph contains a 3-element independent set (no edges among 3 distinct vertices). -/
 def HasIndep3 {n : Nat} (G : SimpleGraph n) : Prop :=
   ∃ a b c : Fin n,
@@ -145,5 +152,18 @@ def SubsetOfRange (N : Nat) (A : List Nat) : Prop :=
 def IsMaximalSidon (N : Nat) (A : List Nat) : Prop :=
   A.Nodup ∧ SubsetOfRange N A ∧ IsSidon A ∧
   ∀ x : Nat, 1 ≤ x → x ≤ N → x ∉ A → ¬ IsSidon (x :: A)
+
+/-! ## 5. Optimal Golomb Rulers (Radio Astronomy & Phased-Array Radar) -/
+
+/-- A strictly increasing list of non-negative integer marks is a Golomb ruler
+    if every positive pairwise difference (b - a, for a < b) is distinct. -/
+def IsGolombRuler (marks : List Nat) : Prop :=
+  marks.Pairwise (· < ·) ∧
+  ∀ a ∈ marks, ∀ b ∈ marks, ∀ c ∈ marks, ∀ d ∈ marks,
+    a < b → c < d → b - a = d - c → (a = c ∧ b = d)
+
+/-- Length of a sorted Golomb ruler (last mark minus first mark). -/
+def rulerLength (marks : List Nat) : Nat :=
+  marks.getLastD 0 - marks.headD 0
 
 end Erdos

@@ -84,7 +84,9 @@
       "required": [
         { "id": "L-syn-001", "expect": "proof" },
         { "id": "L-syn-002", "expect": "either" },
-        { "id": "L-rec-005", "expect": { "record_at_most": 10 } }
+        { "id": "L-rec-005", "expect": { "record_at_most": 10 } },
+        { "id": "L-rec-maj5", "expect": { "record_at_most": 10 } },
+        { "id": "L-rec-php4", "expect": { "record_at_most": 97 } }
       ]
     }
   ]

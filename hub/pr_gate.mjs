@@ -88,7 +88,7 @@ export function classifyEntries(entries) {
     const ms = missionSlugFromPath(p);
     if (ms) missionsTouched.add(ms);
 
-    if (/\/Statements\/[A-Za-z0-9_]+\.lean$/.test(p) && e.status !== "A") {
+    if ((/\/Statements\/[A-Za-z0-9_]+\.lean$/.test(p) || /\/specs\/[A-Za-z0-9_]+\.json$/.test(p)) && e.status !== "A") {
       if (ms) {
         try {
           const { state } = deriveMissionState(ms);
@@ -190,6 +190,9 @@ export function validateRecordImprovement(registered, kind, score) {
   const scoreMax = Number(cfg.score_max ?? 100000);
   const rs = registered.record_state || { best: null, refuted: null, closed: false, contradiction: false };
 
+  if (kind === "record_bound" && cfg.allow_bound === false) {
+    return { ok: false, requiresMaintainer: false, reason: `Bound proofs (record_bound) are not supported on ${registered.id}` };
+  }
   if (!Number.isSafeInteger(score) || score < 0 || score > scoreMax) {
     return { ok: false, requiresMaintainer: false, reason: `Score ${score} out of allowed bounds [0, ${scoreMax}]` };
   }

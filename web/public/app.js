@@ -117,6 +117,8 @@
     if (lemmaOrSeal && typeof lemmaOrSeal === "object" && lemmaOrSeal.kind === "record") {
       const rs = lemmaOrSeal.record_state || {};
       const cfg = lemmaOrSeal.record || {};
+      const isMax = cfg.direction === "max";
+      const op = isMax ? "≥" : "≤";
       if (rs.contradiction) {
         return `<span class="seal seal-contradiction" title="${esc(SEAL_META.contradiction.title)}">⛔ Contradiction</span>`;
       }
@@ -124,9 +126,9 @@
         return `<span class="seal seal-frozen" title="Exact optimal proven and closed">◆ Optimal (${safeInt(rs.best.score)})</span>`;
       }
       if (rs.best) {
-        return `<span class="seal seal-record" title="Current record held by ${esc(rs.best.seat || "donor")} — beat with ≤ ${safeInt(rs.next_target)}">♛ Record ${safeInt(rs.best.score)} · ≤${safeInt(rs.next_target)}</span>`;
+        return `<span class="seal seal-record" title="Current record held by ${esc(rs.best.seat || "donor")} — beat with ${op} ${safeInt(rs.next_target)}">♛ Record ${safeInt(rs.best.score)} · ${op}${safeInt(rs.next_target)}</span>`;
       }
-      return `<span class="seal seal-record" title="Open King-of-the-Hill hunt — launch ceiling ≤ ${safeInt(cfg.start_target)}">♛ Hunt · ≤${safeInt(cfg.start_target)}</span>`;
+      return `<span class="seal seal-record" title="Open King-of-the-Hill hunt — launch ${isMax ? "floor" : "ceiling"} ${op} ${safeInt(cfg.start_target)}">♛ Hunt · ${op}${safeInt(cfg.start_target)}</span>`;
     }
     const key = typeof lemmaOrSeal === "string" ? lemmaOrSeal : sealOf(lemmaOrSeal);
     const m = SEAL_META[key] || SEAL_META.open;
@@ -167,7 +169,8 @@
     const tag = kind === "record_bound" ? `not_s${score}` : `s${score}`;
     const stem = rec.file_stem || lemma.id.replace(/-/g, "_");
     const claimsDir = rec.claims_dir || `missions/${slug}/lean/Claims`;
-    const artifactFile = `${claimsDir}/${stem}_${tag}.lean`;
+    const ext = rec.artifact_ext || ".lean";
+    const artifactFile = `${claimsDir}/${stem}_${tag}${ext}`;
     const submissionFile = `missions/${slug}/submissions/${lemma.id}.${kind}.s${score}.json`;
     const tpl = rec.theorem_template || `${stem}_{tag}.record`;
     const theoremName = tpl.replace(/\{tag\}/g, tag);
@@ -585,6 +588,8 @@
                     ? `<span class="prog-tag" title="Refutation required">REFUTE</span>`
                     : it.expect && typeof it.expect === "object" && it.expect.record_at_most != null
                     ? `<span class="prog-tag" title="Milestone target score">GOAL ≤${safeInt(it.expect.record_at_most)}</span>`
+                    : it.expect && typeof it.expect === "object" && it.expect.record_at_least != null
+                    ? `<span class="prog-tag" title="Milestone target score">GOAL ≥${safeInt(it.expect.record_at_least)}</span>`
                     : "";
                 const prTag = (it.open_prs || []).length
                   ? `<span class="pr-pill">◷ PR #${safeInt(it.open_prs[0].number)}</span>`
@@ -669,8 +674,13 @@
     const isRec = l.kind === "record";
     const rs = l.record_state || {};
     const cfg = l.record || {};
+    const isMax = cfg.direction === "max";
+    const op = isMax ? "≥" : "≤";
+    const boundOp = isMax ? "≤" : "≥";
+    const boundLabel = isMax ? "UB" : "LB";
+    const litBound = isMax ? cfg.literature_upper_bound : cfg.literature_lower_bound;
     const frozenChip = isRec
-      ? `<span class="seal seal-frozen" title="Auto-ratcheting King-of-the-Hill frozen statement">♛ King of the Hill</span>`
+      ? `<span class="seal seal-frozen" title="Auto-ratcheting King-of-the-Hill frozen target">♛ King of the Hill</span>`
       : l.statement_file
       ? `<span class="seal seal-frozen" title="Frozen formal statement: ${esc(l.statement_file)}">◆ Frozen Target</span>`
       : "";
@@ -680,16 +690,16 @@
     let donateLabel = "Donate Tokens";
     if (isRec) {
       const nextT = rs.next_target ?? cfg.start_target;
-      donateLabel = rs.best ? `Beat Record (≤ ${safeInt(nextT)})` : `Start Hunt (≤ ${safeInt(nextT)})`;
+      donateLabel = rs.best ? `Beat Record (${op} ${safeInt(nextT)})` : `Start Hunt (${op} ${safeInt(nextT)})`;
     }
     const donateBtn = isClaimDonateable(l)
       ? `<button class="btn btn-primary btn-sm" type="button" data-donate-claim="${esc(l.id)}">${esc(donateLabel)}</button>`
       : "";
     const recBanner = isRec
       ? `<div class="rec-banner">
-           <span>${rs.best ? `Best: <strong>${safeInt(rs.best.score)}</strong> ${esc(cfg.unit || "")} (${esc(rs.best.seat)})` : `Unclaimed · Ceiling ≤ <strong>${safeInt(cfg.start_target)}</strong> ${esc(cfg.unit || "")}`}</span>
-           <span>${rs.closed ? `Exact Optimal ✓` : `Target: <strong>≤ ${safeInt(rs.next_target ?? cfg.start_target)}</strong>`}</span>
-           <span>${rs.refuted ? `Proven LB: <strong>≥ ${safeInt(rs.refuted.inclusive_bound)}</strong>` : cfg.literature_lower_bound ? `Lit. LB: ${safeInt(cfg.literature_lower_bound)}` : ""}</span>
+           <span>${rs.best ? `Best: <strong>${safeInt(rs.best.score)}</strong> ${esc(cfg.unit || "")} (${esc(rs.best.seat)})` : `Unclaimed · ${isMax ? "Floor" : "Ceiling"} ${op} <strong>${safeInt(cfg.start_target)}</strong> ${esc(cfg.unit || "")}`}</span>
+           <span>${rs.contradiction ? `Halted` : rs.closed ? `Exact Optimal ✓` : `Target: <strong>${op} ${safeInt(rs.next_target ?? cfg.start_target)}</strong>`}</span>
+           <span>${rs.refuted ? `Proven ${boundLabel}: <strong>${boundOp} ${safeInt(rs.refuted.inclusive_bound)}</strong>` : litBound != null ? `Lit. ${boundLabel}: ${boundOp} ${safeInt(litBound)}` : ""}</span>
          </div>`
       : "";
     return `
@@ -1343,15 +1353,31 @@
       ? `<div class="audit-box"><strong>Provisional:</strong> Passed the mechanical Judge; awaiting independent cross-model faithfulness audit before counting toward Objectives.</div>`
       : "";
 
+    const isMax = cfg.direction === "max";
+    const op = isMax ? "≥" : "≤";
+    const boundOp = isMax ? "≤" : "≥";
+    const boundWord = isMax ? "Upper" : "Lower";
+    const litBound = isMax ? cfg.literature_upper_bound : cfg.literature_lower_bound;
     let recordHTML = "";
     if (isRec) {
       const unit = cfg.unit || "";
-      const bestVal = rs.best ? `${safeInt(rs.best.score)} ${unit} (${rs.best.seat})` : `Unclaimed (ceiling ≤ ${safeInt(cfg.start_target)} ${unit})`;
-      const nextVal = rs.contradiction ? "Halted (Contradiction)" : rs.closed ? "Exact Optimal Closed ✓" : `≤ ${safeInt(rs.next_target ?? cfg.start_target)} ${unit}`;
-      const lbVal = rs.refuted ? `≥ ${safeInt(rs.refuted.inclusive_bound)} ${unit} (¬ Record ${safeInt(rs.refuted.score)} by ${rs.refuted.seat})` : "None proven in Lean yet";
-      const litVal = cfg.literature_best != null
-        ? `Best known: ${safeInt(cfg.literature_best)}${cfg.literature_lower_bound != null ? ` · LB: ${safeInt(cfg.literature_lower_bound)}` : ""} ${unit}`
-        : "—";
+      const bestVal = rs.best
+        ? `${safeInt(rs.best.score)} ${unit} (${rs.best.seat})`
+        : `Unclaimed (${isMax ? "floor" : "ceiling"} ${op} ${safeInt(cfg.start_target)} ${unit})`;
+      const nextVal = rs.contradiction
+        ? "Halted (Contradiction)"
+        : rs.closed
+        ? "Exact Optimal Closed ✓"
+        : `${op} ${safeInt(rs.next_target ?? cfg.start_target)} ${unit}`;
+      const lbVal = rs.refuted
+        ? `${boundOp} ${safeInt(rs.refuted.inclusive_bound)} ${unit} (¬ Record ${safeInt(rs.refuted.score)} by ${rs.refuted.seat})`
+        : cfg.allow_bound === false
+        ? "N/A (empirical Command Judge)"
+        : "None proven in Lean yet";
+      const litVal =
+        cfg.literature_best != null
+          ? `Best known: ${safeInt(cfg.literature_best)}${litBound != null ? ` · ${isMax ? "UB" : "LB"}: ${safeInt(litBound)}` : ""} ${unit}`
+          : "—";
       const histItems = [...(rs.history || [])].reverse();
       const histHTML = histItems.length
         ? `<ul class="rec-history">
@@ -1371,14 +1397,14 @@
               })
               .join("")}
           </ul>`
-        : `<div class="empty-state" style="padding:14px">No Lean-verified record entries yet — claim the launch ceiling ≤ ${safeInt(cfg.start_target)} ${esc(unit)}!</div>`;
+        : `<div class="empty-state" style="padding:14px">No verified record entries yet — claim the launch ${isMax ? "floor" : "ceiling"} ${op} ${safeInt(cfg.start_target)} ${esc(unit)}!</div>`;
       recordHTML = `
         <div class="d-section">
-          <h4>♛ King of the Hill Scoreboard</h4>
+          <h4>♛ King of the Hill Scoreboard (${isMax ? "Maximize" : "Minimize"})</h4>
           <div class="d-kv">
             <div class="d-kv-item"><span>Current Record Holder</span><strong>${esc(bestVal)}</strong></div>
             <div class="d-kv-item"><span>Next Auto-Ratchet Target</span><strong class="mono">${esc(nextVal)}</strong></div>
-            <div class="d-kv-item"><span>Proven Lower Bound</span><strong>${esc(lbVal)}</strong></div>
+            <div class="d-kv-item"><span>Proven ${boundWord} Bound</span><strong>${esc(lbVal)}</strong></div>
             <div class="d-kv-item"><span>Literature Reference</span><strong class="mono">${esc(litVal)}</strong></div>
           </div>
         </div>
@@ -1402,12 +1428,12 @@
     }
 
     const receiptHTML = isRec
-      ? `${renderReceiptBlock(rs.best, "Current Record")}${renderReceiptBlock(rs.refuted, "Proven Lower Bound")}`
+      ? `${renderReceiptBlock(rs.best, "Current Record")}${renderReceiptBlock(rs.refuted, `Proven ${boundWord} Bound`)}`
       : renderReceiptBlock(l.checker || l.refutation, "");
 
     const frozenHTML = d.statementSource
       ? `<div class="d-section">
-           <h4>Frozen Formal Statement (${esc(l.statement_file)})</h4>
+           <h4>Frozen Formal Target (${esc(l.statement_file)})</h4>
            <pre class="source-pre">${esc(d.statementSource)}</pre>
          </div>`
       : "";
@@ -1425,7 +1451,7 @@
     const boundSourceHTML =
       isRec && boundCode
         ? `<div class="d-section">
-             <h4>Best Proven Lower Bound Artifact (${esc(rs.refuted?.file || "")})</h4>
+             <h4>Best Proven ${boundWord} Bound Artifact (${esc(rs.refuted?.file || "")})</h4>
              <pre class="source-pre">${esc(boundCode)}</pre>
            </div>`
         : "";
@@ -1443,8 +1469,8 @@
 
     const donateBtnLabel = isRec
       ? rs.best
-        ? `Beat ${l.id} Record (Target ≤ ${safeInt(rs.next_target)})`
-        : `Start ${l.id} Hunt (Target ≤ ${safeInt(cfg.start_target)})`
+        ? `Beat ${l.id} Record (Target ${op} ${safeInt(rs.next_target)})`
+        : `Start ${l.id} Hunt (Target ${op} ${safeInt(cfg.start_target)})`
       : `Donate Spare Tokens to ${l.id}`;
     const actionHTML = isClaimDonateable(l)
       ? `<div class="d-section">
@@ -1494,7 +1520,14 @@
   function defaultRecordScore(lemma, kind) {
     const rs = lemma?.record_state || {};
     const cfg = lemma?.record || {};
+    const isMax = cfg.direction === "max";
     if (kind === "record_bound") {
+      if (isMax) {
+        if (rs.refuted) return Math.max(0, safeInt(rs.refuted.score) - 1);
+        const floor = safeInt(cfg.bound_floor ?? cfg.score_max ?? 1000);
+        const lit = cfg.literature_upper_bound != null ? safeInt(cfg.literature_upper_bound) + 1 : floor;
+        return Math.min(floor, lit);
+      }
       if (rs.refuted) return safeInt(rs.refuted.score) + 1;
       const floor = safeInt(cfg.bound_floor ?? 0);
       const lit = cfg.literature_lower_bound != null ? Math.max(0, safeInt(cfg.literature_lower_bound) - 1) : floor;
@@ -1506,6 +1539,7 @@
   function validateDonateRecordScore(lemma, kind, rawVal) {
     const rs = lemma?.record_state || {};
     const cfg = lemma?.record || {};
+    const isMax = cfg.direction === "max";
     const str = String(rawVal ?? "").trim();
     if (!/^(0|[1-9][0-9]*)$/.test(str)) {
       return { ok: false, reason: "Enter a non-negative integer score." };
@@ -1516,7 +1550,22 @@
       return { ok: false, reason: `Score must be between 0 and ${scoreMax}.` };
     }
     if (kind === "record_bound") {
+      if (cfg.allow_bound === false) {
+        return { ok: false, reason: "Impossibility bound proofs are not supported on Command-Judge hunts." };
+      }
       const floor = safeInt(cfg.bound_floor ?? 0);
+      if (isMax) {
+        if (rs.refuted && score >= rs.refuted.score) {
+          return { ok: false, reason: `Upper bound must beat ¬ Record ${rs.refuted.score} (enter < ${rs.refuted.score}).` };
+        }
+        if (!rs.refuted && score > floor) {
+          return { ok: false, reason: `Upper bound must be at most ${floor} (proves ≤ ${Math.max(0, floor - 1)}).` };
+        }
+        if (rs.best && score <= rs.best.score) {
+          return { ok: false, reason: `Bound ${score} conflicts with current verified record ${rs.best.score} (enter > ${rs.best.score}).` };
+        }
+        return { ok: true, score };
+      }
       if (rs.refuted && score <= rs.refuted.score) {
         return { ok: false, reason: `Bound must beat current ¬ Record ${rs.refuted.score} (enter > ${rs.refuted.score}).` };
       }
@@ -1528,12 +1577,24 @@
       }
       return { ok: true, score };
     }
-    const ceiling = safeInt(cfg.start_target ?? 0);
+    const startTarget = safeInt(cfg.start_target ?? 0);
+    if (isMax) {
+      if (rs.best && score <= rs.best.score) {
+        return { ok: false, reason: `Score must beat current record ${rs.best.score} (enter ≥ ${rs.best.score + 1}).` };
+      }
+      if (!rs.best && score < startTarget) {
+        return { ok: false, reason: `Score must meet or beat launch floor ${startTarget} (enter ≥ ${startTarget}).` };
+      }
+      if (rs.refuted && score >= rs.refuted.score) {
+        return { ok: false, reason: `Score ${score} conflicts with proven upper bound ≤ ${rs.refuted.inclusive_bound}.` };
+      }
+      return { ok: true, score };
+    }
     if (rs.best && score >= rs.best.score) {
       return { ok: false, reason: `Score must beat current record ${rs.best.score} (enter ≤ ${rs.best.score - 1}).` };
     }
-    if (!rs.best && score > ceiling) {
-      return { ok: false, reason: `Score must meet or beat launch ceiling ${ceiling} (enter ≤ ${ceiling}).` };
+    if (!rs.best && score > startTarget) {
+      return { ok: false, reason: `Score must meet or beat launch ceiling ${startTarget} (enter ≤ ${startTarget}).` };
     }
     if (rs.refuted && score <= rs.refuted.score) {
       return { ok: false, reason: `Score ${score} conflicts with proven lower bound ≥ ${rs.refuted.inclusive_bound}.` };
@@ -1554,22 +1615,45 @@
     }[harness] || "Donate my spare AI tokens to Proof Foundry.";
 
     if (lemma.kind === "record") {
-      const kind = DONATE_REC_KIND === "record_bound" ? "record_bound" : "record";
+      const cfg = lemma.record || {};
+      const isMax = cfg.direction === "max";
+      const isCmd = cfg.artifact_ext === ".mjs";
+      const op = isMax ? "≥" : "≤";
+      const kind = !isCmd && DONATE_REC_KIND === "record_bound" ? "record_bound" : "record";
       const check = validateDonateRecordScore(lemma, kind, DONATE_REC_SCORE);
       if (!check.ok) {
-        return `# Invalid target score: ${check.reason}\n# Fix the score above to generate a valid Lean 4 & PR Gate prompt.`;
+        return `# Invalid target score: ${check.reason}\n# Fix the score above to generate a valid Judge & PR Gate prompt.`;
       }
       const score = check.score;
       const t = computeRecordTargetsUI(slug, lemma, kind, score);
       const cliCmd = kind === "record_bound" ? "record-bound" : "record";
-      const typeStr = kind === "record_bound" ? `¬ ${lemma.statement_def} ${score}` : `${lemma.statement_def} ${score}`;
       const branch = `donor/${lemma.id.toLowerCase()}-${t.tag}-${cleanHandle}`;
+
+      if (isCmd) {
+        return [
+          preamble,
+          `Repository: https://github.com/${repo}`,
+          `Mission: ${slug} · King-of-the-Hill Hunt: ${lemma.id} (Target ${op} ${score} ${cfg.unit || ""})`,
+          `Goal: ${lemma.title}`,
+          ``,
+          `Instructions:`,
+          `1. Clone/pull \`https://github.com/${repo}\`, create branch \`${branch}\`, and read \`CONTRIBUTING_AGENTS.md\`.`,
+          `2. Read the FROZEN spec in \`${lemma.statement_file}\` and the trusted verifier harness (do NOT edit specs/ or judge/).`,
+          `3. Write a NEW score-stamped data module at \`${t.artifactFile}\` exporting the required float64 \`coeffs\` array achieving worst-case error ${op} ${score} ${cfg.unit || ""} (never edit older score files!).`,
+          `4. Verify locally & export the hashless record submission JSON:`,
+          `   node hub/fleet.mjs record --mission ${slug} --lemma ${lemma.id} --score ${score} --seat ${seat} --export`,
+          `5. Commit ONLY \`${t.artifactFile}\` + \`${t.submissionFile}\` (never touch state.json or older files), push, and open a PR referencing ${lemma.id}.`,
+        ].join("\n");
+      }
+
+      const typeStr = kind === "record_bound" ? `¬ ${lemma.statement_def} ${score}` : `${lemma.statement_def} ${score}`;
       const ns = t.theoremName.split(".").slice(0, -1).join(".");
       const shortThm = t.theoremName.split(".").pop();
+      const boundHeader = isMax ? `Upper Bound ≤ ${Math.max(0, score - 1)}` : `Lower Bound ≥ ${score + 1}`;
       return [
         preamble,
         `Repository: https://github.com/${repo}`,
-        `Mission: ${slug} · King-of-the-Hill Hunt: ${lemma.id} (${kind === "record_bound" ? `Lower Bound ≥ ${score + 1}` : `Record ≤ ${score}`})`,
+        `Mission: ${slug} · King-of-the-Hill Hunt: ${lemma.id} (${kind === "record_bound" ? boundHeader : `Record ${op} ${score}`})`,
         `Goal: ${lemma.title}`,
         ``,
         `Instructions:`,
@@ -1612,9 +1696,14 @@
     if (DONATE_LEMMA.kind === "record") {
       const cfg = DONATE_LEMMA.record || {};
       const rs = DONATE_LEMMA.record_state || {};
+      const isMax = cfg.direction === "max";
       const check = validateDonateRecordScore(DONATE_LEMMA, DONATE_REC_KIND, DONATE_REC_SCORE);
       $("#donate-rec-score-label").textContent =
-        DONATE_REC_KIND === "record_bound" ? "Refute score b (proves ≥ b+1):" : `Target score (${cfg.unit || "cost"}):`;
+        DONATE_REC_KIND === "record_bound"
+          ? isMax
+            ? "Refute score b (proves ≤ b-1):"
+            : "Refute score b (proves ≥ b+1):"
+          : `Target score (${cfg.unit || "score"}):`;
       const hintEl = $("#donate-rec-hint");
       if (!check.ok) {
         hintEl.textContent = `⚠ ${check.reason}`;
@@ -1624,9 +1713,17 @@
         hintEl.style.color = "";
         hintEl.textContent =
           DONATE_REC_KIND === "record_bound"
-            ? rs.refuted
+            ? isMax
+              ? rs.refuted
+                ? `valid (< ${safeInt(rs.refuted.score)})`
+                : `valid (≤ ${safeInt(cfg.bound_floor ?? cfg.score_max ?? 1000)})`
+              : rs.refuted
               ? `valid (> ${safeInt(rs.refuted.score)})`
               : `valid (≥ ${safeInt(cfg.bound_floor ?? 0)})`
+            : isMax
+            ? rs.best
+              ? `valid (> ${safeInt(rs.best.score)})`
+              : `valid (≥ ${safeInt(cfg.start_target)})`
             : rs.best
             ? `valid (< ${safeInt(rs.best.score)})`
             : `valid (≤ ${safeInt(cfg.start_target)})`;
@@ -1643,6 +1740,8 @@
     pushFocus(triggerEl);
     DONATE_LEMMA = lemma;
     const isRec = lemma.kind === "record";
+    const cfg = lemma.record || {};
+    const isMax = cfg.direction === "max";
     $("#donate-claim-meta").textContent = `${CURRENT_MISSION} · ${lemma.id}${isRec ? " · ♛ King of the Hill" : lemma.statement_file ? " · ◆ Frozen Statement" : ""}`;
     $("#donate-title").textContent = lemma.title.slice(0, 90);
     $("#donate-handle").value = DONATE_HANDLE;
@@ -1656,6 +1755,12 @@
       DONATE_REC_SCORE = defaultRecordScore(lemma, "record");
       $("#donate-rec-score").value = String(DONATE_REC_SCORE);
       $$("#donate-rec-mode button").forEach((b) => {
+        if (b.dataset.reckind === "record") {
+          b.textContent = isMax ? "Improve Record (≥ s)" : "Improve Record (≤ s)";
+        } else {
+          b.textContent = isMax ? "Prove Upper Bound (¬ Record b)" : "Prove Lower Bound (¬ Record b)";
+          b.hidden = cfg.allow_bound === false;
+        }
         const act = b.dataset.reckind === DONATE_REC_KIND;
         b.classList.toggle("active", act);
         b.setAttribute("aria-selected", act ? "true" : "false");

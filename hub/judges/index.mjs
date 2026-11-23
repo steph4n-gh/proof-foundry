@@ -29,7 +29,14 @@ export function runJudge(
     });
   }
   if (judgeConfig.type === "command") {
-    return checkCommandArtifact(file, target, { judgeConfig, kind, allowTempForTests });
+    return checkCommandArtifact(file, target, {
+      judgeConfig,
+      kind,
+      statementFile,
+      statementDef,
+      expectedScore,
+      allowTempForTests,
+    });
   }
   return {
     ok: false,

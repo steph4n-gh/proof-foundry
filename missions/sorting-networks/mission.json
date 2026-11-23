@@ -62,11 +62,13 @@
       "id": "OBJ-sn-world-record",
       "title": "Open World Record Frontier: 12-Wire Optimal & 13–14 Wire King of the Hill Hunts",
       "tier": "Open World Record",
-      "finish_line": "Verify the optimal 12-wire network (39 steps) and ratchet down the live 13-wire (record 45, lb 43) and 14-wire (record 51, lb 47) King-of-the-Hill hunts.",
+      "finish_line": "Verify the optimal 12-wire network (39 steps) and ratchet down the live 13-, 14-, 15-wire size & 17-wire depth King-of-the-Hill hunts.",
       "required": [
         { "id": "SN-007", "expect": "proof" },
         { "id": "SN-rec-013", "expect": { "record_at_most": 45 } },
-        { "id": "SN-rec-014", "expect": { "record_at_most": 51 } }
+        { "id": "SN-rec-014", "expect": { "record_at_most": 51 } },
+        { "id": "SN-rec-015", "expect": { "record_at_most": 56 } },
+        { "id": "SN-rec-d17", "expect": { "record_at_most": 10 } }
       ]
     }
   ]
