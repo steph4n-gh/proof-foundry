@@ -16,12 +16,16 @@
  * 4. Minimal sanitized environment (never passes `...process.env`) and resolved absolute `lean` path.
  * 5. Isolated per-run `.olean` compilation + Frozen-Statement Kernel Type-Matching importing BOTH
  *    trusted `stmtMod` and `claimMod` (dual-import blocks shadowing) with exact syntactic `Expr` match.
- * 6. Kernel `Lean.collectAxioms` written to a Judge-owned JSON file.
+ * 6. A parse-only Init environment checks the submitted snapshot before compilation. The compiled
+ *    module's imports, declarations, target dependencies and kernel axioms are audited independently.
+ *    Only Lean's generated constructor-index implementation may be unsafe, never a kernel dependency
+ *    of the target. These checks enforce a language policy; they do not provide an OS sandbox.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
+import { isUtf8 } from "node:buffer";
 import { spawnSync } from "node:child_process";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
@@ -241,6 +245,131 @@ function checkImportsAndOptions(stripped, lakeTarget) {
   return null;
 }
 
+const importPolicy = `
+private def allowedImport (target : String) (mod : Lean.Name) : Bool :=
+  (["Init", "Std", target].filter (!·.isEmpty)).any fun root => root.toName.isPrefixOf mod
+`;
+
+export const compiledModulePolicy = `${importPolicy}
+open Lean in
+private def generatedCtorIndex (env : Environment) (owner : ModuleIdx) (decl : ConstantInfo) : Bool := Id.run do
+  let .defnInfo defn := decl | return false
+  let .str (.str parent "ctorIdx") "_impl" := defn.name | return false
+  let some (.inductInfo ind) := env.find? parent | return false
+  let body := defn.value.getLambdaBody
+  return env.getModuleIdxFor? parent == some owner && ind.numCtors > 1 &&
+    Compiler.getImplementedBy? env (parent.str "ctorIdx") == some defn.name &&
+    body.isAppOfArity \`\`getObjTagNat 2 && body.appArg! == .bvar 0
+
+open Lean in
+private partial def dependencyError (env : Environment) (owner : ModuleIdx) (target : Name) : String := Id.run do
+  let mut work := [target]
+  let mut seen : NameSet := {}
+  while let name :: rest := work do
+    work := rest
+    if seen.contains name || env.getModuleIdxFor? name != some owner then continue
+    seen := seen.insert name
+    let some decl := env.checked.get.find? name | return s!"missing dependency {name}"
+    if decl.isUnsafe || (decl matches .axiomInfo _ | .opaqueInfo _) then return s!"disallowed dependency {name}"
+    for dep in decl.getUsedConstantsAsSet do work := dep :: work
+    if let .recInfo recursor := decl then
+      for rule in recursor.rules do work := rule.rhs.getUsedConstants.toList ++ work
+  return ""
+
+open Lean in
+private def modulePolicyError (env : Environment) (mod target : Name) (root : String) : String := Id.run do
+  let some idx := env.getModuleIdx? mod | return "missing submitted module"
+  let data := env.header.moduleData[idx]!
+  for imp in data.imports do
+    unless allowedImport root imp.module do return s!"disallowed import {imp.module}"
+  if data.constNames.size != data.constants.size then return "invalid constant table"
+  for name in data.constNames, decl in data.constants do
+    if decl.name != name then return "invalid constant name"
+    if (decl matches .axiomInfo _ | .opaqueInfo _) || (decl.isUnsafe && !generatedCtorIndex env idx decl) then
+      return s!"disallowed constant {name}"
+  return dependencyError env idx target
+`;
+
+const syntaxAuditor = `import Lean.Elab.Import
+open Lean Parser
+${importPolicy}
+private def forbidden := ["sorry", "admit", "axiom", "opaque", "unsafe", "native_decide",
+  "#eval", "#exit", "#print", "run_cmd", "run_tac", "run_meta", "by_elab", "elab", "elab_rules",
+  "macro", "macro_rules", "syntax", "syntax_cat", "declare_syntax_cat", "simproc", "dsimproc",
+  "simproc_decl", "dsimproc_decl", "initialize", "builtin_initialize", "local_elab", "command_elab",
+  "term_elab", "tactic_elab", "skipKernelTC", "modifyEnv"]
+
+private def forbiddenAttrs := ["extern", "implemented_by", "tactic", "init", "delab", "app_unexpander"]
+
+private partial def inspectSyntax (stx : Syntax) (inAttr := false) : Except String Unit := do
+  let kind := stx.getKind
+  let attr := inAttr || kind == \`\`Term.attrInstance
+  let check (word : String) := do
+    if forbidden.contains word || word.startsWith "#eval" || word.startsWith "#print" || (attr && forbiddenAttrs.contains word) then
+      throw s!"forbidden {word}"
+  match stx with
+  | .missing => throw "missing syntax"
+  | .atom _ word => check word
+  | .ident _ _ id _ => for part in id.components do check part.toString
+  | .node _ (.str _ name) args =>
+    check name
+    if args[0]?.any (·.getAtomVal == "set_option") then
+      let opt := stx[1].getId.toString
+      unless ([${[...ALLOWED_SET_OPTIONS].map(x => JSON.stringify(x)).join(', ')}] : List String).contains opt do
+        throw s!"disallowed set_option {opt}"
+    for child in args do inspectSyntax child attr
+  | .node _ _ args => for child in args do inspectSyntax child attr
+
+private def audit (file target : String) : IO (Except String Unit) := do
+  let input := mkInputContext (← IO.FS.readFile file) file
+  let (header, initial, errors) ← parseHeader input
+  if errors.hasErrors then return .error "header parse error"
+  for imp in Elab.HeaderSyntax.imports header do
+    unless allowedImport target imp.module do return .error s!"disallowed import {imp.module}"
+  let env ← importModules #[{ module := \`Init }] {} (loadExts := true)
+  let mut cursor := initial
+  repeat
+    let (cmd, next, msgs) := parseCommand input { env, options := {} } cursor {}
+    if msgs.hasErrors || next.recovering then
+      return .error s!"command parse error at {input.fileMap.toPosition cursor.pos}"
+    if cmd.isOfKind \`\`Command.eoi then return .ok ()
+    if let .error reason := inspectSyntax cmd then return .error reason
+    if isTerminalCommand cmd || next.pos <= cursor.pos then return .error "unexpected command terminator"
+    cursor := next
+  return .error "missing end of input"
+
+unsafe def main (args : List String) : IO Unit := do
+  let [source, target, result] := args | throw (IO.userError "invalid judge arguments")
+  enableInitializersExecution
+  let verdict ← audit source target
+  let json := match verdict with
+    | .ok () => Json.mkObj [("ok", toJson true)]
+    | .error reason => Json.mkObj [("ok", toJson false), ("reason", toJson reason)]
+  IO.FS.writeFile result json.compress
+`;
+
+function auditSnapshot(source, lakeTarget, leanDir, tmpDir) {
+  const script = path.join(tmpDir, "JudgeSyntax.lean");
+  const result = path.join(tmpDir, "syntax.json");
+  fs.writeFileSync(script, syntaxAuditor);
+  const run = spawnSync(getLeanBin(), ["--run", script, source, lakeTarget || "", result], {
+    cwd: leanDir, env: minimalEnv(), encoding: "utf8", timeout: 30000,
+  });
+  if (run.status !== 0 || !fs.existsSync(result)) {
+    return { ok: false, reason: "syntax auditor failed", output: `${run.stdout || ""}${run.stderr || run.error || ""}`.slice(0, 4000) };
+  }
+  return JSON.parse(fs.readFileSync(result, "utf8"));
+}
+
+export function auditLeanSyntax(source, judgeConfig = DEFAULT_JUDGE_CONFIG) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-lean-syntax-"));
+  try {
+    return auditSnapshot(path.resolve(source), judgeConfig.lake_target, path.resolve(ROOT, judgeConfig.lean_dir), tmpDir);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
 export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
   const cfg = { ...DEFAULT_JUDGE_CONFIG, ...(opts.judgeConfig || {}) };
   const leanDir = path.resolve(ROOT, cfg.lean_dir);
@@ -317,10 +446,11 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
     }
   }
 
-  const rawSource = fs.readFileSync(realFile, "utf8");
-  const fileHash = crypto.createHash("sha256").update(rawSource).digest("hex");
+  const sourceBytes = fs.readFileSync(realFile);
+  const fileHash = crypto.createHash("sha256").update(sourceBytes).digest("hex");
+  if (!isUtf8(sourceBytes)) return fail("Invalid UTF-8 source", { file: relFile, file_hash: fileHash });
 
-  const lex = stripLeanCommentsAndStrings(rawSource);
+  const lex = stripLeanCommentsAndStrings(sourceBytes.toString("utf8"));
   if (lex.forbiddenLexeme) {
     return fail(`Rejected by static gate: forbidden ${lex.forbiddenLexeme}`, { file: relFile, file_hash: fileHash });
   }
@@ -357,34 +487,34 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
     stmtHash = sha256File(realStmtFile);
   }
 
-  // Ensure Core library is built
-  let needBuild = true;
-  if (coreOlean && coreFile && fs.existsSync(coreOlean) && fs.existsSync(coreFile)) {
-    if (fs.statSync(coreOlean).mtimeMs >= fs.statSync(coreFile).mtimeMs) needBuild = false;
-  } else if (!cfg.lake_target) {
-    needBuild = false;
-  }
-  if (needBuild && cfg.lake_target) {
-    const b = spawnSync(lakeBin, ["build", cfg.lake_target], { encoding: "utf8", cwd: leanDir, env: minimalEnv() });
-    if (b.status !== 0) {
-      return fail(`Core library \`lake build ${cfg.lake_target}\` failed`, {
-        file: relFile,
-        file_hash: fileHash,
-        output: ((b.stdout || "") + "\n" + (b.stderr || "")).trim().slice(0, 4000),
-      });
-    }
-  }
-
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-lean4-judge-"));
   const salt = `${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const claimMod = `FleetJudgeTmp.Sub_${salt}`;
   const oleanDir = path.join(tmpDir, "FleetJudgeTmp");
-  fs.mkdirSync(oleanDir, { recursive: true });
   const claimOlean = path.join(oleanDir, `Sub_${salt}.olean`);
+  const snapshot = path.join(oleanDir, `Sub_${salt}.lean`);
   const auditLeanPath = path.join(tmpDir, "JudgeAudit.lean");
   const resultJsonPath = path.join(tmpDir, "result.json");
 
   try {
+    fs.mkdirSync(oleanDir);
+    fs.writeFileSync(snapshot, sourceBytes);
+    const ast = auditSnapshot(snapshot, cfg.lake_target, leanDir, tmpDir);
+    if (ast.ok !== true) return fail(`Rejected by Lean AST gate: ${ast.reason}`, { file: relFile, file_hash: fileHash, output: ast.output || "" });
+
+    const coreBuilt = coreOlean && coreFile && fs.existsSync(coreOlean) && fs.existsSync(coreFile)
+      && fs.statSync(coreOlean).mtimeMs >= fs.statSync(coreFile).mtimeMs;
+    if (!coreBuilt && cfg.lake_target) {
+      const b = spawnSync(lakeBin, ["build", cfg.lake_target], { encoding: "utf8", cwd: leanDir, env: minimalEnv() });
+      if (b.status !== 0) {
+        return fail(`Core library \`lake build ${cfg.lake_target}\` failed`, {
+          file: relFile,
+          file_hash: fileHash,
+          output: ((b.stdout || "") + "\n" + (b.stderr || "")).trim().slice(0, 4000),
+        });
+      }
+    }
+
     const lpRes = spawnSync(lakeBin, ["env", "printenv", "LEAN_PATH"], { encoding: "utf8", cwd: leanDir, env: minimalEnv() });
     const baseLeanPath =
       lpRes.status === 0 ? (lpRes.stdout || "").trim() : path.join(leanDir, ".lake", "build", "lib", "lean");
@@ -436,7 +566,7 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
     }
 
     // Pass 1: Compile submitted Lean file cleanly into isolated .olean
-    const pass1 = spawnSync(leanBin, ["-o", claimOlean, realFile], {
+    const pass1 = spawnSync(leanBin, ["-R", tmpDir, "-o", claimOlean, snapshot], {
       encoding: "utf8",
       cwd: leanDir,
       env: envWithPath,
@@ -503,15 +633,21 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
     }
 
     const auditProgram = `import Lean.Util.CollectAxioms
+import Lean.Compiler.ImplementedByAttr
 import Lean.Meta.Basic
 import Lean.Data.Json
 ${stmtImport}import ${claimMod}
+${compiledModulePolicy}
 
 open Lean Meta in
 #eval show MetaM Unit from do
   let env ← getEnv
   let target : Name := \`${theoremName}
   let expectedMod : Name := \`${claimMod}
+  let envError := modulePolicyError env expectedMod target ${JSON.stringify(cfg.lake_target || "")}
+  unless envError.isEmpty do
+    IO.FS.writeFile ${escapedResultPath} (Json.mkObj [("envError", toJson envError)]).compress
+    return
   match env.find? target with
   | none =>
       let j := Json.mkObj [("found", Json.bool false)]
@@ -532,6 +668,7 @@ ${stmtCheckBlock}
         pure ""
       let j := Json.mkObj [
         ("found", Json.bool true),
+        ("envAudited", Json.bool true),
         ("isTheorem", Json.bool isThm),
         ("inSubmittedMod", Json.bool inSubmittedMod),
         ("levelsEmpty", Json.bool levelsEmpty),
@@ -560,7 +697,9 @@ ${stmtCheckBlock}
     }
 
     const audit = JSON.parse(fs.readFileSync(resultJsonPath, "utf8"));
+    if (audit.envError) return fail(`Rejected by compiled environment audit: ${audit.envError}`, { file: relFile, file_hash: fileHash });
     if (!audit.found) return fail(`Theorem \`${theoremName}\` not found in compiled environment`, { file: relFile, file_hash: fileHash });
+    if (audit.envAudited !== true) return fail("Missing compiled environment audit", { file: relFile, file_hash: fileHash });
     if (!audit.inSubmittedMod) {
       return fail(`Rejected: \`${theoremName}\` was NOT declared in submitted file (declared in \`${audit.declaredModule || "unknown"}\`)`, {
         file: relFile,
@@ -596,6 +735,8 @@ ${stmtCheckBlock}
     return {
       ok: true,
       judge: "lean4",
+      ast_audited: true,
+      env_audited: true,
       reason: isRecordKind
         ? `Verified by Lean 4 kernel & exact canonical match against ${kind === "record_bound" ? "¬ " : ""}${stmtDef} ${scoreStr} (zero sorry, standard axioms only)`
         : stmtMod

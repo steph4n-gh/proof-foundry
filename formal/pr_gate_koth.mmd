@@ -1,0 +1,55 @@
+---
+title: "Two donor PRs compete on one frozen minimization hunt"
+---
+%% Full model: 2,597 distinct states. This 149-state slice uses Inputs <- ChartInputs: record 6 vs. bound 7.
+stateDiagram-v2
+  direction LR
+  state "At the same time" as all {
+    state "PR1" as r0 {
+      s0: Awaiting submission
+      s1: Donor classified
+      s2: Artifact verified
+      s3: Stopped
+      s4: Eligible on sampled main
+      s5: Auto-merge requested
+      s6: Landed
+      s7: Needs maintainer
+      [*] --> s0
+      s0 --> s1: classify record 6
+      s1 --> s2: verify pinned artifact
+      s1 --> s3: judge withholds approval
+      s0 --> s3: reject diff
+      s2 --> s4: score improves current main [unless Landed]
+      s2 --> s3: withhold auto-merge
+      s4 --> s5: pin verified head
+      s4 --> s3: head changed
+      s5 --> s6: land on current base [unless Landed]
+      s5 --> s3: head or base changed
+      s1 --> s7: judge withholds approval [when Landed]
+      s2 --> s7: withhold auto-merge [when Landed]
+    }
+    --
+    state "PR2" as r1 {
+      s8: Awaiting submission
+      s9: Donor classified
+      s10: Artifact verified
+      s11: Stopped
+      s12: Eligible on sampled main
+      s13: Auto-merge requested
+      s14: Landed
+      s15: Needs maintainer
+      [*] --> s8
+      s8 --> s9: classify record_bound 7
+      s9 --> s10: verify pinned artifact
+      s9 --> s11: judge withholds approval
+      s8 --> s11: reject diff
+      s10 --> s12: score improves current main [unless Landed]
+      s10 --> s11: withhold auto-merge
+      s12 --> s13: pin verified head
+      s12 --> s11: head changed
+      s13 --> s14: land on current base [unless Landed]
+      s13 --> s11: head or base changed
+      s9 --> s15: judge withholds approval [when Landed]
+      s10 --> s15: withhold auto-merge [when Landed]
+    }
+  }

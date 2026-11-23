@@ -6,16 +6,19 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { checkLeanProof } from "./judges/lean4.mjs";
+import { execFileSync } from "node:child_process";
+import { auditLeanSyntax, checkLeanProof, compiledModulePolicy } from "./judges/lean4.mjs";
 import { checkCommandArtifact } from "./judges/command.mjs";
-import { loadMission } from "./missions.mjs";
+import { computeRecordTargets, deriveMissionState, listMissionSlugs, loadMission } from "./missions.mjs";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pf-judge-test-"));
 const salt = `${process.pid}_${Date.now()}`;
 let failed = 0;
+let passed = 0;
 
 function assert(cond, label, detail) {
   if (cond) {
+    passed++;
     console.log(`PASS  ${label}`);
   } else {
     console.error(`FAIL  ${label} -> ${detail}`);
@@ -340,6 +343,91 @@ export function compensatedSum() { return 0; }
       try { fs.unlinkSync(f); } catch {}
     }
   }
+
+  const policyFile = path.join(tmp, "Policy.lean");
+  fs.writeFileSync(policyFile, Buffer.from([0xff]));
+  const invalidSource = checkLeanProof(policyFile, "target", { allowTempForTests: true });
+  assert(!invalidSource.ok && invalidSource.reason === "Invalid UTF-8 source", "Invalid UTF-8 is not normalized into a different proof", JSON.stringify(invalidSource));
+  for (const [source, expected] of [
+    ['attribute [extern "c_fn"] sample', "extern"],
+    ["attribute [implemented_by sample] other", "implemented_by"],
+    ["@[init] def sample := 0", "init"],
+    ["opaque sample : Nat := 0", "opaque"],
+    ["unsafe def sample : Nat := 0", "unsafe"],
+    ["unsafe def Sample.ctorIdx._impl : Nat := 0", "unsafe"],
+    ["axiom sample : True", "axiom"],
+    ["set_option /- comment -/\n  debug.skipKernelTC false", "disallowed set_option"],
+    ["import /- comment -/\n Lean.Elab.Command", "disallowed import"],
+    ['syntax "sample" : term', "syntax"],
+    ["macro_rules | `(sample) => `(0)", "macro_rules"],
+    ["def sample := by_elab pure default", "by_elab"],
+    ["initialize sample : Nat ← pure 0", "initialize"],
+    ["run_cmd pure ()", "run_cmd"],
+    ["#eval 0", "#eval"],
+    ["theorem sample :", "parse error"],
+  ]) {
+    fs.writeFileSync(policyFile, source + "\n");
+    const res = auditLeanSyntax(policyFile);
+    assert(!res.ok && res.reason.includes(expected), `Native syntax policy: ${expected}`, JSON.stringify(res));
+  }
+  fs.writeFileSync(policyFile, 'attribute [extern "unused"] sample\n');
+  const precompile = checkLeanProof(policyFile, "target", { allowTempForTests: true });
+  assert(!precompile.ok && precompile.reason.includes("Lean AST gate: forbidden extern"),
+    "Native policy stops a standalone attribute before compilation", JSON.stringify(precompile));
+  fs.writeFileSync(policyFile, "partial def unused : Nat → Nat | n => unused n\ntheorem target : True := trivial\n");
+  const unused = checkLeanProof(policyFile, "target", { allowTempForTests: true });
+  assert(!unused.ok && unused.reason.includes("compiled environment audit") && unused.reason.includes("unused"),
+    "Compiled module audit rejects an unrelated partial helper", JSON.stringify(unused));
+
+  const compiledFixtures = [
+    ["ForeignImport", "import Lean.Elab.Command", "", "disallowed import Lean.Elab.Command"],
+    ["UnusedAxiom", "", "axiom helper : True", "disallowed constant UnusedAxiom.helper"],
+    ["UnusedOpaque", "", "opaque helper : Nat := 0", "disallowed constant UnusedOpaque.helper"],
+    ["UnusedUnsafe", "", "unsafe def helper : Nat := 0", "disallowed constant UnusedUnsafe.helper"],
+    ["Lookalike", "", "structure Box where value : Nat\nunsafe def Box.ctorIdx._impl := 0", "disallowed constant Lookalike.Box.ctorIdx._impl"],
+  ];
+  const elanLean = path.join(os.homedir(), ".elan", "bin", "lean");
+  const lean = fs.existsSync(elanLean) ? elanLean : "lean";
+  const leanOpts = { cwd: path.resolve("lean"), env: { ...process.env, LEAN_PATH: tmp }, timeout: 30000, encoding: "utf8" };
+  for (const [mod, header, decl] of compiledFixtures) {
+    const src = path.join(tmp, `${mod}.lean`);
+    fs.writeFileSync(src, `${header}\nnamespace ${mod}\n${decl}\ntheorem target : True := trivial\nend ${mod}\n`);
+    execFileSync(lean, ["-R", tmp, "-o", path.join(tmp, `${mod}.olean`), src], leanOpts);
+  }
+  const fixtureAudit = path.join(tmp, "FixtureAudit.lean");
+  fs.writeFileSync(fixtureAudit, [
+    "import Lean", ...compiledFixtures.map(([mod]) => `import ${mod}`), compiledModulePolicy,
+    "open Lean in", "#eval show CoreM Unit from do", "  let env ← getEnv",
+    ...compiledFixtures.map(([mod]) => `  IO.println (modulePolicyError env \`${mod} \`${mod}.target "PnP")`), "",
+  ].join("\n"));
+  const findings = execFileSync(lean, [fixtureAudit], leanOpts).trim().split("\n");
+  for (const [, , , expected] of compiledFixtures) {
+    assert(findings.includes(expected), `Independent compiled audit: ${expected}`, findings);
+  }
+
+  for (const slug of listMissionSlugs()) {
+    const { judge } = loadMission(slug);
+    if (judge.type !== "lean4") continue;
+    for (const claim of deriveMissionState(slug).state.lemmas) {
+      const cases = [];
+      if (claim.kind === "record") {
+        for (const record of claim.record_state.history.filter(entry => entry.state === "accepted")) {
+          const { theoremName } = computeRecordTargets(slug, claim, record.kind, record.score);
+          cases.push([record.file, theoremName, record.kind, record.score]);
+        }
+      } else if (claim.status === "checked") {
+        cases.push([claim.lean_file, claim.theorem_name, "proof"]);
+      } else if (claim.status === "refuted") {
+        cases.push([claim.refutation.counterexample_file, claim.refutation.theorem_name, "refutation"]);
+      }
+      for (const [file, theorem, kind, score] of cases) {
+        const res = checkLeanProof(file, theorem, {
+          judgeConfig: judge, kind, expectedScore: score, statementFile: claim.statement_file, statementDef: claim.statement_def,
+        });
+        assert(res.ok && res.ast_audited && res.env_audited, `Mission proof: ${file}`, JSON.stringify(res));
+      }
+    }
+  }
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
@@ -348,4 +436,4 @@ if (failed > 0) {
   console.error(`\n${failed} Judge test(s) failed!`);
   process.exit(1);
 }
-console.log("\nALL 32 ADVERSARIAL, ISOLATION, FROZEN-STATEMENT & KING-OF-THE-HILL JUDGE TESTS PASSED!");
+console.log(`\nALL ${passed} JUDGE TESTS PASSED!`);
