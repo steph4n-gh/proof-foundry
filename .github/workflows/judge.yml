@@ -38,7 +38,8 @@ jobs:
       - name: Install Lean 4 (elan) if needed
         if: steps.changed.outputs.needs_lean == 'true'
         run: |
-          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain leanprover/lean4:v4.36.0
+          set -euo pipefail
+          curl -sSfL --retry 5 --retry-delay 2 --retry-all-errors https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain leanprover/lean4:v4.36.0
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Run Mechanical Judge Gatekeeper
