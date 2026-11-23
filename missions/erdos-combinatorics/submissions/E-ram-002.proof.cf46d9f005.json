@@ -1,0 +1,23 @@
+{
+  "schema": "fleet-submission/1",
+  "mission": "erdos-combinatorics",
+  "lemma_id": "E-ram-002",
+  "kind": "proof",
+  "at": "2026-11-23T12:54:09.574Z",
+  "file": "missions/erdos-combinatorics/lean/Erdos/Claims/E_ram_002.lean",
+  "theorem": "Erdos.Claims.E_ram_002.ramsey33_le_six",
+  "signature": "Erdos.Claims.E_ram_002.ramsey33_le_six :\n  Erdos.Ramsey33At 6",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "checked_at": "2026-11-23T12:54:09.573Z",
+    "duration_ms": 2844,
+    "axioms": [
+      "propext"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "cf46d9f0052c43f88e71407630c3426b1ea22fd3b856686eda77a17ed3451665",
+    "core_hash": "c66bb11af66a1933de3bc3b60d78b3f6ed195e15da46a6d90cd8dd60e0e44657",
+    "by_seat": "seat-ramsey-1"
+  }
+}
