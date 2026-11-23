@@ -3,20 +3,19 @@
     "title": "P = NP ? · T3 Fleet",
     "verdict": "open, being worked on now.",
     "started_at": "2026-11-23T05:42:30.677Z",
-    "updated_at": "2026-11-23T13:37:56.986Z",
+    "updated_at": "2026-11-23T15:54:18.770Z",
     "sessions_total": 28,
     "strategy_note": {
       "seat": "seat-strat-1",
-      "text": "Cross-model Adversarial Audit complete (GPT-6.2 Astra + Claude Opus 5.5). Hardened the Lean 4 Judge to an isolated kernel metaprogram (blocking all 5 tested spoofing/axiom/foreign-theorem exploits), fixed 5 imprecise titles ([L-lib-004], [L-alg-001], [L-pcx-003], [L-pcx-005], [L-bar-003]), hardened the SSE dashboard & Proof Map layout, and re-verified every checked proof & refutation with full untruncated signatures.",
+      "text": "Wave 5 circuit synthesis targets live! L-meta-005 & L-clb-007 are now frozen-statement bounties alongside exact B2 synthesis targets for MOD3_4 (≤8 & ≤7 contest) and MAJ5 (≥10 contest).",
       "mentions": [
-        "L-lib-004",
-        "L-alg-001",
-        "L-pcx-005",
-        "L-meta-004",
-        "L-clb-006",
-        "L-pcx-004"
+        "L-meta-005",
+        "L-clb-007",
+        "L-syn-001",
+        "L-syn-002",
+        "L-syn-003"
       ],
-      "at": "2026-11-23T06:21:38.349Z"
+      "at": "2026-11-23T15:54:18.769Z"
     },
     "checker_runs_total": 2,
     "checker_runs_passed": 2
@@ -89,9 +88,9 @@
       "color": "#3B82F6",
       "status": "idle",
       "current_lemma": "L-lib-000",
-      "current_whisper": "Published strategy dispatch (6 lemmas cited)",
+      "current_whisper": "Published strategy dispatch (5 claims cited)",
       "sessions": 1,
-      "last_seen": "2026-11-23T05:56:26.688Z",
+      "last_seen": "2026-11-23T15:54:18.770Z",
       "counts": {
         "checked": 1,
         "refuted": 0,
@@ -1155,7 +1154,9 @@
       "updated_at": "2026-11-23T05:57:08.171Z",
       "checker": null,
       "refutation": null,
-      "epitaph": null
+      "epitaph": null,
+      "statement_file": "lean/PnP/Statements/L_clb_007.lean",
+      "statement_def": "PnP.Statements.L_clb_007.Claim"
     },
     {
       "id": "L-meta-003",
@@ -1470,6 +1471,87 @@
       "checker": null,
       "refutation": null,
       "epitaph": null,
+      "audit": null,
+      "statement_file": "lean/PnP/Statements/L_meta_005.lean",
+      "statement_def": "PnP.Statements.L_meta_005.Claim"
+    },
+    {
+      "id": "L-syn-001",
+      "program": "circuit_lower_bounds",
+      "title": "Shared-Wire B2 Circuit for MOD3=0 on 4 Bits: synthesize an ≤ 8-gate B2 DAG circuit computing mod3Eq0 4",
+      "statement": "PnP.Statements.L_syn_001.Claim",
+      "registered_statement": "PnP.Statements.L_syn_001.Claim",
+      "verified_signature": null,
+      "statement_file": "lean/PnP/Statements/L_syn_001.lean",
+      "statement_def": "PnP.Statements.L_syn_001.Claim",
+      "theorem_name": "PnP.Lemmas.L_syn_001.mod3_4_le_8",
+      "lean_file": "lean/PnP/Lemmas/L_syn_001.lean",
+      "status": "conjecture",
+      "aims_at": "p_eq_np",
+      "deps": [],
+      "rung": 5,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": null,
+      "paper_notes": "Hint: compute x0^x1, x2^x3, x0|x1, x2|x3 and test equality of (x0|x1), (x2|x3), and parity in 8 B2 gates!",
+      "created_at": "2026-11-23T15:54:18.554Z",
+      "updated_at": "2026-11-23T15:54:18.555Z",
+      "checker": null,
+      "refutation": null,
+      "epitaph": null,
+      "audit": null
+    },
+    {
+      "id": "L-syn-002",
+      "program": "circuit_lower_bounds",
+      "title": "FRONTIER CONTEST (Exact MAJ5): Does 5-bit Majority require ≥ 10 gates in full B2 (or can someone beat our 10-gate circuit)? Prove OR refute!",
+      "statement": "PnP.Statements.L_syn_002.Claim",
+      "registered_statement": "PnP.Statements.L_syn_002.Claim",
+      "verified_signature": null,
+      "statement_file": "lean/PnP/Statements/L_syn_002.lean",
+      "statement_def": "PnP.Statements.L_syn_002.Claim",
+      "theorem_name": "PnP.Lemmas.L_syn_002.maj5_ge_10_contest",
+      "lean_file": "lean/PnP/Lemmas/L_syn_002.lean",
+      "status": "conjecture",
+      "aims_at": "p_neq_np",
+      "deps": [
+        "L-meta-003"
+      ],
+      "rung": 6,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": null,
+      "paper_notes": "Paired with our verified 10-gate MAJ5 circuit: proving this locks exact B2Size(MAJ5) = 10, or refuting it beats 10 gates!",
+      "created_at": "2026-11-23T15:54:18.591Z",
+      "updated_at": "2026-11-23T15:54:18.592Z",
+      "checker": null,
+      "refutation": null,
+      "epitaph": null,
+      "audit": null
+    },
+    {
+      "id": "L-syn-003",
+      "program": "circuit_lower_bounds",
+      "title": "FRONTIER CONTEST (MOD3=0 on 4 Bits): Can mod3Eq0 4 be computed in ≤ 7 B2 gates? Prove OR refute!",
+      "statement": "PnP.Statements.L_syn_003.Claim",
+      "registered_statement": "PnP.Statements.L_syn_003.Claim",
+      "verified_signature": null,
+      "statement_file": "lean/PnP/Statements/L_syn_003.lean",
+      "statement_def": "PnP.Statements.L_syn_003.Claim",
+      "theorem_name": "PnP.Lemmas.L_syn_003.mod3_4_le_7_contest",
+      "lean_file": "lean/PnP/Lemmas/L_syn_003.lean",
+      "status": "conjecture",
+      "aims_at": "p_eq_np",
+      "deps": [
+        "L-syn-001"
+      ],
+      "rung": 6,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": null,
+      "paper_notes": "Exact minimum B2 circuit synthesis challenge: beat 8 gates with a 7-gate DAG, or prove ¬ Claim (8 is exact optimal)!",
+      "created_at": "2026-11-23T15:54:18.627Z",
+      "updated_at": "2026-11-23T15:54:18.628Z",
+      "checker": null,
+      "refutation": null,
+      "epitaph": null,
       "audit": null
     }
   ],
@@ -1665,6 +1747,34 @@
     }
   ],
   "whispers": [
+    {
+      "id": "w-1795449258770-auw",
+      "seat": "seat-strat-1",
+      "lemma_id": null,
+      "text": "Published strategy dispatch (5 claims cited)",
+      "at": "2026-11-23T15:54:18.770Z"
+    },
+    {
+      "id": "w-1795449258628-u7l",
+      "seat": "seat-strat-1",
+      "lemma_id": "L-syn-003",
+      "text": "Stated bounty L-syn-003: FRONTIER CONTEST (MOD3=0 on 4 Bits): Can mod3Eq0 4 be computed in ≤ 7 B2 gates? Prove OR refute!",
+      "at": "2026-11-23T15:54:18.628Z"
+    },
+    {
+      "id": "w-1795449258592-dbv",
+      "seat": "seat-strat-1",
+      "lemma_id": "L-syn-002",
+      "text": "Stated bounty L-syn-002: FRONTIER CONTEST (Exact MAJ5): Does 5-bit Majority require ≥ 10 gates in full B2 (or can someone beat our 10-gate circuit)? Prove OR refute!",
+      "at": "2026-11-23T15:54:18.592Z"
+    },
+    {
+      "id": "w-1795449258555-xj7",
+      "seat": "seat-strat-1",
+      "lemma_id": "L-syn-001",
+      "text": "Stated bounty L-syn-001: Shared-Wire B2 Circuit for MOD3=0 on 4 Bits: synthesize an ≤ 8-gate B2 DAG circuit computing mod3Eq0 4",
+      "at": "2026-11-23T15:54:18.555Z"
+    },
     {
       "id": "w-1795414855407-lsg",
       "seat": "seat-meta-1",
@@ -2056,34 +2166,6 @@
       "lemma_id": "L-clb-005",
       "text": "A backward support list can keep duplicates. Removing all copies of a live gate output frees at least one slot before adding the two parents.",
       "at": "2026-11-23T05:57:53.682Z"
-    },
-    {
-      "id": "w-1795413472626-26c",
-      "seat": "seat-barrier-1",
-      "lemma_id": "L-bar-003",
-      "text": "Formalizing Relativization Barrier metatheorem and RelativizingProof obstruction",
-      "at": "2026-11-23T05:57:52.626Z"
-    },
-    {
-      "id": "w-1795413472433-ch8",
-      "seat": "seat-alg-1",
-      "lemma_id": "L-alg-004",
-      "text": "Synthesizing minimal shared-wire B2 circuit for MOD3=0 on 4 bits",
-      "at": "2026-11-23T05:57:52.433Z"
-    },
-    {
-      "id": "w-1795413458401-9bf",
-      "seat": "seat-pcx-1",
-      "lemma_id": "L-pcx-005",
-      "text": "Restriction preserves resolution refutation: invariant satisfied-or-subclause",
-      "at": "2026-11-23T05:57:38.401Z"
-    },
-    {
-      "id": "w-1795413458148-097",
-      "seat": "seat-pcx-1",
-      "lemma_id": "L-pcx-004",
-      "text": "Proving PHP(n+1,n) unsat via finite pigeonhole induction",
-      "at": "2026-11-23T05:57:38.148Z"
     }
   ],
   "checker_runs": [

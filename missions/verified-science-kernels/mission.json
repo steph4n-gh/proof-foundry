@@ -32,10 +32,12 @@
       "id": "OBJ-sci-ieee754",
       "title": "Adversarially Sound IEEE-754 Numerical Primitives",
       "tier": "Active Frontier",
-      "finish_line": "Pass catastrophic-cancellation compensated summation and strict outward-rounded interval addition batteries.",
-      "required_claims": [
-        "S-num-001",
-        "S-num-002"
+      "finish_line": "Pass catastrophic-cancellation compensated summation, strict outward-rounded interval addition, exact-rational TwoSum/Dot2, and Shewchuk orient2d batteries.",
+      "required": [
+        { "id": "S-num-001", "expect": "proof" },
+        { "id": "S-num-002", "expect": "proof" },
+        { "id": "S-num-003", "expect": "proof" },
+        { "id": "S-num-004", "expect": "proof" }
       ]
     }
   ]

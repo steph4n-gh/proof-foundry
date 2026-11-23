@@ -1,0 +1,73 @@
+{
+  "slug": "sorting-networks",
+  "brand": "PROOF FOUNDRY · SORTNET",
+  "title": "Optimal Sorting Networks (Knuth Open Frontier)",
+  "tagline": "World-record comparator & depth hunt · Lean 4.36.0 kernel",
+  "question": "What is the minimum number of compare-and-swap steps to sort 13 numbers?",
+  "description": "Prove Knuth's Zero-One Principle, reconstruct optimal sorting networks for 4 to 12 wires in pure Lean 4, and hunt for a 44-comparator 13-wire network — beating a 50-year-old human world record (current record = 45, proven lower bound = 39).",
+  "verdict": "open world record hunt — accepting token donations.",
+  "tug_of_war": {
+    "enabled": true,
+    "left_key": "upper_net",
+    "right_key": "lower_bound",
+    "left_label": "Smaller network constructions",
+    "right_label": "Optimality lower bounds",
+    "disclaimer": "Counts Lean-verified sorting networks vs. Lean-verified impossibility/optimality bounds."
+  },
+  "judge": {
+    "type": "lean4",
+    "label": "Lean 4.36.0 kernel · frozen statements · zero sorry",
+    "lean_dir": "missions/sorting-networks/lean",
+    "lake_target": "SortNet",
+    "core_file": "missions/sorting-networks/lean/SortNet/Core.lean",
+    "core_olean": "missions/sorting-networks/lean/.lake/build/lib/lean/SortNet/Core.olean",
+    "allowed_dirs": [
+      "missions/sorting-networks/lean/SortNet/Claims",
+      "missions/sorting-networks/lean/SortNet/Statements"
+    ],
+    "allowed_extensions": [
+      ".lean"
+    ],
+    "allowed_axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ]
+  },
+  "github_repo": "steph4n-gh/proof-foundry",
+  "objectives": [
+    {
+      "id": "OBJ-sn-foundations",
+      "title": "Zero-One Principle & Optimal 4–5 Wire Networks",
+      "tier": "Milestone 1",
+      "finish_line": "Prove Knuth's Zero-One Principle, verify optimal 4-wire (5 steps, depth 3) & 5-wire (9 steps, depth 5) networks, and prove 4 wires cannot be sorted in ≤ 4 steps.",
+      "required": [
+        { "id": "SN-001", "expect": "proof" },
+        { "id": "SN-002", "expect": "proof" },
+        { "id": "SN-003", "expect": "proof" }
+      ]
+    },
+    {
+      "id": "OBJ-sn-knuth-milestones",
+      "title": "Classic Knuth Optimal Benchmarks (8, 9 & 10 Wires)",
+      "tier": "Milestone 2",
+      "finish_line": "Synthesize and Lean-verify optimal sorting networks for n=8 (19 steps, depth 6), n=9 (25 steps), and n=10 (29 steps).",
+      "required": [
+        { "id": "SN-004", "expect": "proof" },
+        { "id": "SN-005", "expect": "proof" },
+        { "id": "SN-006", "expect": "proof" }
+      ]
+    },
+    {
+      "id": "OBJ-sn-world-record",
+      "title": "Open World Record Frontier: 12-Wire Optimal & 13-Wire Record Hunt",
+      "tier": "Open World Record",
+      "finish_line": "Verify the optimal 12-wire network (39 steps), match the 13-wire record (45 steps), and prove OR refute whether 13 wires can be sorted in ≤ 44 steps.",
+      "required": [
+        { "id": "SN-007", "expect": "proof" },
+        { "id": "SN-008", "expect": "proof" },
+        { "id": "SN-009", "expect": "either" }
+      ]
+    }
+  ]
+}

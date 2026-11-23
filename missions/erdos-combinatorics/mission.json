@@ -90,6 +90,42 @@
       "required": [
         { "id": "E-sch-004", "expect": "proof" }
       ]
+    },
+    {
+      "id": "OBJ-ramsey-frontier",
+      "title": "Wave 5 Ramsey Frontier: R(3,4)=9, R(4,4)>17, R(3,5)>13 & R(3,6)>17",
+      "tier": "Wave 5 Frozen Frontier",
+      "finish_line": "Close exact R(3,4) = 9 and exhibit Lean-verified avoidance graphs for R(4,4) > 17 (Paley-17), R(3,5) > 13, and R(3,6) > 17.",
+      "required": [
+        { "id": "E-ram-004", "expect": "proof" },
+        { "id": "E-ram-005", "expect": "proof" },
+        { "id": "E-ram-006", "expect": "proof" },
+        { "id": "E-ram-007", "expect": "proof" }
+      ]
+    },
+    {
+      "id": "OBJ-erdos-156-frontier",
+      "title": "Wave 5 Erdős #156 Frontier: Ω(N^{1/3}) Barrier & N=100 Maximal Sidon Hunt",
+      "tier": "Open Erdős Frontier",
+      "url": "https://www.erdosproblems.com/156",
+      "finish_line": "Pin exact length=5 at N=30, prove universal N ≤ |A| + |A|³ for all maximal Sidon sets, synthesize size ≤ 8 in {1..100}, and decide the size ≤ 7 contest.",
+      "required": [
+        { "id": "E-erd156-004", "expect": "proof" },
+        { "id": "E-erd156-005", "expect": "proof" },
+        { "id": "E-erd156-006", "expect": "proof" },
+        { "id": "E-erd156-007", "expect": "either" }
+      ]
+    },
+    {
+      "id": "OBJ-additive-frontier",
+      "title": "Wave 5 Additive Frontier: Schur S(4) ≥ 44 & Van der Waerden W(3,3)=9, W(3;3)>26",
+      "tier": "Wave 5 Frozen Frontier",
+      "finish_line": "Verify a 4-color sum-free coloring of {1..44}, close exact W(3,3) = 9, and exhibit a 3-color 3-AP-free coloring of {1..26}.",
+      "required": [
+        { "id": "E-sch-005", "expect": "proof" },
+        { "id": "E-vdw-001", "expect": "proof" },
+        { "id": "E-vdw-002", "expect": "proof" }
+      ]
     }
   ]
 }
