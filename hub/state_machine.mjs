@@ -619,7 +619,7 @@ export function projectGlobalRecords(snapshots, generatedAt = snapshots.at(-1)?.
       if (!at || !file || (latestVerified && at <= latestVerified.at)) continue;
       latestVerified = {
         ...identity,
-        statement: lemma.statement || "",
+        statement: lemma.verified_signature || lemma.registered_statement || lemma.statement || "",
         seal: lemma.seal,
         judge_label: mission.judge?.label || mission.judge?.type || "Judge",
         by_seat: best?.seat || lemma.checker?.by_seat || null,
