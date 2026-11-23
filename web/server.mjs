@@ -17,18 +17,18 @@ import {
   readMissionStatementFile,
 } from "../hub/missions.mjs";
 import { buildMissionSnapshot, fetchOpenPRs, renderMasterProofsMarkdown } from "../hub/build_site.mjs";
+import { projectGlobalRecords } from "../hub/state_machine.mjs";
 
 const PUBLIC_DIR = path.join(ROOT, "web", "public");
 const PORT = Number(process.env.PORT || 4321);
-let cachedPrSnap = { ok: false, fetched_at: null, by_claim: {} };
-let lastPrFetchMs = 0;
+const prCache = new Map();
 function getCachedPrSnap(repo) {
   const now = Date.now();
-  if (now - lastPrFetchMs > 60000) {
-    lastPrFetchMs = now;
-    cachedPrSnap = fetchOpenPRs(repo);
-  }
-  return cachedPrSnap;
+  const cached = prCache.get(repo);
+  if (cached && now - cached.at < 60000) return cached.snapshot;
+  const snapshot = fetchOpenPRs(repo);
+  prCache.set(repo, { at: now, snapshot });
+  return snapshot;
 }
 
 const MIME = {
@@ -134,7 +134,23 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const slug = safeSlug(url.searchParams.get("mission"));
+  const missionRoute = pathname.match(/^\/api\/missions\/([^/]+)\/(state|stream)$/);
+  const slug = missionRoute?.[1] || safeSlug(url.searchParams.get("mission"));
+  if (missionRoute && !listMissionSlugs().includes(slug)) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Mission not found" }));
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/records") {
+    const snaps = listMissionSlugs().map((s) => snapshotFor(s)).filter((s) => s.ready);
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "X-Content-Type-Options": "nosniff",
+    });
+    res.end(JSON.stringify(projectGlobalRecords(snaps, new Date().toISOString())));
+    return;
+  }
 
   if (pathname === "/PROOFS.md") {
     const snaps = listMissionSlugs().map((s) => snapshotFor(s)).filter((s) => s.ready);
@@ -152,7 +168,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (pathname === "/api/stream") {
+  if (pathname === "/api/stream" || missionRoute?.[2] === "stream") {
     ensureMissionWatcher(slug);
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -167,7 +183,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (pathname === "/api/state") {
+  if (pathname === "/api/state" || missionRoute?.[2] === "state") {
     res.writeHead(200, {
       "Content-Type": "application/json; charset=utf-8",
       "X-Content-Type-Options": "nosniff",
@@ -249,5 +265,5 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`Open Science Fleet Dashboard listening at http://127.0.0.1:${PORT} (missions: ${listMissionSlugs().join(", ")})`);
+  console.log(`Open Science Fleet Dashboard listening at http://127.0.0.1:${server.address().port} (missions: ${listMissionSlugs().join(", ")})`);
 });

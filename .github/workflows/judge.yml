@@ -43,16 +43,19 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_NUM: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           CUR_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = "push" ]; then
-            echo "lane=infra" >> "$GITHUB_OUTPUT"
-            echo "same_repo=true" >> "$GITHUB_OUTPUT"
-            echo "needs_lean=true" >> "$GITHUB_OUTPUT"
-            echo "submissions_count=0" >> "$GITHUB_OUTPUT"
-            echo "frozen_ok=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "lane=infra"
+              echo "same_repo=true"
+              echo "needs_lean=true"
+              echo "submissions_count=0"
+              echo "frozen_ok=true"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -63,7 +66,11 @@ jobs:
           fi
 
           git fetch --no-tags origin "refs/pull/$PR_NUM/head:pr-head"
-          git diff -z --no-renames --raw "$BASE_SHA...pr-head" > "$RUNNER_TEMP/diff.rawz"
+          if [ "$(git rev-parse pr-head)" != "$HEAD_SHA" ]; then
+            echo "PR head moved since this workflow was queued (expected $HEAD_SHA)." >&2
+            exit 1
+          fi
+          git diff -z --no-renames --raw "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/diff.rawz"
 
           set +e
           node hub/fleet.mjs classify-pr --git-raw-z "$RUNNER_TEMP/diff.rawz" > "$RUNNER_TEMP/classify.json"
@@ -75,14 +82,16 @@ jobs:
           NEEDS_LEAN=$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP+"/classify.json","utf8")); console.log(Boolean(c.needs_lean));')
           SUBS=$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP+"/classify.json","utf8")); console.log(c.submissions_count || 0);')
 
-          echo "lane=$LANE" >> "$GITHUB_OUTPUT"
-          echo "needs_lean=$NEEDS_LEAN" >> "$GITHUB_OUTPUT"
-          echo "submissions_count=$SUBS" >> "$GITHUB_OUTPUT"
-          if [ "$CLS_RC" -eq 0 ]; then
-            echo "frozen_ok=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "frozen_ok=false" >> "$GITHUB_OUTPUT"
-          fi
+          {
+            echo "lane=$LANE"
+            echo "needs_lean=$NEEDS_LEAN"
+            echo "submissions_count=$SUBS"
+            if [ "$CLS_RC" -eq 0 ]; then
+              echo "frozen_ok=true"
+            else
+              echo "frozen_ok=false"
+            fi
+          } >> "$GITHUB_OUTPUT"
 
   judge:
     name: Verify Swarm Submission
@@ -107,11 +116,16 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_NUM: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin "refs/pull/$PR_NUM/head:pr-head"
-          git diff -z --no-renames --raw "$BASE_SHA...pr-head" > "$RUNNER_TEMP/diff.rawz"
-          node hub/fleet.mjs stage-pr --git-raw-z "$RUNNER_TEMP/diff.rawz" --ref pr-head
+          if [ "$(git rev-parse pr-head)" != "$HEAD_SHA" ]; then
+            echo "PR head moved since this workflow was queued (expected $HEAD_SHA)." >&2
+            exit 1
+          fi
+          git diff -z --no-renames --raw "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/diff.rawz"
+          node hub/fleet.mjs stage-pr --git-raw-z "$RUNNER_TEMP/diff.rawz" --ref "$HEAD_SHA"
 
       - name: Install Lean 4 (elan) if needed
         if: needs.classify.outputs.needs_lean == 'true'
@@ -126,11 +140,11 @@ jobs:
           SAME_REPO: ${{ needs.classify.outputs.same_repo }}
         run: |
           set +e
-          EXTRA_ARGS=""
+          EXTRA_ARGS=()
           if [ "$LANE" = "infra" ] && [ "$SAME_REPO" = "true" ]; then
-            EXTRA_ARGS="--allow-infra --allow-meta"
+            EXTRA_ARGS=(--allow-infra --allow-meta)
           fi
-          node hub/fleet.mjs verify-pr --git-raw-z "$RUNNER_TEMP/diff.rawz" $EXTRA_ARGS | tee "$RUNNER_TEMP/judge-report.json"
+          node hub/fleet.mjs verify-pr --git-raw-z "$RUNNER_TEMP/diff.rawz" "${EXTRA_ARGS[@]}" | tee "$RUNNER_TEMP/judge-report.json"
           STATUS=${PIPESTATUS[0]}
           {
             echo "## Proof Foundry Mechanical Judge Receipt (Base-Trusted)"
