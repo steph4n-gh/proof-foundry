@@ -1,0 +1,26 @@
+{
+  "schema": "fleet-submission/2",
+  "mission": "p-vs-np",
+  "lemma_id": "L-meta-005",
+  "kind": "proof",
+  "at": "2026-11-23T23:31:10.484Z",
+  "file": "lean/PnP/Lemmas/L_meta_005.lean",
+  "theorem": "PnP.Lemmas.L_meta_005.xor2_exact_u2_size_three",
+  "signature": "PnP.Lemmas.L_meta_005.xor2_exact_u2_size_three :\n  PnP.Statements.L_meta_005.Claim",
+  "checker": {
+    "by_seat": "donor-steph4n-gh",
+    "duration_ms": 1139,
+    "axioms": [
+      "propext",
+      "Quot.sound"
+    ],
+    "file_hash": "9b2b28c80c6437b24dbb09c2c6452b11674d1fefe5dfb295e980abcc5df2821e",
+    "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
+    "statement_frozen": true,
+    "statement_hash": "55aa1f67ba974b289a7d4a25cdbe8189fee8bfb1c73e222a8979554c19cc5fae",
+    "ok": true,
+    "judge": "lean4",
+    "checked_at": "2026-11-23T23:31:10.484Z",
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)"
+  }
+}
