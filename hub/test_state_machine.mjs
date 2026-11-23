@@ -1,0 +1,439 @@
+import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { test } from "node:test";
+import { buildMissionSnapshot } from "./build_site.mjs";
+import { ROOT, applySubmissionsPure, listMissionSlugs, loadAllMissionsSummary, loadMission } from "./missions.mjs";
+import {
+  assignSeatClaim,
+  computeClaimFreshness,
+  computeRecordTargets,
+  projectClaimView,
+  projectGlobalRecords,
+  releaseSeatClaim,
+  sha256RelFile,
+  transitionClaim,
+} from "./state_machine.mjs";
+
+const at = "2026-01-01T00:00:00.000Z";
+const proof = { kind: "proof", lemma_id: "C", checker: { ok: true, by_seat: "donor-a", file_hash: "proof" }, at };
+const refutation = { kind: "refutation", lemma_id: "C", refutation: { by_seat: "donor-b", file_hash: "refutation" }, at };
+const barrier = { kind: "rule_dead", lemma_id: "C", epitaph: { by_seat: "donor-c", wall: "Barrier" }, at };
+
+function tempDir(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "proof-foundry-state-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+function runNode(args, options = {}) {
+  const result = spawnSync(process.execPath, args, { cwd: ROOT, encoding: "utf8", timeout: 20_000, ...options });
+  if (result.error) throw result.error;
+  return result;
+}
+
+test("opposing evidence creates a sticky contradiction in both orders", () => {
+  const initial = { id: "C", status: "conjecture" };
+  for (const [first, second] of [[proof, refutation], [refutation, proof]]) {
+    const done = transitionClaim(initial, first).lemma;
+    assert.equal(transitionClaim(done, second, { mode: "preflight" }).ok, false);
+    const conflict = transitionClaim(done, second).lemma;
+    assert.equal(conflict.status, "contradiction");
+    assert.deepEqual(conflict.checker, proof.checker);
+    assert.deepEqual(conflict.refutation, refutation.refutation);
+    for (const event of [proof, refutation, barrier, { kind: "claim", seat: "donor-c" }, { kind: "record" }, { kind: "record_bound" }]) {
+      const result = transitionClaim(conflict, event);
+      assert.equal(result.ok, false);
+      assert.deepEqual(result.lemma, conflict);
+    }
+    const seed = { lemmas: [conflict], seats: [] };
+    assert.deepEqual(applySubmissionsPure(seed, [proof, refutation, barrier]).state.lemmas, [conflict]);
+  }
+  assert.deepEqual(initial, { id: "C", status: "conjecture" });
+});
+
+test("editorial barriers cannot replace a verified or contradictory verdict", () => {
+  for (const status of ["checked", "refuted", "contradiction"]) {
+    const lemma = { id: "C", status };
+    const result = transitionClaim(lemma, barrier);
+    assert.equal(result.ok, false);
+    assert.match(result.reason, new RegExp(status));
+    assert.deepEqual(applySubmissionsPure({ lemmas: [lemma], seats: [] }, [barrier]).state.lemmas, [lemma]);
+  }
+  const initial = { id: "C", status: "in_work", claimed_by: "donor-a" };
+  const seed = { lemmas: [initial], seats: [{ id: "donor-a", status: "working", current_lemma: "C" }] };
+  const closed = applySubmissionsPure(seed, [barrier]).state;
+  assert.equal(closed.lemmas[0].status, "dead");
+  assert.equal(closed.lemmas[0].claimed_by, null);
+  assert.equal(closed.seats[0].status, "idle");
+  assert.equal(closed.seats[0].current_lemma, null);
+});
+
+test("seat reassignment releases both old links and maintains one owner per claim", () => {
+  const seed = {
+    lemmas: [
+      { id: "C", status: "in_work", claimed_by: "donor-a" },
+      { id: "D", status: "in_work", claimed_by: "donor-b" },
+    ],
+    seats: [
+      { id: "donor-a", current_lemma: "C", status: "checking" },
+      { id: "donor-b", current_lemma: "D", status: "working" },
+    ],
+  };
+  const original = structuredClone(seed);
+  const state = assignSeatClaim(seed, "donor-a", "D");
+  assert.deepEqual(seed, original);
+  assert.deepEqual(state.lemmas.map(({ id, status, claimed_by }) => [id, status, claimed_by]), [
+    ["C", "conjecture", null],
+    ["D", "in_work", "donor-a"],
+  ]);
+  assert.deepEqual(state.seats, [
+    { id: "donor-a", current_lemma: "D", status: "working" },
+    { id: "donor-b", current_lemma: null, status: "idle" },
+  ]);
+
+  const released = releaseSeatClaim(state, "donor-a");
+  assert.ok(released.seats.every((seat) => seat.current_lemma === null));
+  assert.ok(released.lemmas.every((lemma) => lemma.status === "conjecture" && lemma.claimed_by === null));
+
+  const shared = { ...seed, seats: seed.seats.map((seat) => ({ ...seat, current_lemma: "C" })) };
+  const oneOwner = releaseSeatClaim(shared, "donor-a");
+  assert.equal(oneOwner.lemmas[0].status, "in_work");
+  assert.equal(oneOwner.lemmas[0].claimed_by, "donor-b");
+  assert.equal(oneOwner.lemmas[1].status, "in_work");
+  assert.throws(() => assignSeatClaim(seed, "donor-a", "absent"), /Unknown claim/);
+  assert.throws(() => assignSeatClaim(seed, "absent", "D"), /Unknown seat/);
+});
+
+test("freshness checks both frozen statements and Core or harness receipts", (t) => {
+  const dir = tempDir(t);
+  const statement = path.join(dir, "statement.lean");
+  const core = path.join(dir, "core.lean");
+  fs.writeFileSync(statement, "original statement");
+  fs.writeFileSync(core, "original core");
+
+  const receipt = { statement_hash: sha256RelFile(statement), core_hash: sha256RelFile(core), ok: true, statement_frozen: true };
+  const fixed = { id: "C", status: "checked", statement_file: statement, checker: receipt };
+  const record = {
+    id: "R", kind: "record", status: "conjecture", statement_file: statement,
+    record_state: { best: { ...receipt, score: 5 }, history: [{ state: "accepted" }] },
+  };
+  const fixedMission = { slug: "test", judge: { core_file: core } };
+  const recordMission = { slug: "test", judge: { harness_file: core } };
+  assert.equal(computeClaimFreshness(fixedMission, fixed), "fresh");
+  assert.equal(computeClaimFreshness(recordMission, record), "fresh");
+  const boundOnly = { ...record, record_state: { refuted: receipt } };
+  assert.equal(computeClaimFreshness(recordMission, boundOnly), "fresh");
+
+  fs.appendFileSync(core, "\nnew Core definitions");
+  const refreshedRecord = projectClaimView(recordMission, record);
+  assert.equal(computeClaimFreshness(fixedMission, fixed), "stale_core");
+  assert.equal(refreshedRecord.freshness, "stale_core");
+  assert.equal(refreshedRecord.record_meta.best_score, 5);
+  assert.deepEqual(refreshedRecord.record_state.history, [{ state: "accepted" }]);
+  assert.equal(computeClaimFreshness(recordMission, boundOnly), "stale_core");
+
+  fs.appendFileSync(statement, "\nstatement edit");
+  assert.equal(computeClaimFreshness(fixedMission, fixed), "stale_statement");
+  assert.equal(computeClaimFreshness(recordMission, record), "stale_statement");
+  assert.equal(computeClaimFreshness(recordMission, boundOnly), "stale_statement");
+
+  const targets = computeRecordTargets("test", record, "record", 5);
+  const derived = applySubmissionsPure({
+    lemmas: [{ ...record, record: { start_target: 6 } }], seats: [],
+  }, [{
+    kind: "record", lemma_id: "R", score: 5, file: targets.artifactFile,
+    theorem: targets.theoremName, checker: receipt, at,
+  }], {
+    missionSlug: "test",
+    currentHashes: { coreHash: sha256RelFile(core), statementHashes: { [statement]: sha256RelFile(statement) } },
+  }).state.lemmas[0];
+  assert.equal(derived.record_state.best, null);
+  assert.equal(projectClaimView(recordMission, derived).freshness, "stale_statement");
+});
+
+test("later record receipts cannot replace the results that contradicted each other", () => {
+  const lemma = {
+    id: "R", kind: "record", status: "conjecture", statement_file: "record.lean",
+    record: { direction: "min", start_target: 10, bound_floor: 0 },
+  };
+  const events = [["record", 8], ["record_bound", 8], ["record", 6], ["record_bound", 9]].map(([kind, score]) => {
+    const targets = computeRecordTargets("test", lemma, kind, score);
+    return {
+      kind, score, lemma_id: "R", _sub_file: targets.submissionBasename,
+      file: targets.artifactFile, theorem: targets.theoremName,
+      checker: { ok: true, statement_hash: "statement", core_hash: "core" },
+    };
+  });
+  const ctx = {
+    missionSlug: "test",
+    gitAddedTs: new Map(events.map((event, index) => [event._sub_file, index + 1])),
+    currentHashes: { statementHashes: { "record.lean": "statement" }, coreHash: "core" },
+  };
+  const state = applySubmissionsPure({ lemmas: [lemma], seats: [] }, events, ctx).state;
+  const result = state.lemmas[0];
+  assert.equal(result.status, "contradiction");
+  assert.equal(result.record_state.best.score, 8);
+  assert.equal(result.record_state.refuted.score, 8);
+  assert.deepEqual(result.record_state.points_by_seat, {});
+  assert.equal(result.record_state.history.length, 4);
+  assert.deepEqual(applySubmissionsPure(state, events, ctx).state.lemmas, state.lemmas);
+});
+
+test("claim views project PR checks, hash-bound seals, and record actions", () => {
+  const mission = { slug: "test" };
+  const lemma = { id: "C", status: "conjecture" };
+  for (const [checkStates, expected] of [
+    [[], "none"], [["pending"], "open"], [[undefined], "open"],
+    [["needs_fix", "pending"], "needs_fix"], [["passing", "needs_fix"], "passing"],
+  ]) {
+    const open_prs = checkStates.map((check_state) => ({ check_state }));
+    const view = projectClaimView(mission, { ...lemma, open_prs });
+    assert.equal(view.pr_state, expected);
+    assert.deepEqual(view.actions, { can_attempt: true, can_bound: false, can_refute: true, can_audit: false, reason: null });
+  }
+  const checked = { ...lemma, status: "checked", checker: proof.checker, audit: { status: "flagged", file_hash: "old-proof" } };
+  assert.equal(projectClaimView(mission, checked).seal, "provisional");
+  const audited = projectClaimView(mission, { ...checked, audit: { status: "faithful", file_hash: "proof" } });
+  assert.equal(audited.seal, "audited");
+  assert.equal(audited.actions.can_audit, true);
+  assert.equal(audited.actions.can_attempt, false);
+
+  for (const [direction, op, start_target, best, bound_floor, literature, proven, gap] of [
+    ["min", "≤", 30, 28, 23, 24, 25, 3],
+    ["max", "≥", 256, 258, 341, 340, 300, 42],
+  ]) {
+    const record = {
+      id: "R", kind: "record", status: "conjecture",
+      record: { direction, start_target, bound_floor, literature_lower_bound: 24, literature_upper_bound: 340 },
+    };
+    const open = projectClaimView(mission, record);
+    assert.equal(open.record_meta.op, op);
+    assert.equal(open.record_meta.gap, Math.abs(start_target - literature));
+    assert.equal(open.record_meta.literature_bound, literature);
+    assert.equal(open.record_meta.next_target, start_target);
+    assert.equal(open.actions.can_bound, true);
+    assert.equal(projectClaimView(mission, { ...record, record: { ...record.record, allow_bound: false } }).actions.can_bound, false);
+
+    record.record_state = { best: { score: best }, refuted: { inclusive_bound: proven } };
+    const improved = projectClaimView(mission, record);
+    assert.equal(improved.record_meta.gap, gap);
+    assert.equal(improved.record_meta.proven_bound, proven);
+
+    record.record_state.closed = true;
+    const closed = projectClaimView(mission, record);
+    assert.equal(closed.record_meta.gap, 0);
+    assert.equal(closed.record_meta.next_target, null);
+    assert.equal(closed.seal, "frozen");
+    assert.equal(closed.actions.can_bound, false);
+    assert.equal(closed.actions.can_attempt, false);
+
+    record.record_state.contradiction = true;
+    const conflict = projectClaimView(mission, record);
+    assert.equal(conflict.record_meta.contradiction, true);
+    assert.equal(conflict.record_meta.closed, false);
+    assert.equal(conflict.seal, "contradiction");
+    assert.equal(conflict.actions.can_attempt, false);
+  }
+});
+
+test("CLI rejects lifecycle conflicts and moves actual seat claims", (t) => {
+  const dir = tempDir(t);
+  fs.cpSync(path.join(ROOT, "hub"), path.join(dir, "hub"), { recursive: true });
+  const missionDir = path.join(dir, "missions/test");
+  const submissionsDir = path.join(missionDir, "submissions");
+  fs.mkdirSync(submissionsDir, { recursive: true });
+  const science = loadMission("verified-science-kernels");
+  fs.cpSync(science.paths.dir, path.join(dir, "missions", science.slug), { recursive: true });
+  const { judge } = science;
+  fs.writeFileSync(path.join(missionDir, "mission.json"), JSON.stringify({ title: "Test", judge }));
+  const stateFile = path.join(missionDir, "state.json");
+  const state = {
+    meta: {}, whispers: [], checker_runs: [],
+    seats: [
+      { id: "donor-a", status: "working", current_lemma: "A", counts: {} },
+      { id: "donor-b", status: "working", current_lemma: "B", counts: {} },
+    ],
+    lemmas: [
+      { id: "A", status: "in_work", claimed_by: "donor-a" },
+      { id: "B", status: "in_work", claimed_by: "donor-b" },
+      { id: "C", status: "conjecture" },
+      { id: "D", status: "refuted" },
+      { id: "E", status: "contradiction" },
+      { id: "R", kind: "record", status: "contradiction" },
+    ],
+  };
+  fs.writeFileSync(stateFile, JSON.stringify(state));
+  fs.writeFileSync(path.join(submissionsDir, "C.proof.json"), JSON.stringify(proof));
+  const cli = (command, id, ...args) => runNode(
+    ["hub/fleet.mjs", command, "--mission", "test", "--seat", "donor-a", "--lemma", id, ...args], { cwd: dir },
+  );
+
+  for (const [id, status] of [["C", "checked"], ["D", "refuted"], ["E", "contradiction"]]) {
+    const result = cli("rule-dead", id, "--wall", "Barrier", "--reason", "No");
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, new RegExp(status));
+  }
+  for (const command of ["claim", "verify", "refute", "record", "record-bound"]) {
+    const id = command.startsWith("record") ? "R" : "E";
+    const result = cli(command, id, "--file", "no-such-file", "--theorem", "Test.claim", "--summary", "Test", "--score", "3", "--force-judge");
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /status is "contradiction"/);
+  }
+  assert.deepEqual(JSON.parse(fs.readFileSync(stateFile, "utf8")), state);
+
+  const result = cli("claim", "B");
+  assert.equal(result.status, 0, result.stderr);
+  const moved = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  assert.deepEqual(moved.seats.map((s) => s.current_lemma), ["B", null]);
+  assert.deepEqual(moved.lemmas.slice(0, 2).map((l) => [l.status, l.claimed_by]), [
+    ["conjecture", null], ["in_work", "donor-a"],
+  ]);
+
+  const artifact = `missions/${science.slug}/artifacts/S_num_001.mjs`;
+  const verified = cli("verify", "B", "--file", artifact, "--theorem", "kahan_compensated_sum", "--export");
+  assert.equal(verified.status, 0, verified.stderr || verified.stdout);
+  const persisted = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  const checked = persisted.lemmas.find((lemma) => lemma.id === "B");
+  const { exported_submission } = JSON.parse(verified.stdout);
+  const submission = JSON.parse(fs.readFileSync(path.join(dir, exported_submission), "utf8"));
+  assert.equal(checked.status, "checked");
+  assert.equal(checked.claimed_by, null);
+  assert.equal(checked.checker.file_hash, sha256RelFile(artifact));
+  assert.deepEqual(checked.checker, submission.checker);
+  assert.ok(persisted.seats.every((seat) => seat.current_lemma == null && seat.status === "idle"));
+});
+
+test("global records project all six missions and eighteen hunts", () => {
+  const snapshots = listMissionSlugs().map((slug) => {
+    const mission = loadMission(slug);
+    const snap = buildMissionSnapshot(mission);
+    return snap;
+  });
+  const records = projectGlobalRecords(snapshots, at);
+  assert.equal(records.generated_at, at);
+  assert.equal(records.totals.missions, 6);
+  assert.equal(records.records.length, 18);
+  assert.equal(records.totals.records_active + records.totals.records_closed, 18);
+  assert.ok(records.totals.trusted_proofs > 0);
+  assert.ok(records.latest_verified?.file);
+  assert.ok(records.latest_verified?.at);
+  assert.equal(new Set(records.records.map((r) => `${r.mission}/${r.id}`)).size, 18);
+  const min = records.records.find((r) => r.id === "SN-rec-013");
+  assert.equal(min.literature_bound, 43);
+  assert.equal(min.gap, 3);
+  const max = records.records.find((r) => r.id === "EC-rec-17-6");
+  assert.equal(max.literature_bound, 340);
+  assert.equal(max.gap, 84);
+
+  const missions = loadAllMissionsSummary(snapshots);
+  assert.equal(missions.length, 6);
+  for (const mission of missions) {
+    assert.ok(mission.description);
+    assert.equal(mission.objectives_detail.length, mission.objectives.total);
+    for (const objective of mission.objectives_detail) {
+      assert.ok(objective.id && objective.title && objective.tier);
+      assert.ok(objective.rungs.every((r) => r.id && r.seal && typeof r.conquered === "boolean"));
+      assert.equal(objective.conquered, objective.rungs.length > 0 && objective.rungs.every((r) => r.conquered));
+    }
+  }
+});
+
+test("static records, live API and SSE share the projected schema", { timeout: 30_000 }, async (t) => {
+  const dir = tempDir(t);
+  const repo = "sorting-networks";
+  const [passing, failed, pending] = [
+    { number: 11, claim: "SN-rec-013", statusCheckRollup: [{ conclusion: "SUCCESS" }, { state: "SUCCESS" }] },
+    { number: 12, claim: "SN-001", statusCheckRollup: [{ state: "PENDING" }, { conclusion: "FAILURE" }] },
+    { number: 13, claim: "SN-002" },
+  ];
+  const prs = [passing, failed, pending].map(({ claim, ...pr }) => ({
+    ...pr,
+    files: [{ path: `missions/${repo}/submissions/${claim}.proof.test.json` }],
+    title: claim,
+    url: `https://example.test/pull/${pr.number}`,
+    updatedAt: at,
+  }));
+  const fixture = path.join(dir, "prs.json");
+  fs.writeFileSync(fixture, JSON.stringify(prs));
+  const gh = path.join(dir, "gh");
+  fs.writeFileSync(gh, `#!/bin/sh
+case "$*" in
+  *statusCheckRollup*) cat "$PF_TEST_PR_FIXTURE" ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o755 });
+  const env = { ...process.env, PATH: `${dir}${path.delimiter}${process.env.PATH}`, PF_TEST_PR_FIXTURE: fixture };
+
+  const missionStateFiles = listMissionSlugs().map((slug) => loadMission(slug).paths.stateFile);
+  const prior = missionStateFiles.map((file) => fs.readFileSync(file, "utf8"));
+  const build = runNode(["hub/build_site.mjs"], { env });
+  assert.equal(build.status, 0, build.stderr);
+  assert.deepEqual(missionStateFiles.map((file) => fs.readFileSync(file, "utf8")), prior);
+  const staticRecords = JSON.parse(fs.readFileSync(path.join(ROOT, "dist/data/records.json"), "utf8"));
+  const staticState = JSON.parse(fs.readFileSync(path.join(ROOT, `dist/data/${repo}/state.json`), "utf8"));
+
+  const server = spawn(process.execPath, ["web/server.mjs"], { cwd: ROOT, env: { ...env, PORT: "0" }, stdio: ["ignore", "pipe", "pipe"] });
+  const serverExit = once(server, "exit");
+  t.after(async () => {
+    server.kill();
+    await serverExit;
+  });
+  const [started] = await once(server.stdout, "data", { signal: AbortSignal.timeout(5000) });
+  const address = started.toString().match(/http:\/\/127\.0\.0\.1:\d+/)?.[0];
+  assert.ok(address, started.toString());
+
+  const response = await fetch(`${address}/api/records`, { signal: AbortSignal.timeout(5000) });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type"), /application\/json/);
+  const { generated_at: liveAt, ...liveRecords } = await response.json();
+  const { generated_at: staticAt, ...siteRecords } = staticRecords;
+  assert.ok(Number.isFinite(Date.parse(liveAt)) && Number.isFinite(Date.parse(staticAt)));
+  assert.deepEqual(liveRecords, siteRecords);
+  assert.equal(liveRecords.records.length, 18);
+  assert.equal(liveRecords.records.find((r) => r.id === passing.claim).open_prs[0].check_state, "passing");
+
+  async function json(url) {
+    const result = await fetch(`${address}${url}`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(result.status, 200);
+    return result.json();
+  }
+  const liveState = await json(`/api/missions/${repo}/state`);
+  const legacyState = await json(`/api/state?mission=${repo}`);
+  assert.equal(liveState.mission.slug, repo);
+  assert.deepEqual(liveState.lemmas, staticState.lemmas);
+  assert.deepEqual(liveState.lemmas, legacyState.lemmas);
+  for (const [pr, state, check] of [
+    [passing, "passing", "passing"], [failed, "needs_fix", "needs_fix"], [pending, "open", "pending"],
+  ]) {
+    const lemma = liveState.lemmas.find((l) => l.id === pr.claim);
+    assert.equal(lemma.pr_state, state);
+    assert.equal(lemma.freshness, "fresh");
+    assert.equal(lemma.open_prs[0].check_state, check);
+    assert.equal(typeof lemma.actions.can_attempt, "boolean");
+    assert.equal(typeof lemma.seal, "string");
+    if (lemma.kind === "record") assert.equal(lemma.record_meta.direction, "min");
+  }
+  assert.equal((await fetch(`${address}/api/missions/missing/state`)).status, 404);
+
+  const stream = await fetch(`${address}/api/stream?mission=${repo}`, { signal: AbortSignal.timeout(5000) });
+  assert.match(stream.headers.get("content-type"), /text\/event-stream/);
+  const reader = stream.body.getReader();
+  const decoder = new TextDecoder();
+  let frame = "";
+  try {
+    while (!frame.includes("\n\n")) {
+      const { value, done } = await reader.read();
+      assert.equal(done, false);
+      frame += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    await reader.cancel();
+  }
+  assert.match(frame, /^event: snapshot\ndata: /);
+  const sseSnapshot = JSON.parse(frame.split("\n")[1].slice("data: ".length));
+  assert.deepEqual(sseSnapshot.lemmas, liveState.lemmas);
+});

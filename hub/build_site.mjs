@@ -13,10 +13,8 @@ import {
   readAllowedArtifactFile,
   readMissionStatementFile,
   deriveMissionState,
-  computeTrustSeal,
-  normalizeObjectiveReqs,
-  isRungConquered,
 } from "./missions.mjs";
+import { projectGlobalRecords, projectMissionSnapshot } from "./state_machine.mjs";
 
 const DIST = path.join(ROOT, "dist");
 const PUBLIC_DIR = path.join(ROOT, "web", "public");
@@ -60,6 +58,15 @@ function allKnownClaimIds() {
   return ids;
 }
 
+function prCheckState(rollup) {
+  if (!Array.isArray(rollup) || !rollup.length) return "pending";
+  const failures = new Set(["FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE"]);
+  const successes = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
+  const results = rollup.map((check) => check?.conclusion || check?.state || check?.status);
+  if (results.some((result) => failures.has(result))) return "needs_fix";
+  return results.every((result) => successes.has(result)) ? "passing" : "pending";
+}
+
 /**
  * Fetch up to 200 open PRs keyed by `mission/claimId` and bare `claimId`
  * (matches every registered claim ID including MM-rec-4x4-f2, E-rec-r55, S-rec-exp, EC-rec-*, etc.!).
@@ -69,7 +76,7 @@ export function fetchOpenPRs(repo = "steph4n-gh/proof-foundry") {
   try {
     const res = spawnSync(
       "gh",
-      ["pr", "list", "--repo", repo, "--state", "open", "--limit", "200", "--json", "number,title,url,headRefName,updatedAt,files"],
+      ["pr", "list", "--repo", repo, "--state", "open", "--limit", "200", "--json", "number,title,url,headRefName,updatedAt,files,statusCheckRollup"],
       { encoding: "utf8", timeout: 10000 }
     );
     if (res.status !== 0 || !res.stdout) {
@@ -86,6 +93,7 @@ export function fetchOpenPRs(repo = "steph4n-gh/proof-foundry") {
         url: pr.url,
         branch: pr.headRefName,
         updated_at: pr.updatedAt,
+        check_state: prCheckState(pr.statusCheckRollup),
       };
       const scopedKeys = new Set();
       const bareIds = new Set();
@@ -111,150 +119,14 @@ export function fetchOpenPRs(repo = "steph4n-gh/proof-foundry") {
 }
 
 export function buildMissionSnapshot(mission, prSnap = null) {
-  const { state } = deriveMissionState(mission.slug);
+  const { state } = deriveMissionState(mission.slug, { project: false });
   const events = readEvents(mission.paths.eventsFile, 160);
-  const leftKey = mission.tug_of_war?.left_key || "p_neq_np";
-  const rightKey = mission.tug_of_war?.right_key || "p_eq_np";
-  const scopedPrMap = prSnap?.by_mission_claim || {};
-  const barePrMap = prSnap?.by_claim || {};
-
-  const counts = {
-    lemmas: state.lemmas.length,
-    checked: 0,
-    trusted: 0,
-    audited_faithful: 0,
-    frozen_matched: 0,
-    records_active: 0,
-    records_closed: 0,
-    flagged: 0,
-    contradiction: 0,
-    in_work: 0,
-    conjecture: 0,
-    refuted: 0,
-    dead: 0,
-    aims_left_checked: 0,
-    aims_right_checked: 0,
-    aims_neutral_checked: 0,
-    agents_working: 0,
-    agents_checking: 0,
-  };
-
-  let frontier = null;
-  const enrichedLemmas = state.lemmas.map((l) => {
-    const seal = computeTrustSeal(l);
-    const scoped = scopedPrMap[`${mission.slug}/${l.id}`] || [];
-    const bare = barePrMap[l.id] || [];
-    const seenPrNums = new Set();
-    const open_prs = [...scoped, ...bare].filter((p) => {
-      if (seenPrNums.has(p.number)) return false;
-      seenPrNums.add(p.number);
-      return true;
-    });
-
-    if (l.kind === "record") {
-      if (l.record_state?.contradiction) counts.contradiction++;
-      else if (l.record_state?.closed) {
-        counts.records_closed++;
-        counts.checked++;
-        counts.frozen_matched++;
-        counts.trusted++;
-      } else {
-        counts.records_active++;
-        counts.conjecture++;
-      }
-      if (l.record_state?.best && !l.record_state?.contradiction) {
-        if (l.aims_at === leftKey) counts.aims_left_checked++;
-        else if (l.aims_at === rightKey) counts.aims_right_checked++;
-        else counts.aims_neutral_checked++;
-      }
-      return { ...l, seal, open_prs };
-    }
-
-    counts[l.status] = (counts[l.status] || 0) + 1;
-    if (seal === "audited") counts.audited_faithful++;
-    if (seal === "frozen") counts.frozen_matched++;
-    if (seal === "audited" || seal === "frozen") counts.trusted++;
-    if (seal === "flagged") counts.flagged++;
-    if (l.status === "checked") {
-      if (l.aims_at === leftKey) counts.aims_left_checked++;
-      else if (l.aims_at === rightKey) counts.aims_right_checked++;
-      else counts.aims_neutral_checked++;
-
-      if (seal !== "flagged") {
-        const score = (l.rung || 0) * 10 + (l.deps?.length || 0) * 5;
-        const bestScore = frontier ? (frontier.rung || 0) * 10 + (frontier.deps?.length || 0) * 5 : -1;
-        if (
-          !frontier ||
-          score > bestScore ||
-          (score === bestScore && (l.checker?.checked_at || "") > (frontier.checker?.checked_at || ""))
-        ) {
-          frontier = l;
-        }
-      }
-    }
-    return { ...l, seal, open_prs };
-  });
-
-  for (const s of state.seats || []) {
-    if (s.status === "working") counts.agents_working++;
-    if (s.status === "checking") counts.agents_checking++;
-  }
-
-  const justIn =
-    events.find((e) => ["checker_accepted", "claim_refuted", "approach_dead", "lemma_audited"].includes(e.type)) ||
-    null;
-
-  const objectives = (mission.objectives || []).map((obj) => {
-    const reqs = normalizeObjectiveReqs(obj);
-    const items = reqs.map((r) => {
-      const l = enrichedLemmas.find((x) => x.id === r.id);
-      const done = isRungConquered(l, r.expect);
-      return {
-        id: r.id,
-        expect: r.expect,
-        kind: l?.kind || "claim",
-        title: l?.title || r.id,
-        status: l?.status || "conjecture",
-        seal: l?.seal || "open",
-        record_state: l?.record_state || null,
-        record: l?.record || null,
-        open_prs: l?.open_prs || [],
-        done,
-      };
-    });
-    const completed = items.filter((i) => i.done).length;
-    const total = items.length;
-    return {
-      ...obj,
-      items,
-      completed,
-      total,
-      pct: total > 0 ? Math.round((completed / total) * 100) : 0,
-      conquered: total > 0 && completed === total,
-    };
-  });
-
   return {
+    ...projectMissionSnapshot(mission, state, prSnap),
     ready: true,
     snapshot_at: new Date().toISOString(),
     pr_sync: prSnap ? { ok: prSnap.ok, fetched_at: prSnap.fetched_at } : { ok: false, fetched_at: null },
-    mission: {
-      slug: mission.slug,
-      brand: mission.brand,
-      title: mission.title,
-      tagline: mission.tagline,
-      question: mission.question,
-      description: mission.description,
-      tug_of_war: mission.tug_of_war,
-      judge: { type: mission.judge?.type, label: mission.judge?.label },
-      github_repo: mission.github_repo || "steph4n-gh/proof-foundry",
-      objectives,
-    },
-    ...state,
-    lemmas: enrichedLemmas,
-    counts,
-    frontier,
-    just_in: justIn,
+    just_in: events.find((e) => ["checker_accepted", "claim_refuted", "approach_dead", "lemma_audited"].includes(e.type)) || null,
     events,
   };
 }
@@ -299,26 +171,19 @@ export function renderMasterProofsMarkdown(snapshots) {
     lines.push("| Mission | ID | Target | Current Best | Next Target | Proven Bound | Holder | Status |");
     lines.push("|---|---|---|---|---|---|---|---|");
     for (const { mission, lemma: l } of allRecords) {
-      const rs = l.record_state || {};
-      const cfg = l.record || {};
-      const isMax = cfg.direction === "max";
-      const op = isMax ? "≥" : "≤";
+      const meta = l.record_meta;
+      const isMax = meta.direction === "max";
       const boundOp = isMax ? "≤" : "≥";
-      const unit = cfg.unit || "";
-      const bestTxt = rs.best ? `**${rs.best.score}** ${unit}` : `*(unclaimed, ${isMax ? "floor" : "ceiling"} ${cfg.start_target})*`;
-      const nextTxt = rs.contradiction
-        ? "Halted (Contradiction)"
-        : rs.closed
-        ? "Exact Optimal ✓"
-        : `\`${op} ${rs.next_target ?? cfg.start_target}\``;
-      const litBound = isMax ? cfg.literature_upper_bound : cfg.literature_lower_bound;
-      const lbTxt = rs.refuted
-        ? `${boundOp} ${rs.refuted.inclusive_bound}`
-        : litBound != null
-        ? `*(lit. ${boundOp} ${litBound})*`
-        : "—";
-      const holder = rs.best ? `\`${rs.best.seat}\`` : "—";
-      const status = rs.contradiction ? "⛔ Contradiction" : rs.closed ? "◆ Closed Optimal" : rs.best ? "♛ Active Hunt" : "○ Open Hunt";
+      const bestTxt = meta.best_score != null
+        ? `**${meta.best_score}** ${meta.unit}`
+        : `*(unclaimed, ${isMax ? "floor" : "ceiling"} ${meta.start_target})*`;
+      const nextTxt = meta.contradiction ? "Halted (Contradiction)"
+        : meta.closed ? "Exact Optimal ✓" : `\`${meta.op} ${meta.next_target}\``;
+      const lbTxt = meta.proven_bound != null ? `${boundOp} ${meta.proven_bound}`
+        : meta.literature_bound != null ? `*(lit. ${boundOp} ${meta.literature_bound})*` : "—";
+      const holder = meta.best_seat ? `\`${meta.best_seat}\`` : "—";
+      const status = meta.contradiction ? "⛔ Contradiction" : meta.closed ? "◆ Closed Optimal"
+        : meta.best_score != null ? "♛ Active Hunt" : "○ Open Hunt";
       const safeTitle = String(l.title || "").replace(/\|/g, "\\|");
       lines.push(`| \`${mission.slug}\` | \`${l.id}\` | ${safeTitle} | ${bestTxt} | ${nextTxt} | ${lbTxt} | ${holder} | ${status} |`);
     }
@@ -391,6 +256,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     }
   }
 
+  fs.writeFileSync(path.join(dataDir, "records.json"), JSON.stringify(projectGlobalRecords(snaps, new Date().toISOString()), null, 2), "utf8");
+
   const proofsMd = renderMasterProofsMarkdown(snaps);
   fs.writeFileSync(path.join(DIST, "PROOFS.md"), proofsMd, "utf8");
   if (syncRootProofs) {
@@ -399,7 +266,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   fs.writeFileSync(
     path.join(dataDir, "missions.json"),
-    JSON.stringify({ missions: loadAllMissionsSummary(), static: true, snapshot_at: new Date().toISOString() }, null, 2),
+    JSON.stringify({ missions: loadAllMissionsSummary(snaps), static: true, snapshot_at: new Date().toISOString() }, null, 2),
     "utf8"
   );
   console.log(`Built static GitHub Pages dashboard in dist/ (including dist/PROOFS.md) for ${slugs.length} missions: ${slugs.join(", ")}`);

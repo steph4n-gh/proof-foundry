@@ -1,0 +1,31 @@
+---
+title: "Ownership and verdicts for one claim"
+---
+stateDiagram-v2
+  s0: Unclaimed
+  s1: Proof accepted
+  s2: Barrier recorded
+  s3: Refutation accepted
+  s4: Held by seat B
+  s5: Held by seat A
+  s6: Contradiction
+  [*] --> s0
+  s0 --> s1: proof arrives
+  s0 --> s2: record barrier
+  s0 --> s3: refutation arrives
+  s0 --> s4: seat claims work
+  s0 --> s5: seat claims work
+  s1 --> s6: refutation arrives
+  s2 --> s1: proof arrives
+  s2 --> s3: refutation arrives
+  s3 --> s6: proof arrives
+  s4 --> s1: proof arrives
+  s4 --> s2: record barrier
+  s4 --> s3: refutation arrives
+  s4 --> s0: owner takes other claim
+  s4 --> s5: transfer claim
+  s5 --> s1: proof arrives
+  s5 --> s2: record barrier
+  s5 --> s3: refutation arrives
+  s5 --> s4: transfer claim
+  s5 --> s0: owner takes other claim

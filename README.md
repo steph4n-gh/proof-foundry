@@ -7,6 +7,8 @@ Proof Foundry is an open-source multi-model research & formal-verification lab w
 - **Live Observatory Dashboard (GitHub Pages):** `https://steph4n-gh.github.io/proof-foundry/`
 - **Master Verified Catalog:** [PROOFS.md](./PROOFS.md) (auto-generated from conflict-free mission records)
 - **Local Live SSE Dashboard:** `node web/server.mjs` → `http://127.0.0.1:4321/`
+- **Design System & Guardrails:** [docs/DESIGN.md](./docs/DESIGN.md) (mirrored as [.claude/skills/proof-foundry-design/SKILL.md](./.claude/skills/proof-foundry-design/SKILL.md), enforced by `npm test`)
+- **Formal Protocol Models (TLA+ / TLC):** [formal/README.md](./formal/README.md) (exhaustively checked PR gate & claim/seat lifecycle statecharts)
 
 ## Trust Seals (Three-Tier Integrity)
 

@@ -19,9 +19,9 @@ import {
   getMissionPaths,
   deriveMissionState,
   compileSubmissionsIntoState,
-  computeTrustSeal,
   computeRecordTargets,
 } from "./missions.mjs";
+import { assignSeatClaim, projectMissionSnapshot, releaseClaimSeats, releaseSeatClaim, transitionClaim } from "./state_machine.mjs";
 import { fetchOpenPRs } from "./build_site.mjs";
 import { runJudge } from "./judges/index.mjs";
 import { validateCanonicalNatScore } from "./judges/lean4.mjs";
@@ -269,38 +269,29 @@ function writeSubmissionFile(lemma, kind, payload) {
   return path.relative(ROOT, fpath);
 }
 
+function registeredClaim(state, lemmaId) {
+  if (!state.lemmas.some((l) => l.id === lemmaId)) throw new Error(`Unknown claim: ${lemmaId}`);
+  const derived = deriveMissionState(mission.slug, { project: false }).state;
+  return derived.lemmas.find((l) => l.id === lemmaId);
+}
+
+function requireTransition(lemma, event, ctx) {
+  const result = transitionClaim(lemma, event, ctx);
+  if (!result.ok) throw new Error(result.reason);
+  return result.lemma;
+}
+
+function finishClaim(state, lemma) {
+  const idx = state.lemmas.findIndex((l) => l.id === lemma.id);
+  state.lemmas[idx] = lemma;
+  Object.assign(state, releaseClaimSeats(state, lemma.id));
+}
+
 if (cmd === "status") {
-  const { state } = deriveMissionState(mission.slug);
-  const counts = {
-    checked: 0,
-    trusted: 0,
-    records_active: 0,
-    records_closed: 0,
-    flagged: 0,
-    in_work: 0,
-    conjecture: 0,
-    refuted: 0,
-    dead: 0,
-    contradiction: 0,
-  };
-  for (const l of state.lemmas) {
-    if (l.kind === "record") {
-      if (l.record_state?.contradiction) counts.contradiction++;
-      else if (l.record_state?.closed) {
-        counts.records_closed++;
-        counts.checked++;
-        counts.trusted++;
-      } else {
-        counts.records_active++;
-        counts.conjecture++;
-      }
-      continue;
-    }
-    counts[l.status] = (counts[l.status] || 0) + 1;
-    const seal = computeTrustSeal(l);
-    if (seal === "audited" || seal === "frozen") counts.trusted++;
-    if (seal === "flagged") counts.flagged++;
-  }
+  const { state } = deriveMissionState(mission.slug, { project: false });
+  const { counts: projected } = projectMissionSnapshot(mission, state);
+  const keys = ["checked", "trusted", "records_active", "records_closed", "flagged", "in_work", "conjecture", "refuted", "dead", "contradiction"];
+  const counts = Object.fromEntries(keys.map((key) => [key, projected[key]]));
   console.log(JSON.stringify({ mission: mission.slug, title: mission.title, counts }, null, 2));
   process.exit(0);
 }
@@ -453,17 +444,13 @@ if (cmd === "lemma-add" || cmd === "claim-add") {
 if (cmd === "claim") {
   const res = withMissionLock(mission.paths.lockDir, () => {
     const state = loadState(mission);
-    const lemma = state.lemmas.find((l) => l.id === flags.lemma);
-    if (!lemma) throw new Error(`Unknown claim: ${flags.lemma}`);
-    if (lemma.status !== "conjecture" && lemma.status !== "in_work") {
-      throw new Error(`Cannot claim ${lemma.id} (status=${lemma.status})`);
-    }
-    const seat = ensureSeat(state, flags.seat);
-    lemma.status = "in_work";
-    lemma.claimed_by = seat.id;
-    lemma.updated_at = new Date().toISOString();
-    seat.status = "working";
-    seat.current_lemma = lemma.id;
+    const lemma = registeredClaim(state, flags.lemma);
+    requireTransition(lemma, { kind: "claim", seat: flags.seat });
+    if (!flags.seat) throw new Error("Required: --seat");
+    ensureSeat(state, flags.seat);
+    Object.assign(state, assignSeatClaim(state, flags.seat, lemma.id));
+    const seat = state.seats.find((s) => s.id === flags.seat);
+    state.lemmas.find((l) => l.id === lemma.id).updated_at = new Date().toISOString();
     seat.sessions = (seat.sessions || 0) + 1;
     seat.counts.attempts = (seat.counts.attempts || 0) + 1;
     state.meta.sessions_total = (state.meta.sessions_total || 0) + 1;
@@ -471,7 +458,7 @@ if (cmd === "claim") {
     addWhisper(state, seat.id, whisper, lemma.id);
     saveState(mission, state);
     appendEvent(mission, { type: "attempt_started", lemma_id: lemma.id, program: lemma.program, seat: seat.id, title: lemma.title, detail: whisper });
-    return { lemma_id: lemma.id, seat: seat.id, status: lemma.status };
+    return { lemma_id: lemma.id, seat: seat.id, status: "in_work" };
   });
   console.log(JSON.stringify({ ok: true, ...res }, null, 2));
   process.exit(0);
@@ -531,6 +518,11 @@ if (cmd === "record" || cmd === "record-bound") {
     console.error(`Claim "${flags.lemma}" is not a registered King-of-the-Hill record hunt in "${mission.slug}"`);
     process.exit(1);
   }
+  const lifecycle = transitionClaim(lemma, { kind }, { mode: "preflight" });
+  if (!lifecycle.ok) {
+    console.error(lifecycle.reason);
+    process.exit(1);
+  }
   const targets = computeRecordTargets(mission.slug, lemma, kind, score);
   const fileArg = flags.file || targets.artifactFile;
   const thmArg = flags.theorem || targets.theoremName;
@@ -569,7 +561,11 @@ if (cmd === "record" || cmd === "record-bound") {
   });
 
   let exportedFile = null;
-  if (verdict.ok && flags.export) {
+  if (verdict.ok && flags.export) withMissionLock(mission.paths.lockDir, () => {
+    const current = deriveMissionState(mission.slug, { project: false }).state.lemmas.find((l) => l.id === lemma.id);
+    requireTransition(current, { kind }, { mode: "preflight" });
+    const improvement = validateRecordImprovement(current, kind, score);
+    if (!improvement.ok && !flags["force-judge"]) throw new Error(improvement.reason);
     fs.mkdirSync(mission.paths.submissionsDir, { recursive: true });
     const recordJson = {
       schema: "pf.record.v1",
@@ -595,57 +591,56 @@ if (cmd === "record" || cmd === "record-bound") {
         statement_hash: verdict.statement_hash,
       },
     };
-    fs.writeFileSync(fpath, JSON.stringify(recordJson, null, 2) + "\n", "utf8");
+    fs.writeFileSync(fpath, JSON.stringify(recordJson, null, 2) + "\n", { encoding: "utf8", flag: "wx" });
     exportedFile = path.relative(ROOT, fpath);
-  }
+  });
 
   console.log(JSON.stringify({ ...verdict, score, exported_submission: exportedFile }, null, 2));
   process.exit(verdict.ok ? 0 : 1);
 }
 
-if (cmd === "verify") {
-  if (!flags.lemma || !flags.seat || !flags.file || !flags.theorem) {
-    console.error("Required: --lemma --seat --file --theorem");
+if (cmd === "verify" || cmd === "refute") {
+  const proof = cmd === "verify";
+  const kind = proof ? "proof" : "refutation";
+  if (!flags.lemma || !flags.seat || !flags.file || !flags.theorem || (!proof && !flags.summary)) {
+    console.error(`Required: --lemma --seat --file --theorem${proof ? "" : " --summary"}`);
     process.exit(2);
   }
-  let stmtMeta = { statementFile: flags["statement-file"] || null, statementDef: flags["statement-def"] || null };
-  withMissionLock(mission.paths.lockDir, () => {
+
+  const stmtMeta = withMissionLock(mission.paths.lockDir, () => {
     const state = loadState(mission);
-    const lemma = state.lemmas.find((l) => l.id === flags.lemma);
-    if (!lemma) throw new Error(`Unknown claim: ${flags.lemma}`);
-    if (lemma.status === "refuted" || lemma.status === "dead" || lemma.status === "contradiction") {
-      throw new Error(`State guard: cannot verify ${lemma.id} (status is "${lemma.status}")`);
-    }
-    if (lemma.theorem_name && lemma.theorem_name !== flags.theorem) {
+    const lemma = registeredClaim(state, flags.lemma);
+    requireTransition(lemma, { kind }, { mode: "preflight" });
+    if (proof && lemma.theorem_name && lemma.theorem_name !== flags.theorem) {
       throw new Error(`Binding guard: registered target is "${lemma.theorem_name}", not "${flags.theorem}"`);
     }
-    if (!stmtMeta.statementFile && lemma.statement_file) {
-      stmtMeta = { statementFile: lemma.statement_file, statementDef: lemma.statement_def };
+    ensureSeat(state, flags.seat);
+    if (transitionClaim(lemma, { kind: "claim", seat: flags.seat }).ok) {
+      Object.assign(state, assignSeatClaim(state, flags.seat, lemma.id));
+      state.seats.find((s) => s.id === flags.seat).status = "checking";
     }
-    const seat = ensureSeat(state, flags.seat);
-    seat.status = "checking";
-    seat.current_lemma = flags.lemma;
-    addWhisper(state, seat.id, `Submitting ${flags.lemma} to ${mission.judge?.label || "Judge"}…`, flags.lemma);
+    addWhisper(state, flags.seat, proof
+      ? `Submitting ${lemma.id} to ${mission.judge?.label || "Judge"}…`
+      : `Submitting counterexample for ${lemma.id}…`, lemma.id);
     saveState(mission, state);
+    if (!flags["statement-file"] && lemma.statement_file) {
+      return { statementFile: lemma.statement_file, statementDef: lemma.statement_def };
+    }
+    return { statementFile: flags["statement-file"] || null, statementDef: flags["statement-def"] || null };
   });
 
-  const verdict = runJudge(mission, {
-    file: flags.file,
-    target: flags.theorem,
-    kind: "proof",
-    statementFile: stmtMeta.statementFile,
-    statementDef: stmtMeta.statementDef,
-  });
+  const verdict = runJudge(mission, { file: flags.file, target: flags.theorem, kind, ...stmtMeta });
 
   let exportedFile = null;
+  let rejection = null;
   withMissionLock(mission.paths.lockDir, () => {
     const state = loadState(mission);
-    const lemma = state.lemmas.find((l) => l.id === flags.lemma);
+    const lemma = registeredClaim(state, flags.lemma);
     const seat = ensureSeat(state, flags.seat);
     const run = {
       id: `chk-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       at: new Date().toISOString(),
-      kind: "proof",
+      kind,
       lemma_id: lemma.id,
       seat: seat.id,
       theorem: flags.theorem,
@@ -656,163 +651,66 @@ if (cmd === "verify") {
       reason: verdict.reason,
       file_hash: verdict.file_hash,
       core_hash: verdict.core_hash,
-      statement_frozen: Boolean(verdict.statement_frozen),
+      ...(proof && { statement_frozen: Boolean(verdict.statement_frozen) }),
     };
     state.checker_runs.unshift(run);
     state.checker_runs = state.checker_runs.slice(0, 100);
     state.meta.checker_runs_total = (state.meta.checker_runs_total || 0) + 1;
     if (verdict.ok) state.meta.checker_runs_passed = (state.meta.checker_runs_passed || 0) + 1;
-    if (flags.paper) lemma.paper_notes = flags.paper;
 
-    let ev;
+    const event = { lemma_id: lemma.id, program: lemma.program, seat: seat.id, title: lemma.title, duration_ms: verdict.duration_ms };
     if (verdict.ok) {
-      // Re-check transition guard inside writeback lock!
-      if (lemma.status === "refuted") {
-        lemma.status = "contradiction";
-      } else {
-        const wasChecked = lemma.status === "checked";
-        lemma.status = "checked";
-        if (!wasChecked) seat.counts.checked = (seat.counts.checked || 0) + 1;
-      }
-      lemma.lean_file = verdict.file;
-      lemma.theorem_name = flags.theorem;
-      if (!lemma.registered_statement) lemma.registered_statement = lemma.statement || "";
-      if (verdict.signature) {
-        lemma.verified_signature = verdict.signature;
-        lemma.statement = verdict.signature;
-      }
-      lemma.checker = {
-        ok: true,
-        judge: verdict.judge,
-        checked_at: run.at,
+      const common = {
+        by_seat: seat.id,
         duration_ms: verdict.duration_ms,
         axioms: verdict.axioms,
-        lean_version: verdict.lean_version,
         file_hash: verdict.file_hash,
         core_hash: verdict.core_hash,
         statement_frozen: Boolean(verdict.statement_frozen),
         statement_hash: verdict.statement_hash || null,
-        by_seat: seat.id,
       };
-      lemma.updated_at = run.at;
-      seat.status = "working";
-      addWhisper(state, seat.id, `CHECKED ${lemma.id} in ${verdict.duration_ms}ms`, lemma.id);
-      ev = { type: "checker_accepted", lemma_id: lemma.id, program: lemma.program, seat: seat.id, title: lemma.title, duration_ms: verdict.duration_ms, axioms: verdict.axioms, file_hash: verdict.file_hash };
-      if (flags.export) {
-        exportedFile = writeSubmissionFile(lemma, "proof", {
-          file: verdict.file,
-          theorem: flags.theorem,
-          signature: verdict.signature,
-          checker: lemma.checker,
-        });
-      }
-    } else {
-      seat.status = "working";
-      addWhisper(state, seat.id, `Judge rejected ${lemma.id}: ${verdict.reason}`, lemma.id);
-      ev = { type: "checker_rejected", lemma_id: lemma.id, program: lemma.program, seat: seat.id, title: lemma.title, detail: verdict.reason, duration_ms: verdict.duration_ms };
-    }
-    saveState(mission, state);
-    appendEvent(mission, ev);
-  });
-
-  console.log(JSON.stringify({ ...verdict, exported_submission: exportedFile }, null, 2));
-  process.exit(verdict.ok ? 0 : 1);
-}
-
-if (cmd === "refute") {
-  if (!flags.lemma || !flags.seat || !flags.file || !flags.theorem || !flags.summary) {
-    console.error("Required: --lemma --seat --file --theorem --summary");
-    process.exit(2);
-  }
-  let stmtMeta = { statementFile: flags["statement-file"] || null, statementDef: flags["statement-def"] || null };
-  withMissionLock(mission.paths.lockDir, () => {
-    const state = loadState(mission);
-    const lemma = state.lemmas.find((l) => l.id === flags.lemma);
-    if (!lemma) throw new Error(`Unknown claim: ${flags.lemma}`);
-    if (lemma.status === "checked") throw new Error(`State guard: ${lemma.id} is already CHECKED`);
-    if (!stmtMeta.statementFile && lemma.statement_file) {
-      stmtMeta = { statementFile: lemma.statement_file, statementDef: lemma.statement_def };
-    }
-    const seat = ensureSeat(state, flags.seat);
-    seat.status = "checking";
-    seat.current_lemma = flags.lemma;
-    addWhisper(state, seat.id, `Submitting counterexample for ${flags.lemma}…`, flags.lemma);
-    saveState(mission, state);
-  });
-
-  const verdict = runJudge(mission, {
-    file: flags.file,
-    target: flags.theorem,
-    kind: "refutation",
-    statementFile: stmtMeta.statementFile,
-    statementDef: stmtMeta.statementDef,
-  });
-
-  let exportedFile = null;
-  withMissionLock(mission.paths.lockDir, () => {
-    const state = loadState(mission);
-    const lemma = state.lemmas.find((l) => l.id === flags.lemma);
-    const seat = ensureSeat(state, flags.seat);
-    const run = {
-      id: `chk-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-      at: new Date().toISOString(),
-      kind: "refutation",
-      lemma_id: lemma.id,
-      seat: seat.id,
-      theorem: flags.theorem,
-      file: verdict.file,
-      ok: verdict.ok,
-      duration_ms: verdict.duration_ms,
-      axioms: verdict.axioms,
-      reason: verdict.reason,
-      file_hash: verdict.file_hash,
-      core_hash: verdict.core_hash,
-    };
-    state.checker_runs.unshift(run);
-    state.checker_runs = state.checker_runs.slice(0, 100);
-    state.meta.checker_runs_total = (state.meta.checker_runs_total || 0) + 1;
-    if (verdict.ok) state.meta.checker_runs_passed = (state.meta.checker_runs_passed || 0) + 1;
-
-    let ev;
-    if (verdict.ok) {
-      if (lemma.status === "checked") {
-        lemma.status = "contradiction";
+      const payload = {
+        file: verdict.file,
+        theorem: flags.theorem,
+        ...(proof
+          ? { signature: verdict.signature, checker: { ...common, ok: true, judge: verdict.judge, checked_at: run.at, lean_version: verdict.lean_version } }
+          : { refutation: { ...common, summary: flags.summary, counterexample_file: verdict.file, theorem_name: flags.theorem, signature: verdict.signature || "", at: run.at } }),
+      };
+      const result = transitionClaim(lemma, { ...payload, kind, at: run.at });
+      if (result.ok) {
+        const next = result.lemma;
+        const count = proof ? "checked" : "refuted";
+        if (next.status === count && lemma.status !== count) seat.counts[count] = (seat.counts[count] || 0) + 1;
+        if (proof && flags.paper) next.paper_notes = flags.paper;
+        finishClaim(state, next);
+        const message = next.status === "contradiction" ? `Conflicting verified results for ${lemma.id}`
+          : proof ? `CHECKED ${lemma.id} in ${verdict.duration_ms}ms` : `REFUTED ${lemma.id}: ${flags.summary}`;
+        addWhisper(state, seat.id, message, lemma.id);
+        event.type = proof ? "checker_accepted" : "claim_refuted";
+        event.file_hash = verdict.file_hash;
+        if (proof) event.axioms = verdict.axioms;
+        else event.detail = flags.summary;
+        if (flags.export) exportedFile = writeSubmissionFile(next, kind, payload);
       } else {
-        const wasRef = lemma.status === "refuted";
-        lemma.status = "refuted";
-        if (!wasRef) seat.counts.refuted = (seat.counts.refuted || 0) + 1;
+        rejection = result.reason;
       }
-      lemma.refutation = {
-        by_seat: seat.id,
-        summary: flags.summary,
-        counterexample_file: verdict.file,
-        theorem_name: flags.theorem,
-        signature: verdict.signature || "",
-        axioms: verdict.axioms,
-        file_hash: verdict.file_hash,
-        core_hash: verdict.core_hash,
-        statement_frozen: Boolean(verdict.statement_frozen),
-        duration_ms: verdict.duration_ms,
-        at: run.at,
-      };
-      lemma.updated_at = run.at;
-      seat.status = "working";
-      addWhisper(state, seat.id, `REFUTED ${lemma.id}: ${flags.summary}`, lemma.id);
-      ev = { type: "claim_refuted", lemma_id: lemma.id, program: lemma.program, seat: seat.id, title: lemma.title, detail: flags.summary, duration_ms: verdict.duration_ms, file_hash: verdict.file_hash };
-      if (flags.export) {
-        exportedFile = writeSubmissionFile(lemma, "refutation", { file: verdict.file, theorem: flags.theorem, refutation: lemma.refutation });
-      }
-    } else {
-      seat.status = "working";
-      addWhisper(state, seat.id, `Counterexample for ${lemma.id} rejected: ${verdict.reason}`, lemma.id);
-      ev = { type: "checker_rejected", lemma_id: lemma.id, program: lemma.program, seat: seat.id, title: `Refutation on ${lemma.id}`, detail: verdict.reason, duration_ms: verdict.duration_ms };
+    }
+    if (!event.type) {
+      if (seat.current_lemma === lemma.id && seat.status === "checking") seat.status = "working";
+      event.type = "checker_rejected";
+      event.detail = rejection || verdict.reason;
+      addWhisper(state, seat.id, `Judge submission for ${lemma.id} rejected: ${event.detail}`, lemma.id);
     }
     saveState(mission, state);
-    appendEvent(mission, ev);
+    appendEvent(mission, event);
   });
 
-  console.log(JSON.stringify({ ...verdict, exported_submission: exportedFile }, null, 2));
-  process.exit(verdict.ok ? 0 : 1);
+  console.log(JSON.stringify({
+    ...verdict,
+    ...(rejection && { ok: false, reason: rejection }),
+    exported_submission: exportedFile,
+  }, null, 2));
+  process.exit(verdict.ok && !rejection ? 0 : 1);
 }
 
 if (cmd === "rule-dead") {
@@ -822,19 +720,16 @@ if (cmd === "rule-dead") {
   }
   withMissionLock(mission.paths.lockDir, () => {
     const state = loadState(mission);
-    const lemma = state.lemmas.find((l) => l.id === flags.lemma);
-    if (!lemma) throw new Error(`Unknown claim: ${flags.lemma}`);
-    if (lemma.status === "checked") throw new Error(`State guard: cannot rule CHECKED claim ${lemma.id} dead`);
+    const lemma = registeredClaim(state, flags.lemma);
+    const epitaph = { wall: flags.wall, reason: flags.reason, by_seat: flags.seat, editorial: true, at: new Date().toISOString() };
+    const next = requireTransition(lemma, { kind: "rule_dead", epitaph, at: epitaph.at });
     const seat = ensureSeat(state, flags.seat);
-    const wasDead = lemma.status === "dead";
-    lemma.status = "dead";
-    lemma.epitaph = { wall: flags.wall, reason: flags.reason, by_seat: seat.id, editorial: true, at: new Date().toISOString() };
-    lemma.updated_at = lemma.epitaph.at;
-    if (!wasDead) seat.counts.blocked = (seat.counts.blocked || 0) + 1;
+    if (lemma.status !== "dead") seat.counts.blocked = (seat.counts.blocked || 0) + 1;
+    finishClaim(state, next);
     addWhisper(state, seat.id, `Ruled ${lemma.id} DEAD — hits ${flags.wall}`, lemma.id);
     saveState(mission, state);
     appendEvent(mission, { type: "approach_dead", lemma_id: lemma.id, program: lemma.program, seat: seat.id, title: lemma.title, wall: flags.wall, detail: flags.reason });
-    if (flags.export) writeSubmissionFile(lemma, "rule_dead", { epitaph: lemma.epitaph });
+    if (flags.export) writeSubmissionFile(next, "rule_dead", { epitaph });
   });
   console.log(JSON.stringify({ ok: true }));
   process.exit(0);
@@ -962,9 +857,15 @@ if (cmd === "strategy-note") {
 if (cmd === "seat-state") {
   withMissionLock(mission.paths.lockDir, () => {
     const state = loadState(mission);
-    const seat = ensureSeat(state, flags.seat);
+    ensureSeat(state, flags.seat);
+    if (flags.lemma) {
+      requireTransition(registeredClaim(state, flags.lemma), { kind: "claim", seat: flags.seat });
+      Object.assign(state, assignSeatClaim(state, flags.seat, flags.lemma));
+    } else if (flags.lemma !== undefined || flags.status === "idle") {
+      Object.assign(state, releaseSeatClaim(state, flags.seat));
+    }
+    const seat = state.seats.find((s) => s.id === flags.seat);
     if (flags.status) seat.status = flags.status;
-    if (flags.lemma !== undefined) seat.current_lemma = flags.lemma || null;
     if (flags.whisper) addWhisper(state, seat.id, flags.whisper, seat.current_lemma);
     seat.last_seen = new Date().toISOString();
     saveState(mission, state);
