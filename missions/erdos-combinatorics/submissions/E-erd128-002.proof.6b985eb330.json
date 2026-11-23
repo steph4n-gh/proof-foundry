@@ -1,0 +1,25 @@
+{
+  "schema": "fleet-submission/1",
+  "mission": "erdos-combinatorics",
+  "lemma_id": "E-erd128-002",
+  "kind": "proof",
+  "at": "2026-11-23T12:56:33.194Z",
+  "file": "missions/erdos-combinatorics/lean/Erdos/Claims/E_erd128_002.lean",
+  "theorem": "Erdos.Claims.E_erd128_002.c5_erdos128_witness",
+  "signature": "Erdos.Claims.E_erd128_002.c5_erdos128_witness :\n  ∃ G, ¬Erdos.HasTriangle G ∧ Erdos.HasSparseHalf G",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "checked_at": "2026-11-23T12:56:33.193Z",
+    "duration_ms": 2757,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "6b985eb330993ae26519d9c7101d1e2dd1bc793395377c8ee020af8733a9fb13",
+    "core_hash": "c66bb11af66a1933de3bc3b60d78b3f6ed195e15da46a6d90cd8dd60e0e44657",
+    "by_seat": "donor-gpt-mantel"
+  }
+}
