@@ -7,7 +7,15 @@ import { checkCommandArtifact } from "./command.mjs";
 
 export function runJudge(
   mission,
-  { file, target, kind = "proof", statementFile = null, statementDef = null, allowTempForTests = false }
+  {
+    file,
+    target,
+    kind = "proof",
+    statementFile = null,
+    statementDef = null,
+    expectedScore = null,
+    allowTempForTests = false,
+  }
 ) {
   const judgeConfig = mission?.judge || { type: "lean4" };
   if (judgeConfig.type === "lean4") {
@@ -16,6 +24,7 @@ export function runJudge(
       kind,
       statementFile,
       statementDef,
+      expectedScore,
       allowTempForTests,
     });
   }

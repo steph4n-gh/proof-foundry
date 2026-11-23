@@ -20,9 +20,11 @@ import {
   deriveMissionState,
   compileSubmissionsIntoState,
   computeTrustSeal,
+  computeRecordTargets,
 } from "./missions.mjs";
 import { fetchOpenPRs } from "./build_site.mjs";
 import { runJudge } from "./judges/index.mjs";
+import { validateCanonicalNatScore } from "./judges/lean4.mjs";
 import {
   parseGitRawZ,
   entriesFromPaths,
@@ -30,6 +32,8 @@ import {
   stageAllowlistedEntries,
   evaluateAutoMergeDataOnly,
   verifyPrEntries,
+  validateRecordImprovement,
+  DONOR_SEAT_RE,
 } from "./pr_gate.mjs";
 
 function sleepMs(ms) {
@@ -168,8 +172,8 @@ const { cmd, flags } = parseArgs(process.argv.slice(2));
 const missionSlug = String(flags.mission || process.env.FLEET_MISSION || DEFAULT_MISSION);
 
 if (!cmd || cmd === "help") {
-  console.log(`Proof Foundry Fleet CLI (v2)
-Commands: missions | new | next | status | claim-add | claim | whisper | msg | verify | refute | rule-dead | audit | export-submission | compile | verify-pr | strategy-note | seat-state`);
+  console.log(`Proof Foundry Fleet CLI (v4)
+Commands: missions | new | next | status | claim-add | claim | whisper | msg | verify | refute | record | record-bound | rule-dead | audit | export-submission | compile | verify-pr | strategy-note | seat-state`);
   process.exit(0);
 }
 
@@ -267,8 +271,31 @@ function writeSubmissionFile(lemma, kind, payload) {
 
 if (cmd === "status") {
   const { state } = deriveMissionState(mission.slug);
-  const counts = { checked: 0, trusted: 0, flagged: 0, in_work: 0, conjecture: 0, refuted: 0, dead: 0, contradiction: 0 };
+  const counts = {
+    checked: 0,
+    trusted: 0,
+    records_active: 0,
+    records_closed: 0,
+    flagged: 0,
+    in_work: 0,
+    conjecture: 0,
+    refuted: 0,
+    dead: 0,
+    contradiction: 0,
+  };
   for (const l of state.lemmas) {
+    if (l.kind === "record") {
+      if (l.record_state?.contradiction) counts.contradiction++;
+      else if (l.record_state?.closed) {
+        counts.records_closed++;
+        counts.checked++;
+        counts.trusted++;
+      } else {
+        counts.records_active++;
+        counts.conjecture++;
+      }
+      continue;
+    }
     counts[l.status] = (counts[l.status] || 0) + 1;
     const seal = computeTrustSeal(l);
     if (seal === "audited" || seal === "frozen") counts.trusted++;
@@ -287,16 +314,26 @@ if (cmd === "next") {
   const byId = Object.fromEntries(state.lemmas.map((l) => [l.id, l]));
 
   const skippedActivePr = [];
+  const activeRecordPrs = [];
   const candidates = state.lemmas
-    .filter((l) => l.status === "conjecture" && (!flags.program || l.program === flags.program))
+    .filter((l) => {
+      if (flags.program && l.program !== flags.program) return false;
+      if (l.kind === "record") return !l.record_state?.closed && !l.record_state?.contradiction;
+      return l.status === "conjecture";
+    })
     .filter((l) => {
       const combined = [...(prSnap.by_mission_claim?.[`${mission.slug}/${l.id}`] || []), ...(prSnap.by_claim?.[l.id] || [])];
       const prs = combined.filter((p) => nowMs - new Date(p.updated_at).getTime() < STALE_PR_MS);
       if (prs.length > 0) {
-        skippedActivePr.push({ id: l.id, prs: [...new Set(prs.map((p) => `#${p.number}`))] });
-        return false;
+        if (l.kind === "record") {
+          // NEVER skip King-of-the-Hill record hunts on active PR (otherwise 1 abandoned PR stalls the hunt!)
+          activeRecordPrs.push({ id: l.id, prs: [...new Set(prs.map((p) => `#${p.number}`))] });
+        } else {
+          skippedActivePr.push({ id: l.id, prs: [...new Set(prs.map((p) => `#${p.number}`))] });
+          return false;
+        }
       }
-      return (l.deps || []).every((d) => !byId[d] || byId[d].status === "checked" || byId[d].status === "refuted");
+      return (l.deps || []).every((d) => !byId[d] || byId[d].status === "checked" || byId[d].status === "refuted" || byId[d].record_state?.best);
     })
     .sort((a, b) => (b.statement_file ? 1 : 0) - (a.statement_file ? 1 : 0) || (a.rung || 99) - (b.rung || 99));
 
@@ -318,6 +355,24 @@ if (cmd === "next") {
     process.exit(0);
   }
   const pick = candidates[0];
+  let instructions;
+  if (pick.kind === "record") {
+    const targetScore = pick.record_state?.next_target ?? pick.record?.start_target;
+    const recTargets = computeRecordTargets(mission.slug, pick, "record", targetScore);
+    instructions = [
+      `1. Read ${mission.judge?.core_file} AND frozen record statement ${pick.statement_file}`,
+      `2. Prove \`theorem ${recTargets.theoremName} : ${pick.statement_def} ${targetScore}\` in ${recTargets.artifactFile} (or any strictly better score s!)`,
+      `3. Verify locally: node hub/fleet.mjs record --mission ${mission.slug} --lemma ${pick.id} --score ${targetScore} --seat donor-<handle> --file ${recTargets.artifactFile} --export`,
+      `4. Open a PR with ONLY ${recTargets.artifactFile} and ${recTargets.submissionFile} (never edit state.json or older record files!).`,
+    ];
+  } else {
+    instructions = [
+      `1. Read ${mission.judge?.core_file || mission.judge?.harness_file}${pick.statement_file ? ` AND frozen statement ${pick.statement_file}` : ""}`,
+      `2. Write your isolated artifact in ${pick.lean_file}`,
+      `3. Verify locally: node hub/fleet.mjs verify --mission ${mission.slug} --lemma ${pick.id} --seat donor-<handle> --file ${pick.lean_file} --theorem ${pick.theorem_name} --export`,
+      `4. Open a PR with ONLY ${pick.lean_file} and missions/${mission.slug}/submissions/${pick.id}.*.json (never edit state.json!).`,
+    ];
+  }
   console.log(
     JSON.stringify(
       {
@@ -325,13 +380,9 @@ if (cmd === "next") {
         mission: mission.slug,
         pr_sync_ok: prSnap.ok,
         skipped_active_prs: skippedActivePr,
+        active_record_prs: activeRecordPrs,
         claim: pick,
-        instructions: [
-          `1. Read ${mission.judge?.core_file || mission.judge?.harness_file}${pick.statement_file ? ` AND frozen statement ${pick.statement_file}` : ""}`,
-          `2. Write your isolated artifact in ${pick.lean_file}`,
-          `3. Verify locally: node hub/fleet.mjs verify --mission ${mission.slug} --lemma ${pick.id} --seat donor-<handle> --file ${pick.lean_file} --theorem ${pick.theorem_name} --export`,
-          `4. Open a PR with ONLY ${pick.lean_file} and missions/${mission.slug}/submissions/${pick.id}.*.json (never edit state.json!).`,
-        ],
+        instructions,
       },
       null,
       2
@@ -450,6 +501,96 @@ if (cmd === "msg") {
   });
   console.log(JSON.stringify({ ok: true, message: msg }, null, 2));
   process.exit(0);
+}
+
+if (cmd === "record" || cmd === "record-bound") {
+  const kind = cmd === "record-bound" ? "record_bound" : "record";
+  if (!flags.lemma || !flags.seat || flags.score === undefined) {
+    console.error(`Required: --lemma <ID> --score <Nat> --seat donor-<handle> [--file <path>] [--theorem <name>] [--export]`);
+    process.exit(2);
+  }
+  const scoreStr = validateCanonicalNatScore(flags.score);
+  if (scoreStr === null) {
+    console.error(`Invalid canonical Nat score: ${flags.score}`);
+    process.exit(2);
+  }
+  const score = Number(scoreStr);
+  const { state } = deriveMissionState(mission.slug);
+  const lemma = state.lemmas.find((l) => l.id === flags.lemma);
+  if (!lemma || lemma.kind !== "record") {
+    console.error(`Claim "${flags.lemma}" is not a registered King-of-the-Hill record hunt in "${mission.slug}"`);
+    process.exit(1);
+  }
+  const targets = computeRecordTargets(mission.slug, lemma, kind, score);
+  const fileArg = flags.file || targets.artifactFile;
+  const thmArg = flags.theorem || targets.theoremName;
+
+  // Enforce canonical score-stamped filename & theorem BEFORE invoking Lean!
+  if (fileArg !== targets.artifactFile) {
+    console.error(`Non-canonical record file "${fileArg}" (must be "${targets.artifactFile}")`);
+    process.exit(2);
+  }
+  if (thmArg !== targets.theoremName) {
+    console.error(`Non-canonical record theorem "${thmArg}" (must be "${targets.theoremName}")`);
+    process.exit(2);
+  }
+  if (flags.export && !flags["allow-meta"] && !DONOR_SEAT_RE.test(String(flags.seat))) {
+    console.error(`Donor seat "${flags.seat}" must use donor-/ext-/contrib- prefix for PR export`);
+    process.exit(2);
+  }
+  const imp = validateRecordImprovement(lemma, kind, score);
+  if (!imp.ok && !flags["force-judge"]) {
+    console.error(`Record improvement pre-check failed: ${imp.reason}`);
+    process.exit(1);
+  }
+  const fpath = path.join(mission.paths.submissionsDir, targets.submissionBasename);
+  if (flags.export && fs.existsSync(fpath)) {
+    console.error(`Refusing to overwrite existing canonical submission receipt: ${path.relative(ROOT, fpath)}`);
+    process.exit(1);
+  }
+
+  const verdict = runJudge(mission, {
+    file: fileArg,
+    target: thmArg,
+    kind,
+    statementFile: lemma.statement_file,
+    statementDef: lemma.statement_def,
+    expectedScore: score,
+  });
+
+  let exportedFile = null;
+  if (verdict.ok && flags.export) {
+    fs.mkdirSync(mission.paths.submissionsDir, { recursive: true });
+    const recordJson = {
+      schema: "pf.record.v1",
+      mission: mission.slug,
+      lemma_id: lemma.id,
+      kind,
+      score,
+      file: verdict.file,
+      theorem: thmArg,
+      signature: verdict.signature || "",
+      at: new Date().toISOString(),
+      checker: {
+        ok: true,
+        judge: verdict.judge,
+        by_seat: flags.seat,
+        checked_at: new Date().toISOString(),
+        duration_ms: verdict.duration_ms,
+        axioms: verdict.axioms,
+        lean_version: verdict.lean_version,
+        file_hash: verdict.file_hash,
+        core_hash: verdict.core_hash,
+        statement_frozen: true,
+        statement_hash: verdict.statement_hash,
+      },
+    };
+    fs.writeFileSync(fpath, JSON.stringify(recordJson, null, 2) + "\n", "utf8");
+    exportedFile = path.relative(ROOT, fpath);
+  }
+
+  console.log(JSON.stringify({ ...verdict, score, exported_submission: exportedFile }, null, 2));
+  process.exit(verdict.ok ? 0 : 1);
 }
 
 if (cmd === "verify") {

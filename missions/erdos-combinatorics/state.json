@@ -1049,6 +1049,47 @@
       "refutation": null,
       "epitaph": null,
       "audit": null
+    },
+    {
+      "id": "E-rec-200",
+      "kind": "record",
+      "program": "erdos_open",
+      "title": "King of the Hill (Erdős #156): Smallest Maximal Sidon Subset of {1..200} (Greedy = 14, Search ≤ 11)",
+      "statement": "Erdos.Statements.E_rec_200.Record",
+      "registered_statement": "Erdos.Statements.E_rec_200.Record score  --  ∃ A : List Nat, A.length ≤ score ∧ IsMaximalSidon 200 A",
+      "verified_signature": null,
+      "statement_file": "missions/erdos-combinatorics/lean/Erdos/Statements/E_rec_200.lean",
+      "statement_def": "Erdos.Statements.E_rec_200.Record",
+      "statement_mono": "Erdos.Statements.E_rec_200.Record_mono",
+      "theorem_name": "Erdos.Claims.E_rec_200_s{score}.record",
+      "lean_file": "missions/erdos-combinatorics/lean/Erdos/Claims/E_rec_200_s{score}.lean",
+      "record": {
+        "direction": "min",
+        "unit": "elements",
+        "start_target": 14,
+        "literature_best": 11,
+        "literature_lower_bound": 6,
+        "bound_floor": 5,
+        "score_max": 200,
+        "file_stem": "E_rec_200",
+        "claims_dir": "missions/erdos-combinatorics/lean/Erdos/Claims",
+        "theorem_template": "Erdos.Claims.E_rec_200_{tag}.record"
+      },
+      "status": "conjecture",
+      "aims_at": "lower_avoid",
+      "deps": [
+        "E-erd156-001"
+      ],
+      "rung": 7,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": null,
+      "paper_notes": "Auto-ratcheting King-of-the-Hill hunt for Erdős Problem #156 at N=200! Ascending greedy gives size 14; search finds ≤ 11. Certify maximality cleanly via a colliding-pairs lookup table per outsider x ∈ {1..200} \\ A, or prove ¬ Record b to raise the proven lower bound!",
+      "created_at": "2026-11-23T16:30:00.000Z",
+      "updated_at": "2026-11-23T16:30:00.000Z",
+      "checker": null,
+      "refutation": null,
+      "epitaph": null,
+      "audit": null
     }
   ],
   "messages": [],

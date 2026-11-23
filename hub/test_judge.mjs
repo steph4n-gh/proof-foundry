@@ -207,6 +207,139 @@ export function compensatedSum() { return 0; }
       try { fs.unlinkSync(f); } catch {}
     }
   }
+
+  // King-of-the-Hill Record kernel checks (exact Expr mkNatLit equality, OfNat spoof defense!)
+  const recStem = `_TestRec_${salt}`;
+  const recStmtPath = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Statements/${recStem}.lean`);
+  const recPass10 = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${recStem}_s10.lean`);
+  const recBound9 = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${recStem}_not_s9.lean`);
+  const recSpoofExplicit = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${recStem}_spoof1.lean`);
+  const recSpoofInst = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${recStem}_spoof2.lean`);
+  const recSucc = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${recStem}_succ.lean`);
+  const recWrongScore = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${recStem}_s11.lean`);
+
+  fs.writeFileSync(
+    recStmtPath,
+    `import Erdos.Core\nnamespace Erdos.Statements.${recStem}\ndef Record (score : Nat) : Prop := 10 ≤ score\ntheorem Record_mono {a b : Nat} (h : a ≤ b) : Record a → Record b := fun ha => Nat.le_trans ha h\nend Erdos.Statements.${recStem}\n`
+  );
+  fs.writeFileSync(
+    recPass10,
+    `import Erdos.Core\nimport Erdos.Statements.${recStem}\nnamespace Erdos.Claims.${recStem}_s10\ntheorem record : Erdos.Statements.${recStem}.Record 10 := Nat.le_refl 10\nend Erdos.Claims.${recStem}_s10\n`
+  );
+  fs.writeFileSync(
+    recBound9,
+    `import Erdos.Core\nimport Erdos.Statements.${recStem}\nnamespace Erdos.Claims.${recStem}_not_s9\ntheorem record : ¬ Erdos.Statements.${recStem}.Record 9 := by unfold Erdos.Statements.${recStem}.Record; decide\nend Erdos.Claims.${recStem}_not_s9\n`
+  );
+  // Opus P0 #1 attack: explicit forged OfNat instance printing like 10 while evaluating to 12!
+  fs.writeFileSync(
+    recSpoofExplicit,
+    `import Erdos.Core\nimport Erdos.Statements.${recStem}\nnamespace Erdos.Claims.${recStem}_spoof1\ntheorem record : Erdos.Statements.${recStem}.Record (@OfNat.ofNat Nat 10 ⟨12⟩) := by unfold Erdos.Statements.${recStem}.Record; decide\nend Erdos.Claims.${recStem}_spoof1\n`
+  );
+  // Opus P0 #1 attack: local scoped OfNat Nat 10 := ⟨12⟩ so source literally reads `Record 10`!
+  fs.writeFileSync(
+    recSpoofInst,
+    `import Erdos.Core\nimport Erdos.Statements.${recStem}\nnamespace Erdos.Claims.${recStem}_spoof2\nlocal instance (priority := high) : OfNat Nat 10 := ⟨12⟩\ntheorem record : Erdos.Statements.${recStem}.Record 10 := by unfold Erdos.Statements.${recStem}.Record; decide\nend Erdos.Claims.${recStem}_spoof2\n`
+  );
+  fs.writeFileSync(
+    recSucc,
+    `import Erdos.Core\nimport Erdos.Statements.${recStem}\nnamespace Erdos.Claims.${recStem}_succ\ntheorem record : Erdos.Statements.${recStem}.Record (Nat.succ 9) := Nat.le_refl 10\nend Erdos.Claims.${recStem}_succ\n`
+  );
+  fs.writeFileSync(
+    recWrongScore,
+    `import Erdos.Core\nimport Erdos.Statements.${recStem}\nnamespace Erdos.Claims.${recStem}_s11\ntheorem record : Erdos.Statements.${recStem}.Record 11 := by unfold Erdos.Statements.${recStem}.Record; decide\nend Erdos.Claims.${recStem}_s11\n`
+  );
+
+  try {
+    const recStmtRel = `missions/erdos-combinatorics/lean/Erdos/Statements/${recStem}.lean`;
+    const recDef = `Erdos.Statements.${recStem}.Record`;
+
+    const rRecPass = checkLeanProof(recPass10, `Erdos.Claims.${recStem}_s10.record`, {
+      judgeConfig: erdos.judge,
+      kind: "record",
+      statementFile: recStmtRel,
+      statementDef: recDef,
+      expectedScore: 10,
+    });
+    assert(rRecPass.ok && rRecPass.statement_frozen === true && rRecPass.score === 10, "KotH PASS: canonical Record 10 accepted", JSON.stringify(rRecPass));
+
+    const rBoundPass = checkLeanProof(recBound9, `Erdos.Claims.${recStem}_not_s9.record`, {
+      judgeConfig: erdos.judge,
+      kind: "record_bound",
+      statementFile: recStmtRel,
+      statementDef: recDef,
+      expectedScore: 9,
+    });
+    assert(rBoundPass.ok && rBoundPass.statement_frozen === true && rBoundPass.score === 9, "KotH PASS: canonical ¬ Record 9 accepted", JSON.stringify(rBoundPass));
+
+    const rSpoof1 = checkLeanProof(recSpoofExplicit, `Erdos.Claims.${recStem}_spoof1.record`, {
+      judgeConfig: erdos.judge,
+      kind: "record",
+      statementFile: recStmtRel,
+      statementDef: recDef,
+      expectedScore: 10,
+    });
+    assert(!rSpoof1.ok && rSpoof1.reason.includes("frozen-statement gate"), "KotH REJECT (Opus P0 #1): explicit @OfNat.ofNat Nat 10 ⟨12⟩ spoof blocked", JSON.stringify(rSpoof1));
+
+    const rSpoof2 = checkLeanProof(recSpoofInst, `Erdos.Claims.${recStem}_spoof2.record`, {
+      judgeConfig: erdos.judge,
+      kind: "record",
+      statementFile: recStmtRel,
+      statementDef: recDef,
+      expectedScore: 10,
+    });
+    assert(!rSpoof2.ok && rSpoof2.reason.includes("frozen-statement gate"), "KotH REJECT (Opus P0 #1): local fake OfNat Nat 10 instance spoof blocked", JSON.stringify(rSpoof2));
+
+    const rSucc = checkLeanProof(recSucc, `Erdos.Claims.${recStem}_succ.record`, {
+      judgeConfig: erdos.judge,
+      kind: "record",
+      statementFile: recStmtRel,
+      statementDef: recDef,
+      expectedScore: 10,
+    });
+    assert(!rSucc.ok && rSucc.reason.includes("frozen-statement gate"), "KotH REJECT: non-canonical Record (Nat.succ 9) blocked", JSON.stringify(rSucc));
+
+    const rWrong = checkLeanProof(recWrongScore, `Erdos.Claims.${recStem}_s11.record`, {
+      judgeConfig: erdos.judge,
+      kind: "record",
+      statementFile: recStmtRel,
+      statementDef: recDef,
+      expectedScore: 10,
+    });
+    assert(!rWrong.ok && rWrong.reason.includes("frozen-statement gate"), "KotH REJECT: wrong score Record 11 vs expected 10 blocked", JSON.stringify(rWrong));
+
+    const rPol1 = checkLeanProof(recPass10, `Erdos.Claims.${recStem}_s10.record`, {
+      judgeConfig: erdos.judge,
+      kind: "record_bound",
+      statementFile: recStmtRel,
+      statementDef: recDef,
+      expectedScore: 10,
+    });
+    assert(!rPol1.ok && rPol1.reason.includes("frozen-statement gate"), "KotH REJECT: wrong polarity (Record 10 for record_bound) blocked", JSON.stringify(rPol1));
+
+    const rPol2 = checkLeanProof(recBound9, `Erdos.Claims.${recStem}_not_s9.record`, {
+      judgeConfig: erdos.judge,
+      kind: "record",
+      statementFile: recStmtRel,
+      statementDef: recDef,
+      expectedScore: 9,
+    });
+    assert(!rPol2.ok && rPol2.reason.includes("frozen-statement gate"), "KotH REJECT: wrong polarity (¬ Record 9 for record) blocked", JSON.stringify(rPol2));
+
+    for (const badScore of ["10; #eval 1", "-1", "01", "NaN"]) {
+      const rInj = checkLeanProof(recPass10, `Erdos.Claims.${recStem}_s10.record`, {
+        judgeConfig: erdos.judge,
+        kind: "record",
+        statementFile: recStmtRel,
+        statementDef: recDef,
+        expectedScore: badScore,
+      });
+      assert(!rInj.ok && rInj.reason.includes("Invalid canonical Nat score"), `KotH REJECT: invalid/injection score ${JSON.stringify(badScore)} blocked`, JSON.stringify(rInj));
+    }
+  } finally {
+    for (const f of [recStmtPath, recPass10, recBound9, recSpoofExplicit, recSpoofInst, recSucc, recWrongScore]) {
+      try { fs.unlinkSync(f); } catch {}
+    }
+  }
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
@@ -215,4 +348,4 @@ if (failed > 0) {
   console.error(`\n${failed} Judge test(s) failed!`);
   process.exit(1);
 }
-console.log("\nALL 20 ADVERSARIAL, ISOLATION & FROZEN-STATEMENT JUDGE TESTS PASSED!");
+console.log("\nALL 32 ADVERSARIAL, ISOLATION, FROZEN-STATEMENT & KING-OF-THE-HILL JUDGE TESTS PASSED!");

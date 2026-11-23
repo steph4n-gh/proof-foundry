@@ -1,29 +1,22 @@
 #!/usr/bin/env node
 /**
- * hub/pr_gate.mjs — Single-Source-of-Truth PR Diff Classifier, Safe Stager & Submission Verifier.
+ * hub/pr_gate.mjs — Single-Source-of-Truth PR Diff Classifier, Safe Stager & Submission Verifier (v4).
  *
- * Implements every P0/P1 invariant from Claude Opus 5.5 + GPT-6.2 Astra audits:
- * - Parses `git diff -z --no-renames --raw` (never trims filenames, catches renames/deletions/symlinks).
- * - Enforces mode `100644`, append-only `submissions/*.json` (`A` only), and no `M` on solved claims.
- * - Derives base mission state in memory excluding the PR's own submissions (no stale `state.json` bugs!).
- * - Strictly binds every submission JSON field (`mission`, filename hash, `file`, `theorem`, `checker`/`refutation`
- *   `file_hash`, `statement_frozen`, sorted `axioms`, `judge`, `by_seat`) to the live mechanical Judge verdict.
+ * Supports both fixed frozen bounties (`proof`/`refutation`) AND King-of-the-Hill auto-ratcheting
+ * record hunts (`record`/`record_bound`) with full P0/P1 security invariants from Opus 5.5 + Astra 6.2.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { ROOT, loadMission, deriveMissionState } from "./missions.mjs";
+import { ROOT, loadMission, deriveMissionState, computeRecordTargets } from "./missions.mjs";
 import { runJudge } from "./judges/index.mjs";
+import { validateCanonicalNatScore } from "./judges/lean4.mjs";
 
 export const ALLOWED_SUBMISSION_RE = /^missions\/([a-z0-9-_]+)\/submissions\/([A-Za-z0-9_.-]+)\.json$/;
 export const ALLOWED_ARTIFACT_RE =
   /^(missions\/([a-z0-9-_]+)\/(artifacts\/[A-Za-z0-9_.-]+|lean\/[A-Za-z0-9_]+\/Claims\/[A-Za-z0-9_]+\.lean)|lean\/PnP\/Lemmas\/[A-Za-z0-9_]+\.lean)$/;
 export const DONOR_SEAT_RE = /^(donor|ext|contrib)-[a-z0-9-_]{1,32}$/;
 
-/**
- * Parse raw NUL-delimited output of `git diff -z --no-renames --raw <base>...<head>`.
- * Format per entry: `:<oldMode> <newMode> <oldSha> <newSha> <status>\0<path>\0`
- */
 export function parseGitRawZ(rawBufOrStr) {
   const str = Buffer.isBuffer(rawBufOrStr) ? rawBufOrStr.toString("utf8") : String(rawBufOrStr || "");
   if (!str) return [];
@@ -55,10 +48,6 @@ export function parseGitRawZ(rawBufOrStr) {
   return entries;
 }
 
-/**
- * Convert plain newline/CSV file lists (local CLI convenience) into synthetic `A`/`100644` entries.
- * NEVER trims trailing spaces (preserves exact path so trailing-space exploits fail allowlist!).
- */
 export function entriesFromPaths(paths) {
   return paths
     .filter((p) => p.length > 0)
@@ -74,6 +63,7 @@ function missionSlugFromPath(p) {
 
 /**
  * Pure data-only PR diff classification (NEVER executes PR code!).
+ * Freezes `Statements/*.lean` once a claim has ANY accepted proof, refutation, OR record history!
  */
 export function classifyEntries(entries) {
   const reasons = [];
@@ -98,14 +88,17 @@ export function classifyEntries(entries) {
     const ms = missionSlugFromPath(p);
     if (ms) missionsTouched.add(ms);
 
-    // Check frozen statement immutability: once a claim has an accepted submission in base,
-    // Statements/*.lean must not be modified or deleted!
     if (/\/Statements\/[A-Za-z0-9_]+\.lean$/.test(p) && e.status !== "A") {
       if (ms) {
         try {
           const { state } = deriveMissionState(ms);
           const matched = (state.lemmas || []).find(
-            (l) => l.statement_file === p && (l.status === "checked" || l.status === "refuted" || l.status === "contradiction")
+            (l) =>
+              l.statement_file === p &&
+              (l.status === "checked" ||
+                l.status === "refuted" ||
+                l.status === "contradiction" ||
+                (l.record_state?.history?.length || 0) > 0)
           );
           if (matched) {
             frozenStatementMutations.push({ path: p, lemma_id: matched.id });
@@ -141,7 +134,6 @@ export function classifyEntries(entries) {
     reasons.push(`Path outside donor allowlist: ${p}`);
   }
 
-  // Derive needsLean dynamically from touched mission judge configs (never hardcoded!)
   let needsLean = false;
   for (const ms of missionsTouched) {
     try {
@@ -162,10 +154,6 @@ export function classifyEntries(entries) {
   };
 }
 
-/**
- * Safely materialize ONLY verified allowlisted `100644` files from `gitRef` (e.g. `pr-head`)
- * onto the trusted base checkout (using Node `git show`, zero shell interpolation!).
- */
 export function stageAllowlistedEntries(entries, gitRef = "pr-head", rootDir = ROOT) {
   const staged = [];
   for (const e of entries) {
@@ -194,20 +182,90 @@ function sameSortedStrings(a, b) {
   return sa.length === sb.length && sa.every((v, i) => v === sb[i]);
 }
 
+export function validateRecordImprovement(registered, kind, score) {
+  const cfg = registered.record || {};
+  const dir = cfg.direction === "max" ? "max" : "min";
+  const startTarget = Number(cfg.start_target ?? 0);
+  const boundFloor = Number(cfg.bound_floor ?? 0);
+  const scoreMax = Number(cfg.score_max ?? 100000);
+  const rs = registered.record_state || { best: null, refuted: null, closed: false, contradiction: false };
+
+  if (!Number.isSafeInteger(score) || score < 0 || score > scoreMax) {
+    return { ok: false, requiresMaintainer: false, reason: `Score ${score} out of allowed bounds [0, ${scoreMax}]` };
+  }
+  if (rs.closed || rs.contradiction) {
+    return { ok: false, requiresMaintainer: true, reason: `Record hunt ${registered.id} is already ${rs.contradiction ? "in contradiction" : "closed (exact optimal)"}` };
+  }
+
+  let requiresMaintainer = false;
+  if (kind === "record") {
+    const improves =
+      dir === "min"
+        ? rs.best
+          ? score < rs.best.score
+          : score <= startTarget
+        : rs.best
+        ? score > rs.best.score
+        : score >= startTarget;
+    if (!improves) {
+      const want = rs.best ? (dir === "min" ? `< ${rs.best.score}` : `> ${rs.best.score}`) : (dir === "min" ? `≤ ${startTarget}` : `≥ ${startTarget}`);
+      return { ok: false, requiresMaintainer: false, reason: `Score ${score} does not improve current record (need ${want})` };
+    }
+    if (rs.refuted && (dir === "min" ? score <= rs.refuted.score : score >= rs.refuted.score)) {
+      return {
+        ok: false,
+        requiresMaintainer: true,
+        reason: `Score ${score} contradicts verified lower bound ¬ Record ${rs.refuted.score} — requires maintainer audit`,
+      };
+    }
+    // Breakthrough guard (Opus 5.5 #10): beating literature_best triggers maintainer + cross-model audit!
+    if (cfg.literature_best != null && (dir === "min" ? score < cfg.literature_best : score > cfg.literature_best)) {
+      requiresMaintainer = true;
+    }
+  } else if (kind === "record_bound") {
+    const improves =
+      dir === "min"
+        ? rs.refuted
+          ? score > rs.refuted.score
+          : score >= boundFloor
+        : rs.refuted
+        ? score < rs.refuted.score
+        : score <= boundFloor;
+    if (!improves) {
+      const want = rs.refuted ? (dir === "min" ? `> ${rs.refuted.score}` : `< ${rs.refuted.score}`) : (dir === "min" ? `≥ ${boundFloor}` : `≤ ${boundFloor}`);
+      return { ok: false, requiresMaintainer: false, reason: `Bound ¬ Record ${score} does not improve current bound (need ${want})` };
+    }
+    if (rs.best && (dir === "min" ? score >= rs.best.score : score <= rs.best.score)) {
+      return {
+        ok: false,
+        requiresMaintainer: true,
+        reason: `Bound ¬ Record ${score} contradicts current incumbent score ${rs.best.score} — requires maintainer audit`,
+      };
+    }
+    if (cfg.literature_lower_bound != null && dir === "min" && score + 1 > cfg.literature_lower_bound) {
+      requiresMaintainer = true;
+    }
+    if (cfg.literature_upper_bound != null && dir === "max" && score - 1 < cfg.literature_upper_bound) {
+      requiresMaintainer = true;
+    }
+  }
+  return { ok: true, requiresMaintainer, reason: "" };
+}
+
 /**
- * Pure data-only auto-merge eligibility check (used by auto-merge.yml `decide` job —
- * NEVER executes Lean, node `.mjs` artifacts, or PR workflows!).
+ * Pure data-only auto-merge eligibility check (NEVER executes PR files!).
  */
 export function evaluateAutoMergeDataOnly(entries, gitRef = "pr-head", rootDir = ROOT) {
   const cls = classifyEntries(entries);
   if (cls.lane !== "donor") {
     return { eligible: false, reasons: [`Not a pure donor PR (${cls.reasons.join("; ")})`] };
   }
-  if (cls.submissionEntries.length !== 1) {
-    return { eligible: false, reasons: [`Auto-merge requires exactly 1 submission JSON per PR (got ${cls.submissionEntries.length})`] };
+  if (cls.submissionEntries.length !== 1 || cls.artifactEntries.length !== 1) {
+    return { eligible: false, reasons: [`Auto-merge requires exactly 1 submission JSON and 1 artifact file`] };
   }
 
   const sf = cls.submissionEntries[0].path;
+  const af = cls.artifactEntries[0];
   const sm = sf.match(ALLOWED_SUBMISSION_RE);
   const dirSlug = sm[1];
 
@@ -224,42 +282,62 @@ export function evaluateAutoMergeDataOnly(entries, gitRef = "pr-head", rootDir =
   if (sub.mission !== dirSlug) {
     return { eligible: false, reasons: [`Mission mismatch: JSON says "${sub.mission}", path says "${dirSlug}"`] };
   }
-  if (sub.kind !== "proof" && sub.kind !== "refutation") {
-    return { eligible: false, reasons: [`Metadata submission kind "${sub.kind}" is never auto-mergeable`] };
-  }
 
-  // Derive base state from trusted `main` (never executes PR code!)
   const { state: baseState } = deriveMissionState(dirSlug);
   const registered = baseState.lemmas.find((l) => l.id === sub.lemma_id);
   if (!registered) {
     return { eligible: false, reasons: [`Unknown claim ID "${sub.lemma_id}" in "${dirSlug}"`] };
   }
   if (!registered.statement_file || !registered.statement_def) {
-    return { eligible: false, reasons: [`Claim "${sub.lemma_id}" is not a frozen-statement bounty (requires cross-model audit before merge)`] };
+    return { eligible: false, reasons: [`Claim "${sub.lemma_id}" is not a frozen-statement bounty`] };
+  }
+
+  // King-of-the-Hill record branch (data-only)
+  if (sub.kind === "record" || sub.kind === "record_bound") {
+    if (registered.kind !== "record") {
+      return { eligible: false, reasons: [`Claim "${sub.lemma_id}" is not a record hunt`] };
+    }
+    if (af.status !== "A") {
+      return { eligible: false, reasons: [`Record artifact ${af.path} must be newly added (status A)`] };
+    }
+    const scoreStr = validateCanonicalNatScore(sub.score);
+    if (scoreStr === null || String(sub.score) !== scoreStr) {
+      return { eligible: false, reasons: [`Invalid canonical score ${JSON.stringify(sub.score)}`] };
+    }
+    const score = Number(scoreStr);
+    const expected = computeRecordTargets(dirSlug, registered, sub.kind, score);
+    if (path.basename(sf) !== expected.submissionBasename || af.path !== expected.artifactFile || sub.file !== expected.artifactFile || sub.theorem !== expected.theoremName) {
+      return { eligible: false, reasons: [`Record paths/theorem do not match canonical score-stamped names`] };
+    }
+    if (!DONOR_SEAT_RE.test(String(sub.checker?.by_seat || ""))) {
+      return { eligible: false, reasons: [`Donor seat "${sub.checker?.by_seat}" must match donor-/ext-/contrib- prefix`] };
+    }
+    const check = validateRecordImprovement(registered, sub.kind, score);
+    if (!check.ok) return { eligible: false, reasons: [check.reason] };
+    if (check.requiresMaintainer) {
+      return { eligible: false, reasons: [`Breakthrough past literature bound requires maintainer + cross-model audit`] };
+    }
+    return { eligible: true, mission: dirSlug, lemma_id: sub.lemma_id, kind: sub.kind, score, reasons: [] };
+  }
+
+  if (sub.kind !== "proof" && sub.kind !== "refutation") {
+    return { eligible: false, reasons: [`Metadata submission kind "${sub.kind}" is never auto-mergeable`] };
+  }
+  if (registered.kind === "record") {
+    return { eligible: false, reasons: [`Use record/record_bound for record hunt "${sub.lemma_id}"`] };
   }
   if (registered.status !== "conjecture" && registered.status !== "in_work") {
     return { eligible: false, reasons: [`Claim "${sub.lemma_id}" is already ${registered.status} on main`] };
   }
-  // Ensure every artifact touched in the PR belongs solely to this claim
-  const expectedArtifact = sub.file;
-  if (!expectedArtifact || !cls.artifactEntries.every((a) => a.path === expectedArtifact)) {
-    return { eligible: false, reasons: [`PR modifies unrelated artifact files outside ${expectedArtifact}`] };
-  }
-  if (sub.kind === "proof" && sub.file !== registered.lean_file) {
-    return { eligible: false, reasons: [`Proof file "${sub.file}" does not match registered "${registered.lean_file}"`] };
+  if (af.path !== sub.file || (sub.kind === "proof" && sub.file !== registered.lean_file)) {
+    return { eligible: false, reasons: [`Artifact path mismatch on ${af.path}`] };
   }
   const bySeat = sub.kind === "proof" ? sub.checker?.by_seat : sub.refutation?.by_seat;
   if (!DONOR_SEAT_RE.test(String(bySeat || ""))) {
     return { eligible: false, reasons: [`Donor seat "${bySeat}" must match donor-/ext-/contrib- prefix`] };
   }
 
-  return {
-    eligible: true,
-    mission: dirSlug,
-    lemma_id: sub.lemma_id,
-    kind: sub.kind,
-    reasons: [],
-  };
+  return { eligible: true, mission: dirSlug, lemma_id: sub.lemma_id, kind: sub.kind, reasons: [] };
 }
 
 /**
@@ -276,7 +354,7 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
       requires_maintainer: true,
       checked: 0,
       reports: [],
-      reason: `Immutable frozen statement(s) already have accepted proofs and cannot be modified: ${cls.frozenStatementMutations.map((x) => `${x.path} (${x.lemma_id})`).join(", ")}`,
+      reason: `Immutable frozen statement(s) already have accepted proofs or record history and cannot be modified: ${cls.frozenStatementMutations.map((x) => `${x.path} (${x.lemma_id})`).join(", ")}`,
     };
   }
 
@@ -307,7 +385,6 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
     };
   }
 
-  // Every listed submission & artifact MUST exist on disk (missing file = HARD FAIL; fixes checked=0 bypass!)
   for (const e of [...subEntries, ...cls.artifactEntries]) {
     const abs = path.resolve(rootDir, e.path);
     if (!fs.existsSync(abs) || fs.lstatSync(abs).isSymbolicLink()) {
@@ -322,7 +399,6 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
     }
   }
 
-  // Group submission basenames per mission so deriveMissionState excludes the PR's own files!
   const prSubBasenamesByMission = {};
   for (const se of subEntries) {
     const m = se.path.match(ALLOWED_SUBMISSION_RE);
@@ -337,9 +413,9 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
     return baseStates[slug];
   };
 
-  // Reject any `M` modification to an artifact belonging to an already-solved claim!
+  // Block `M` edits to ANY solved claim artifact OR ANY historical record artifact!
   for (const ae of cls.artifactEntries) {
-    if (ae.status === "M") {
+    if (ae.status === "M" && !allowInfra) {
       const ms = missionSlugFromPath(ae.path);
       if (ms) {
         const bState = getBaseState(ms);
@@ -348,14 +424,17 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
             (l.lean_file === ae.path || l.refutation?.counterexample_file === ae.path) &&
             (l.status === "checked" || l.status === "refuted" || l.status === "contradiction")
         );
-        if (solvedOwner && !allowInfra) {
+        const recordOwner = bState.lemmas.find(
+          (l) => l.kind === "record" && (l.record_state?.history || []).some((h) => h.file === ae.path)
+        );
+        if (solvedOwner || recordOwner) {
           return {
             ok: false,
             eligible_for_auto_merge: false,
             requires_maintainer: true,
             checked: 0,
             reports: [],
-            reason: `Cannot overwrite artifact ${ae.path} belonging to already-${solvedOwner.status} claim ${solvedOwner.id}`,
+            reason: `Cannot overwrite historical artifact ${ae.path} belonging to ${(solvedOwner || recordOwner).id}`,
           };
         }
       }
@@ -369,6 +448,8 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
   const uniqueClaims = new Set();
   const referencedArtifacts = new Set();
   const batchClaimKinds = new Set();
+  const batchRecordLemmas = new Set();
+  let hasRecordSubmission = false;
 
   for (const se of subEntries) {
     const sf = se.path;
@@ -411,7 +492,144 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
 
     uniqueClaims.add(`${dirSlug}/${sub.lemma_id}`);
 
-    // Prevent two submissions for the same claim+kind in one batch
+    // King-of-the-Hill record & record_bound branch (Opus 5.5 + Astra 6.2 strict rules!)
+    if (sub.kind === "record" || sub.kind === "record_bound") {
+      hasRecordSubmission = true;
+      if (registered.kind !== "record") {
+        allOk = false;
+        allFrozenMatched = false;
+        reports.push({ submission: sf, lemma_id: sub.lemma_id, kind: sub.kind, ok: false, reason: `Claim "${sub.lemma_id}" is not a King-of-the-Hill record hunt` });
+        continue;
+      }
+      if (!allowMeta && (subEntries.length !== 1 || cls.artifactEntries.length !== 1)) {
+        allOk = false;
+        allFrozenMatched = false;
+        reports.push({ submission: sf, lemma_id: sub.lemma_id, kind: sub.kind, ok: false, reason: `Record PR must contain exactly 1 submission JSON and 1 newly added artifact file` });
+        continue;
+      }
+      const scoreStr = validateCanonicalNatScore(sub.score);
+      if (scoreStr === null || typeof sub.score !== "number" || String(sub.score) !== scoreStr) {
+        allOk = false;
+        allFrozenMatched = false;
+        reports.push({ submission: sf, lemma_id: sub.lemma_id, kind: sub.kind, ok: false, reason: `Invalid canonical integer score: ${JSON.stringify(sub.score)}` });
+        continue;
+      }
+      const score = Number(scoreStr);
+      // Prevent duplicate/conflicting record submissions for the same lemma in one PR (even under --allow-meta!)
+      const recBatchKey = `${dirSlug}/${sub.lemma_id}`;
+      if (batchRecordLemmas.has(recBatchKey)) {
+        allOk = false;
+        allFrozenMatched = false;
+        reports.push({ submission: sf, lemma_id: sub.lemma_id, kind: sub.kind, ok: false, reason: `Duplicate or conflicting record submission for ${sub.lemma_id} in the same PR` });
+        continue;
+      }
+      batchRecordLemmas.add(recBatchKey);
+
+      const expected = computeRecordTargets(dirSlug, registered, sub.kind, score);
+      if (path.basename(sf) !== expected.submissionBasename) {
+        allOk = false;
+        allFrozenMatched = false;
+        reports.push({ submission: sf, lemma_id: sub.lemma_id, kind: sub.kind, ok: false, reason: `Record submission filename must be "${expected.submissionBasename}", got "${path.basename(sf)}"` });
+        continue;
+      }
+      if (sub.file !== expected.artifactFile) {
+        allOk = false;
+        allFrozenMatched = false;
+        reports.push({ submission: sf, lemma_id: sub.lemma_id, kind: sub.kind, ok: false, reason: `Record file must be "${expected.artifactFile}", got "${sub.file}"` });
+        continue;
+      }
+      if (sub.theorem !== expected.theoremName) {
+        allOk = false;
+        allFrozenMatched = false;
+        reports.push({ submission: sf, lemma_id: sub.lemma_id, kind: sub.kind, ok: false, reason: `Record theorem must be "${expected.theoremName}", got "${sub.theorem}"` });
+        continue;
+      }
+      // Enforce status === "A" on record artifact (NEVER allow overwriting an existing score file!)
+      const artEntry = cls.artifactEntries.find((ae) => ae.path === sub.file);
+      if (!artEntry || artEntry.status !== "A") {
+        allOk = false;
+        allFrozenMatched = false;
+        reports.push({ submission: sf, lemma_id: sub.lemma_id, kind: sub.kind, ok: false, reason: `Record artifact ${sub.file} must be newly added (status A), never modified` });
+        continue;
+      }
+
+      const imp = validateRecordImprovement(registered, sub.kind, score);
+      if (!imp.ok) {
+        allOk = false;
+        allFrozenMatched = false;
+        if (imp.requiresMaintainer) requiresMaintainer = true;
+        reports.push({ submission: sf, lemma_id: sub.lemma_id, kind: sub.kind, score, ok: false, reason: imp.reason });
+        continue;
+      }
+      if (imp.requiresMaintainer) requiresMaintainer = true;
+
+      referencedArtifacts.add(sub.file);
+      const verdict = runJudge(m, {
+        file: sub.file,
+        target: sub.theorem,
+        kind: sub.kind,
+        statementFile: registered.statement_file,
+        statementDef: registered.statement_def,
+        expectedScore: score,
+      });
+
+      const bindErrors = [];
+      if (verdict.ok) {
+        const rec = sub.checker;
+        if (!rec || typeof rec !== "object") {
+          bindErrors.push("Missing checker block in record submission JSON");
+        } else {
+          if (rec.ok !== true) bindErrors.push("checker.ok must be true");
+          if (rec.judge && rec.judge !== verdict.judge) bindErrors.push(`checker.judge mismatch`);
+          if (verdict.score !== score) bindErrors.push(`verdict.score mismatch: got ${verdict.score}, expected ${score}`);
+          if (rec.file_hash !== verdict.file_hash) bindErrors.push(`file_hash mismatch`);
+          if (rec.statement_hash !== verdict.statement_hash) bindErrors.push(`statement_hash mismatch`);
+          if (rec.core_hash !== verdict.core_hash) bindErrors.push(`core_hash mismatch`);
+          if (rec.statement_frozen !== true || verdict.statement_frozen !== true) bindErrors.push(`statement_frozen must be true`);
+          if (!sameSortedStrings(rec.axioms, verdict.axioms)) bindErrors.push(`axioms mismatch`);
+          if (!allowMeta && !DONOR_SEAT_RE.test(String(rec.by_seat || ""))) {
+            bindErrors.push(`by_seat "${rec.by_seat}" must use donor-/ext-/contrib- prefix`);
+          }
+        }
+      }
+
+      const itemOk = verdict.ok && bindErrors.length === 0;
+      if (!itemOk) allOk = false;
+      if (!verdict.statement_frozen) allFrozenMatched = false;
+      reports.push({
+        submission: sf,
+        mission: m.slug,
+        lemma_id: sub.lemma_id,
+        kind: sub.kind,
+        score,
+        ok: itemOk,
+        statement_frozen: Boolean(verdict.statement_frozen),
+        requires_maintainer: imp.requiresMaintainer,
+        duration_ms: verdict.duration_ms,
+        axioms: verdict.axioms,
+        file_hash: verdict.file_hash,
+        statement_hash: verdict.statement_hash,
+        core_hash: verdict.core_hash,
+        signature: verdict.signature || "",
+        reason: bindErrors.length ? `Record submission binding failed: ${bindErrors.join("; ")}` : verdict.reason,
+      });
+      continue;
+    }
+
+    // Reject ordinary proof/refutation against a King-of-the-Hill record claim!
+    if (registered?.kind === "record" && (sub.kind === "proof" || sub.kind === "refutation")) {
+      allOk = false;
+      allFrozenMatched = false;
+      reports.push({
+        submission: sf,
+        lemma_id: sub.lemma_id,
+        kind: sub.kind,
+        ok: false,
+        reason: `Claim "${sub.lemma_id}" is a King-of-the-Hill record hunt — submit kind "record" or "record_bound" instead of "${sub.kind}"`,
+      });
+      continue;
+    }
+
     const batchKey = `${dirSlug}/${sub.lemma_id}/${sub.kind}`;
     if (batchClaimKinds.has(batchKey)) {
       allOk = false;
@@ -422,7 +640,6 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
     batchClaimKinds.add(batchKey);
 
     if (sub.kind === "proof" || sub.kind === "refutation") {
-      // Duplicate & contradiction rules against base derived state
       if (sub.kind === "proof" && (registered.status === "checked" || registered.status === "contradiction")) {
         allOk = false;
         allFrozenMatched = false;
@@ -453,7 +670,6 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
         allFrozenMatched = false;
       }
 
-      // Bind file & theorem
       if (sub.kind === "proof") {
         if (registered.lean_file && sub.file !== registered.lean_file) {
           allOk = false;
@@ -478,7 +694,6 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
           continue;
         }
       } else {
-        // Refutations MUST be bound to a frozen statement OR an explicit registered refutation_theorem (unless --allow-meta)
         const hasFrozen = Boolean(registered.statement_file && registered.statement_def);
         const hasRefThm = Boolean(registered.refutation_theorem);
         if (!hasFrozen && !hasRefThm && !allowMeta) {
@@ -516,7 +731,6 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
 
       const bindErrors = [];
       if (verdict.ok) {
-        // Bind filename hash prefix & ID & kind
         const baseName = path.basename(sf);
         const expectedPrefix = `${sub.lemma_id}.${sub.kind}.${String(verdict.file_hash || "").slice(0, 10)}.json`;
         if (baseName !== expectedPrefix) {
@@ -586,12 +800,11 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
     }
   }
 
-  // Enforce single claim per donor PR & no piggybacked unreferenced artifacts
   if (!allowMeta && !allowInfra) {
-    if (uniqueClaims.size > 1) {
+    if (uniqueClaims.size > 1 || (hasRecordSubmission && subEntries.length > 1)) {
       allOk = false;
       allFrozenMatched = false;
-      reasons.push(`Donor PR must target exactly 1 claim (found ${uniqueClaims.size}: ${[...uniqueClaims].join(", ")})`);
+      reasons.push(`Donor PR must target exactly 1 claim and 1 submission (found ${uniqueClaims.size} claims, ${subEntries.length} submissions)`);
     }
     const unreferenced = cls.artifactEntries.filter((ae) => !referencedArtifacts.has(ae.path));
     if (unreferenced.length > 0) {
@@ -601,7 +814,6 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
     }
   }
 
-  // Hard guard: every submission MUST have produced a report!
   if (reports.length !== subEntries.length || reports.length === 0) {
     allOk = false;
     allFrozenMatched = false;

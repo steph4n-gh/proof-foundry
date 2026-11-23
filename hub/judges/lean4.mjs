@@ -212,6 +212,11 @@ function validateLeanIdentifier(name) {
   return /^[A-Za-z_][A-Za-z0-9_']*(\.[A-Za-z_][A-Za-z0-9_']*)*$/.test(String(name || ""));
 }
 
+export function validateCanonicalNatScore(raw) {
+  const s = typeof raw === "number" && Number.isSafeInteger(raw) && raw >= 0 ? String(raw) : String(raw ?? "");
+  return /^(0|[1-9][0-9]{0,8})$/.test(s) ? s : null;
+}
+
 function checkImportsAndOptions(stripped, lakeTarget) {
   // Enforce import allowlist: only `<lakeTarget>`, `<lakeTarget>.*`, `Init`, `Init.*`, `Std`, `Std.*`
   const importRe = /^\s*import\s+([^\s]+)/gm;
@@ -243,7 +248,9 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
   const coreOlean = cfg.core_olean ? path.resolve(ROOT, cfg.core_olean) : null;
   const allowedDirs = (cfg.allowed_dirs || []).map((d) => path.resolve(ROOT, d));
   const allowedAxioms = new Set(cfg.allowed_axioms || ["propext", "Classical.choice", "Quot.sound"]);
-  const kind = opts.kind === "refutation" ? "refutation" : "proof";
+  const allowedKinds = new Set(["proof", "refutation", "record", "record_bound"]);
+  const kind = allowedKinds.has(opts.kind) ? opts.kind : "proof";
+  const isRecordKind = kind === "record" || kind === "record_bound";
   const leanBin = getLeanBin();
   const lakeBin = resolveBinary("lake");
 
@@ -264,12 +271,24 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
     core_hash: coreHash,
     statement_frozen: false,
     statement_hash: null,
+    score: null,
     output: "",
     ...extra,
   });
 
   if (!validateLeanIdentifier(theoremName)) {
     return fail(`Invalid Lean theorem identifier: ${theoremName}`);
+  }
+
+  let scoreStr = null;
+  if (isRecordKind) {
+    scoreStr = validateCanonicalNatScore(opts.expectedScore);
+    if (scoreStr === null) {
+      return fail(`Invalid canonical Nat score for ${kind}: ${JSON.stringify(opts.expectedScore)}`);
+    }
+    if (!opts.statementFile || !opts.statementDef) {
+      return fail(`Record kind "${kind}" requires a frozen statementFile and statementDef`);
+    }
   }
 
   const absFile = path.isAbsolute(relOrAbsFile) ? relOrAbsFile : path.resolve(ROOT, relOrAbsFile);
@@ -435,8 +454,30 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
     // Pass 2: Isolated Judge metaprogram importing BOTH trusted stmtMod (if present) and claimMod
     const escapedResultPath = JSON.stringify(resultJsonPath);
     const stmtImport = stmtMod ? `import ${stmtMod}\n` : "";
-    const stmtCheckBlock = stmtMod
-      ? `
+    let stmtCheckBlock;
+    if (stmtMod && isRecordKind) {
+      // Exact canonical Nat-literal kernel Expr check (Opus 5.5 + Astra 6.2 verified in Lean 4.36.0):
+      // mkNatLit n constructs @OfNat.ofNat.{0} Nat (.lit (.natVal n)) (instOfNatNat (.lit (.natVal n))),
+      // blocking OfNat instance spoofing (OfNat 58 <61>), Nat.succ, bodyMatch, and isDefEq DoS.
+      stmtCheckBlock = `
+      let stmtTarget : Name := \`${stmtDef}
+      let expectedStmtMod : Name := \`${stmtMod}
+      let stmtMatch := match env.find? stmtTarget with
+        | some (.defnInfo c) =>
+            let stmtModOk := match env.getModuleIdxFor? stmtTarget with
+              | some idx => (env.header.moduleNames[idx]!).toString == expectedStmtMod.toString
+              | none => false
+            let levelsOk := c.levelParams.isEmpty && info.levelParams.isEmpty
+            let argOK := match c.type with
+              | .forallE _ dom cod .default =>
+                  dom.equal (mkConst \`\`Nat) && cod.equal (.sort .zero)
+              | _ => false
+            let pos := mkApp (mkConst stmtTarget) (mkNatLit ${scoreStr})
+            let wantExpr := ${kind === "record_bound" ? `mkApp (mkConst \`\`Not) pos` : `pos`}
+            stmtModOk && levelsOk && argOK && info.type.equal wantExpr
+        | _ => false`;
+    } else if (stmtMod) {
+      stmtCheckBlock = `
       let stmtTarget : Name := \`${stmtDef}
       let expectedStmtMod : Name := \`${stmtMod}
       let stmtMatch := match env.find? stmtTarget with
@@ -456,8 +497,10 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
               kind === "refutation" ? `Expr.app (Expr.const \`Not []) c.value` : `c.value`
             })
             stmtModOk && levelsOk && isProp && (exactMatch || bodyMatch)
-        | _ => false`
-      : `      let stmtMatch := true`;
+        | _ => false`;
+    } else {
+      stmtCheckBlock = `      let stmtMatch := true`;
+    }
 
     const auditProgram = `import Lean.Util.CollectAxioms
 import Lean.Meta.Basic
@@ -481,8 +524,12 @@ open Lean Meta in
       let inSubmittedMod := modNameStr == expectedMod.toString
       let levelsEmpty := info.levelParams.isEmpty
 ${stmtCheckBlock}
-      let axioms ← Lean.collectAxioms target
-      let fmt ← ppExpr info.type
+      let axioms ← if stmtMatch && isThm && inSubmittedMod then Lean.collectAxioms target else pure #[]
+      let typeStr ← if stmtMatch && isThm && inSubmittedMod then do
+        let fmt ← ppExpr info.type
+        pure fmt.pretty
+      else
+        pure ""
       let j := Json.mkObj [
         ("found", Json.bool true),
         ("isTheorem", Json.bool isThm),
@@ -491,7 +538,7 @@ ${stmtCheckBlock}
         ("statementMatched", Json.bool stmtMatch),
         ("declaredModule", Json.str modNameStr),
         ("axioms", Json.arr (axioms.map (fun n => Json.str n.toString))),
-        ("type", Json.str fmt.pretty)
+        ("type", Json.str typeStr)${isRecordKind ? `,\n        ("score", Json.str ${JSON.stringify(scoreStr)})` : ""}
       ]
       IO.FS.writeFile ${escapedResultPath} j.compress
 `;
@@ -527,9 +574,12 @@ ${stmtCheckBlock}
       });
     }
     if (stmtMod && !audit.statementMatched) {
+      const targetDesc = isRecordKind
+        ? `${kind === "record_bound" ? "¬ " : ""}\`${stmtDef} ${scoreStr}\` (canonical Nat literal, Nat → Prop required)`
+        : `${kind === "refutation" ? "¬ " : ""}\`${stmtDef}\` (no universe params, Prop required)`;
       return fail(
-        `Rejected by frozen-statement gate: \`${theoremName}\` does not syntactically match ${kind === "refutation" ? "¬ " : ""}\`${stmtDef}\` (no universe params, Prop required)`,
-        { file: relFile, file_hash: fileHash, statement_hash: stmtHash }
+        `Rejected by frozen-statement gate: \`${theoremName}\` does not syntactically match ${targetDesc}`,
+        { file: relFile, file_hash: fileHash, statement_hash: stmtHash, score: isRecordKind ? Number(scoreStr) : null }
       );
     }
 
@@ -546,7 +596,9 @@ ${stmtCheckBlock}
     return {
       ok: true,
       judge: "lean4",
-      reason: stmtMod
+      reason: isRecordKind
+        ? `Verified by Lean 4 kernel & exact canonical match against ${kind === "record_bound" ? "¬ " : ""}${stmtDef} ${scoreStr} (zero sorry, standard axioms only)`
+        : stmtMod
         ? `Verified by Lean 4 kernel & exact frozen-statement match against ${stmtDef} (zero sorry, standard axioms only)`
         : "Verified by isolated Lean 4 kernel metaprogram (zero sorry, standard axioms only, module-bound)",
       file: relFile,
@@ -559,6 +611,7 @@ ${stmtCheckBlock}
       core_hash: coreHash,
       statement_frozen: Boolean(stmtMod),
       statement_hash: stmtHash,
+      score: isRecordKind ? Number(audit.score ?? scoreStr) : null,
       output: (pass1.stdout || "").trim().slice(0, 2000),
     };
   } finally {
