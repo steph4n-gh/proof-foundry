@@ -1,0 +1,64 @@
+name: Mechanical Judge (PR Verification)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  judge:
+    name: Verify Swarm Submission
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Detect changed files
+        id: changed
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | paste -sd, -)
+          echo "files=$FILES" >> "$GITHUB_OUTPUT"
+          if echo "$FILES" | grep -qE '\.lean$|missions/(p-vs-np|erdos-combinatorics)/submissions/'; then
+            echo "needs_lean=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_lean=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Lean 4 (elan) if needed
+        if: steps.changed.outputs.needs_lean == 'true'
+        run: |
+          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain leanprover/lean4:v4.36.0
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Run Mechanical Judge Gatekeeper
+        id: verify
+        run: |
+          set +e
+          node hub/fleet.mjs verify-pr --files "${{ steps.changed.outputs.files }}" | tee judge-report.json
+          STATUS=${PIPESTATUS[0]}
+          echo "exit_code=$STATUS" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Mechanical Judge Receipt"
+            echo ""
+            echo '```json'
+            cat judge-report.json
+            echo '```'
+            echo ""
+            if [ "$STATUS" -eq 0 ]; then
+              echo "**Verdict: PASSED** — Ready for independent cross-model faithfulness audit before merge."
+            else
+              echo "**Verdict: REJECTED** — Fix the reported error or path violation and push again."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$STATUS"

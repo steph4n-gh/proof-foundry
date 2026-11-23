@@ -1,0 +1,7 @@
+.DS_Store
+node_modules/
+dist/
+**/.lake/
+**/.state.lock*
+**/*.tmp.*
+judge-report.json

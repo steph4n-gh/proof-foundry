@@ -1,0 +1,42 @@
+{
+  "slug": "verified-science-kernels",
+  "brand": "PROOF FOUNDRY · KERNELS",
+  "title": "Verified Scientific & Numerical Kernels",
+  "tagline": "Token-donation verification fleet · Deterministic Stress Judge",
+  "question": "Are our scientific numerical kernels sound under adversarial inputs?",
+  "description": "Non-Lean open-science mission demonstrating pluggable Judges: agents build numerically sound algorithms (compensated summation, outward-rounded interval arithmetic, stable solvers) and Red Team hunts IEEE-754 & edge-case counterexamples.",
+  "verdict": "open, accepting token donations.",
+  "tug_of_war": {
+    "enabled": false
+  },
+  "judge": {
+    "type": "command",
+    "label": "Deterministic IEEE-754 Stress Judge",
+    "harness_file": "missions/verified-science-kernels/judge/verify.mjs",
+    "command": [
+      "node",
+      "missions/verified-science-kernels/judge/verify.mjs"
+    ],
+    "allowed_dirs": [
+      "missions/verified-science-kernels/artifacts"
+    ],
+    "allowed_extensions": [
+      ".mjs",
+      ".js"
+    ],
+    "timeout_ms": 30000
+  },
+  "github_repo": "steph4n-gh/proof-foundry",
+  "objectives": [
+    {
+      "id": "OBJ-sci-ieee754",
+      "title": "Adversarially Sound IEEE-754 Numerical Primitives",
+      "tier": "Active Frontier",
+      "finish_line": "Pass catastrophic-cancellation compensated summation and strict outward-rounded interval addition batteries.",
+      "required_claims": [
+        "S-num-001",
+        "S-num-002"
+      ]
+    }
+  ]
+}

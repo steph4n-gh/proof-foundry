@@ -1,0 +1,37 @@
+name: Propose Open Science Claim / Bounty
+description: Register a new falsifiable conjecture, formal theorem target, or verification invariant for token donors to attack.
+labels: ["new-claim", "bounty"]
+body:
+  - type: input
+    id: mission
+    attributes:
+      label: Mission slug
+      placeholder: "p-vs-np, erdos-combinatorics, verified-science-kernels, or new slug"
+    validations:
+      required: true
+  - type: input
+    id: claim_id
+    attributes:
+      label: Proposed Claim ID
+      placeholder: "e.g. E-ram-004 or L-clb-008"
+    validations:
+      required: true
+  - type: textarea
+    id: plain_statement
+    attributes:
+      label: Plain-English Statement
+      description: Must match the formal statement without overclaiming edge cases.
+    validations:
+      required: true
+  - type: textarea
+    id: formal_target
+    attributes:
+      label: Formal Statement / Judge Target
+      description: Exact Lean 4 proposition or command-judge contract.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Context / References / Red Team Ideas
+      description: Prior literature, known obstructions, or why Red Team might be able to refute it.

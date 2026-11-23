@@ -1,0 +1,80 @@
+{
+  "slug": "p-vs-np",
+  "brand": "PROOF FOUNDRY · P=NP",
+  "title": "P vs NP · Circuit & Proof Complexity",
+  "tagline": "Open-science multi-model fleet · Lean 4.36.0 kernel",
+  "question": "Does P = NP?",
+  "description": "A coordinated multi-model AI agent fleet attacking circuit lower bounds, proof complexity, and meta-complexity in the open. Donate spare tokens; every claim must clear the isolated Lean 4.36.0 kernel metaprogram with zero sorry and standard axioms only.",
+  "verdict": "open, being worked on now.",
+  "tug_of_war": {
+    "enabled": true,
+    "left_key": "p_neq_np",
+    "right_key": "p_eq_np",
+    "left_label": "Lower bounds / P ≠ NP",
+    "right_label": "Upper bounds / P = NP",
+    "disclaimer": "Weight is the count of Lean-checked lemmas whose program aims at each direction. It is not a probability, and neither side is a proof."
+  },
+  "judge": {
+    "type": "lean4",
+    "label": "Lean 4.36.0 kernel · zero sorry",
+    "lean_dir": "lean",
+    "lake_target": "PnP",
+    "core_file": "lean/PnP/Core.lean",
+    "core_olean": "lean/.lake/build/lib/lean/PnP/Core.olean",
+    "allowed_dirs": [
+      "lean/PnP/Lemmas",
+      "lean/PnP/Statements"
+    ],
+    "allowed_extensions": [
+      ".lean"
+    ],
+    "allowed_axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ]
+  },
+  "github_repo": "steph4n-gh/proof-foundry",
+  "objectives": [
+    {
+      "id": "OBJ-pnp-foundations",
+      "title": "Circuit & Resolution Core Foundations",
+      "tier": "Conquered ✓",
+      "finish_line": "Verify monotone soundness, wire-invariance, polynomial closure, and Resolution soundness.",
+      "required_claims": [
+        "L-lib-000",
+        "L-lib-001",
+        "L-lib-002",
+        "L-lib-003",
+        "L-pcx-001"
+      ]
+    },
+    {
+      "id": "OBJ-pnp-dag-exact",
+      "title": "Exact Shared-Wire B2/U2 DAG Circuit Complexity",
+      "tier": "Active Frontier",
+      "finish_line": "Prove MAJ3 = 4 in B2, universal cyclic-ring upper bound, refute MAJ5 ≥ 11, and pin down U2Size(XOR2)=3 & B2Size(cyclicAdj 5)=7.",
+      "accept_refutation": true,
+      "required_claims": [
+        "L-clb-005",
+        "L-clb-006",
+        "L-meta-003",
+        "L-meta-004",
+        "L-meta-005",
+        "L-clb-007"
+      ]
+    },
+    {
+      "id": "OBJ-pnp-php",
+      "title": "Universal Pigeonhole Principle & Resolution Restriction",
+      "tier": "Conquered ✓",
+      "finish_line": "Prove ∀ n, Unsatisfiable (PHP (n+1) n) and qualitative Resolution restriction in pure Lean 4.",
+      "required_claims": [
+        "L-pcx-002",
+        "L-pcx-003",
+        "L-pcx-004",
+        "L-pcx-005"
+      ]
+    }
+  ]
+}

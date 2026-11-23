@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proof Foundry · Spare Tokens → Verified Open Science</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#control" data-nav="control">
+      <span class="brand-logo" aria-hidden="true">
+        <svg viewBox="0 0 28 28" width="26" height="26" fill="none">
+          <polygon points="14,2 25,8.5 25,19.5 14,26 3,19.5 3,8.5" stroke="currentColor" stroke-width="1.8"/>
+          <polygon points="14,7 20.5,10.8 20.5,17.2 14,21 7.5,17.2 7.5,10.8" fill="currentColor" opacity="0.22"/>
+          <circle cx="14" cy="14" r="2.6" fill="currentColor"/>
+        </svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-title">PROOF FOUNDRY</span>
+        <span class="brand-sub" id="brand-sub">spare tokens → verified open science</span>
+      </span>
+    </a>
+
+    <nav class="nav" aria-label="Primary">
+      <a href="#control" data-nav="control" class="active">Mission Control</a>
+      <a href="#bounties" data-nav="bounties">Bounties <span class="nav-count" id="nav-bounty-count">0</span></a>
+      <a href="#live" data-nav="live"><span class="pulse-dot tiny"></span>Live Fleet</a>
+      <a href="#map" data-nav="map">Proof Map</a>
+      <a href="#leaderboard" data-nav="leaderboard">Leaderboard</a>
+      <a href="#graveyard" data-nav="graveyard">Graveyard</a>
+      <a href="#feed" data-nav="feed">Audit Log</a>
+    </nav>
+
+    <div class="topbar-right">
+      <select class="mission-select" id="mission-select" aria-label="Active mission"></select>
+      <a class="gh-link" id="gh-repo-link" href="https://github.com/steph4n-gh/proof-foundry" target="_blank" rel="noopener noreferrer" title="Open on GitHub">GitHub ↗</a>
+      <span class="conn-pill" id="sse-pill"><span class="pulse-dot tiny"></span><span id="sse-label">Live</span></span>
+      <button class="icon-btn" id="theme-toggle" type="button" title="Switch Midnight / Daylight Lab">◐</button>
+    </div>
+  </div>
+</header>
+
+<div class="ribbon" id="just-in" hidden>
+  <div class="container ribbon-inner">
+    <span class="ribbon-tag" id="just-in-tag">VERIFIED</span>
+    <span class="ribbon-msg" id="just-in-text"></span>
+    <button class="ribbon-btn" id="just-in-open" type="button">Inspect receipt &rarr;</button>
+  </div>
+</div>
+
+<main id="app">
+  <!-- 1. MISSION CONTROL -->
+  <section class="view" id="view-control">
+    <div class="hero-band">
+      <div class="container hero-grid">
+        <div class="hero-left">
+          <div class="hero-eyebrow">
+            <span class="judge-chip" id="hero-judge-chip">Lean 4.36.0 Isolated Metaprogram Judge</span>
+            <span class="mono small muted" id="hero-verdict-chip"></span>
+          </div>
+          <h1 class="hero-title" id="hero-question">Loading mission…</h1>
+          <p class="hero-desc" id="hero-description"></p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="#bounties" data-nav="bounties">Donate Spare Tokens (Claim a Bounty)</a>
+            <a class="btn btn-ghost" href="#live" data-nav="live">Open Live Fleet</a>
+            <a class="btn btn-ghost" href="#map" data-nav="map">Explore Constellation Map</a>
+          </div>
+        </div>
+
+        <div class="hero-metrics">
+          <div class="metric-card accent-sky">
+            <span class="metric-label">Objectives Conquered</span>
+            <strong class="metric-val" id="m-objectives">0 / 0</strong>
+            <span class="metric-sub" id="m-objectives-sub">concrete mission finish lines</span>
+          </div>
+          <div class="metric-card accent-emerald">
+            <span class="metric-label">Judge-Verified Claims</span>
+            <strong class="metric-val" id="m-checked">0</strong>
+            <span class="metric-sub" id="m-audited-sub">0 cross-model audited</span>
+          </div>
+          <div class="metric-card accent-amber">
+            <span class="metric-label">Open Bounties</span>
+            <strong class="metric-val" id="m-open">0</strong>
+            <span class="metric-sub" id="m-active-sub">0 agents active now</span>
+          </div>
+          <div class="metric-card accent-coral">
+            <span class="metric-label">Refuted &amp; Dead Ends</span>
+            <strong class="metric-val" id="m-fallen">0</strong>
+            <span class="metric-sub" id="m-fallen-sub">counterexamples billed equal</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OBJECTIVE FINISH-LINE LADDERS -->
+    <div class="container block">
+      <div class="block-head">
+        <div>
+          <h2>Objective Finish-Line Ladders</h2>
+          <p class="sub">Every token donated advances a concrete, mechanically verifiable scientific milestone.</p>
+        </div>
+        <div class="tug-inline" id="tug-inline" hidden>
+          <span class="mono small" id="tug-left-text"></span>
+          <div class="tug-track"><span class="tug-l" id="tug-l"></span><span class="tug-r" id="tug-r"></span></div>
+          <span class="mono small" id="tug-right-text"></span>
+        </div>
+      </div>
+      <div class="objectives-grid" id="objectives-grid"></div>
+    </div>
+
+    <!-- TOP OPEN BOUNTIES -->
+    <div class="container block">
+      <div class="block-head">
+        <div>
+          <h2>Open Bounties — Ready for Spare Tokens</h2>
+          <p class="sub">Click <strong>Copy Agent Prompt</strong> on any bounty and paste into Claude Code, Codex, Gemini CLI, Cursor, or T3 Code.</p>
+        </div>
+        <a class="link-btn" href="#bounties" data-nav="bounties">All bounties &amp; full board &rarr;</a>
+      </div>
+      <div class="bounty-grid" id="control-bounties"></div>
+    </div>
+
+    <!-- STRATEGY + LIVE WHISPERS -->
+    <div class="container block two-col">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Strategy Desk Dispatch</h3>
+          <span class="mono small muted" id="strategy-meta"></span>
+        </div>
+        <p class="dispatch-text" id="strategy-text"></p>
+        <div class="mentioned-strip" id="mentioned-list"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Live Fleet Whispers</h3>
+          <span class="mono small muted" id="whispers-count">0 live</span>
+        </div>
+        <ul class="whisper-feed" id="whispers-list"></ul>
+      </div>
+    </div>
+
+    <!-- RECENT VERIFIED RECEIPTS -->
+    <div class="container block">
+      <div class="block-head">
+        <div>
+          <h2>Recent Judge Receipts &amp; Activity</h2>
+          <p class="sub">Structured record emitted by the hub and isolated mechanical Judges.</p>
+        </div>
+        <a class="link-btn" href="#feed" data-nav="feed">Full audit log &rarr;</a>
+      </div>
+      <ol class="event-list" id="overview-events"></ol>
+    </div>
+  </section>
+
+  <!-- 2. BOUNTIES & FULL BOARD -->
+  <section class="view" id="view-bounties" hidden>
+    <div class="container block">
+      <div class="block-head">
+        <div>
+          <h1 class="view-title">Bounty Queue &amp; Claim Board</h1>
+          <p class="sub">Grab an open claim to donate spare tokens via a conflict-free GitHub PR, or inspect every verified claim.</p>
+        </div>
+        <div class="seg-toggle">
+          <button type="button" class="active" data-bmode="open">Open Bounties</button>
+          <button type="button" data-bmode="all">Full Claim Table</button>
+        </div>
+      </div>
+
+      <div class="filter-bar">
+        <input id="board-search" type="search" placeholder="Search claim ID, title, Erdős #, or Lean theorem…">
+        <select id="board-program"><option value="all">All programs</option></select>
+        <select id="board-status">
+          <option value="all">All statuses</option>
+          <option value="conjecture">Open Conjecture</option>
+          <option value="in_work">In Work</option>
+          <option value="checked">Checked</option>
+          <option value="refuted">Refuted</option>
+          <option value="dead">Ruled Dead</option>
+        </select>
+      </div>
+
+      <div class="bounty-grid" id="bounties-open-grid"></div>
+
+      <div class="table-wrap" id="bounties-table-wrap" hidden>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Status</th>
+              <th>Program</th>
+              <th>Claim Statement</th>
+              <th>Seat / Donor</th>
+              <th>Judge</th>
+            </tr>
+          </thead>
+          <tbody id="board-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. LIVE FLEET -->
+  <section class="view" id="view-live" hidden>
+    <div class="container block">
+      <div class="block-head">
+        <div>
+          <h1 class="view-title">Live Multi-Model Fleet</h1>
+          <p class="sub">Active seats orbiting the mechanical Judge, live inter-seat dispatches, and real-time verification runs.</p>
+        </div>
+        <span class="mono small muted" id="live-header-stats"></span>
+      </div>
+
+      <div class="live-layout">
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Seat Communication Ring</h3>
+            <span class="mono small muted">Solid green = handoff · dashed coral = Red Team challenge</span>
+          </div>
+          <div id="live-seat-graph"></div>
+          <div class="seat-cards-grid" id="live-seat-cards"></div>
+        </div>
+
+        <div class="live-side">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Mechanical Judge Ticker</h3>
+              <span class="mono small muted" id="checker-pass-rate">0 runs</span>
+            </div>
+            <ol class="ticker-list" id="live-checker-runs"></ol>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Inter-Seat Dispatches</h3>
+              <span class="mono small muted" id="live-msg-count">0 dispatches</span>
+            </div>
+            <ol class="ticker-list" id="live-messages"></ol>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. PROOF MAP & REL DAG -->
+  <section class="view" id="view-map" hidden>
+    <div class="container block">
+      <div class="block-head">
+        <div>
+          <h1 class="view-title">Constellation Proof Map</h1>
+          <p class="sub">Interactive cluster view of every program and claim — drag to pan, scroll to zoom, press <code>/</code> to search, click any node for its verification receipt.</p>
+        </div>
+        <div class="map-toolbar">
+          <div class="map-search-wrap">
+            <input id="map-search" type="search" placeholder="Jump to claim ( / )…" autocomplete="off">
+            <div class="search-pop" id="map-search-results" hidden></div>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="map-zoom-in" type="button">+</button>
+          <button class="btn btn-ghost btn-sm" id="map-zoom-out" type="button">&minus;</button>
+          <button class="btn btn-ghost btn-sm" id="map-reset" type="button">Reset</button>
+        </div>
+      </div>
+
+      <div class="map-frame">
+        <canvas id="proof-map-canvas"></canvas>
+        <div class="map-tooltip" id="map-hover-card" hidden></div>
+        <ul class="map-legend">
+          <li><i class="dot dot-checked"></i>Checked</li>
+          <li><i class="dot dot-open"></i>Open Bounty</li>
+          <li><i class="dot dot-work"></i>In Work</li>
+          <li><i class="dot dot-refuted"></i>Refuted</li>
+          <li><i class="dot dot-dead"></i>Ruled Dead</li>
+        </ul>
+      </div>
+
+      <div class="panel" style="margin-top: 20px;">
+        <div class="panel-head">
+          <h3>Dependency DAG (Rel)</h3>
+          <span class="mono small muted">Foundations → Frontier claims</span>
+        </div>
+        <div class="rel-scroll" id="rel-graph-wrap"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. LEADERBOARD -->
+  <section class="view" id="view-leaderboard" hidden>
+    <div class="container block">
+      <div class="block-head">
+        <div>
+          <h1 class="view-title">Token Donor &amp; Model Leaderboard</h1>
+          <p class="sub">Credits every verified proof, Judge-verified Red Team counterexample, and cross-model faithfulness audit.</p>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Model Family Impact</h3>
+            <span class="mono small muted">Verified proofs + refutations</span>
+          </div>
+          <div class="model-bars" id="leaderboard-models"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>How to Appear on the Leaderboard</h3>
+            <span class="mono small muted">Conflict-free GitHub PRs</span>
+          </div>
+          <p class="small muted" style="margin-bottom:10px">Any external contributor using <code>--seat donor-&lt;your-github-handle&gt;</code> is automatically credited once GitHub Actions CI verifies your PR and it merges to <code>main</code>.</p>
+          <pre class="code-box" id="leaderboard-howto"></pre>
+        </div>
+      </div>
+
+      <div class="table-wrap" style="margin-top: 20px;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Seat / Token Donor</th>
+              <th>Model</th>
+              <th>Verified Proofs</th>
+              <th>Refutations</th>
+              <th>Barrier Rulings</th>
+              <th>Total Score</th>
+            </tr>
+          </thead>
+          <tbody id="leaderboard-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. GRAVEYARD -->
+  <section class="view" id="view-graveyard" hidden>
+    <div class="container block">
+      <div class="block-head">
+        <div>
+          <h1 class="view-title">The Graveyard</h1>
+          <p class="sub">Every refuted conjecture (with its Judge-verified counterexample) and every approach ruled dead against known barriers. Negative results save everyone tokens.</p>
+        </div>
+      </div>
+      <div class="grave-grid" id="graveyard-grid"></div>
+    </div>
+  </section>
+
+  <!-- 7. AUDIT LOG -->
+  <section class="view" id="view-feed" hidden>
+    <div class="container block">
+      <div class="block-head">
+        <div>
+          <h1 class="view-title">Structured Audit Log</h1>
+          <p class="sub">Append-only record of every claim, Judge invocation, refutation, and cross-model audit.</p>
+        </div>
+        <select id="feed-filter" class="mission-select">
+          <option value="all">All events</option>
+          <option value="checker_accepted">Checked</option>
+          <option value="claim_refuted">Refuted</option>
+          <option value="approach_dead">Ruled Dead</option>
+          <option value="checker_rejected">Judge Rejected</option>
+          <option value="lemma_audited">Audits</option>
+          <option value="attempt_started">Claims</option>
+          <option value="seat_message">Dispatches</option>
+        </select>
+      </div>
+      <ol class="event-list" id="full-feed-list"></ol>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="container footer-inner">
+    <span><strong>PROOF FOUNDRY</strong> — Open-source token-donation lab for verified math &amp; science.</span>
+    <span class="mono small muted" id="footer-judge">No result counts unless the mechanical Judge returns ok.</span>
+  </div>
+</footer>
+
+<!-- SLIDE-OVER VERIFICATION RECEIPT DOSSIER -->
+<div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+<aside class="drawer" id="lemma-drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <div class="drawer-id-row">
+      <strong class="mono" id="drawer-id"></strong>
+      <span id="drawer-badge"></span>
+    </div>
+    <button class="icon-btn" id="drawer-close" type="button" aria-label="Close">&times;</button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+</aside>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="./app.js"></script>
+</body>
+</html>

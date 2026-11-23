@@ -1,0 +1,2615 @@
+{
+  "meta": {
+    "title": "P = NP ? · T3 Fleet",
+    "verdict": "open, being worked on now.",
+    "started_at": "2026-11-23T05:42:30.677Z",
+    "updated_at": "2026-11-23T12:50:42.607Z",
+    "sessions_total": 28,
+    "strategy_note": {
+      "seat": "seat-strat-1",
+      "text": "Cross-model Adversarial Audit complete (GPT-6.2 Astra + Claude Opus 5.5). Hardened the Lean 4 Judge to an isolated kernel metaprogram (blocking all 5 tested spoofing/axiom/foreign-theorem exploits), fixed 5 imprecise titles ([L-lib-004], [L-alg-001], [L-pcx-003], [L-pcx-005], [L-bar-003]), hardened the SSE dashboard & Proof Map layout, and re-verified every checked proof & refutation with full untruncated signatures.",
+      "mentions": [
+        "L-lib-004",
+        "L-alg-001",
+        "L-pcx-005",
+        "L-meta-004",
+        "L-clb-006",
+        "L-pcx-004"
+      ],
+      "at": "2026-11-23T06:21:38.349Z"
+    },
+    "checker_runs_total": 2,
+    "checker_runs_passed": 2
+  },
+  "programs": [
+    {
+      "id": "library",
+      "key": "lib",
+      "title": "Foundations & Library",
+      "aims_at": "neutral",
+      "color": "#4F6D7A",
+      "goal": "Build reusable, zero-sorry Lean 4 complexity foundations: Boolean vector calculus, monotone circuits, CNF evaluation, and polynomial bounds.",
+      "target_summary": "Core reusable lemma kit for circuit, SAT, and proof-complexity fronts."
+    },
+    {
+      "id": "circuit_lower_bounds",
+      "key": "clb",
+      "title": "Circuit Lower Bounds",
+      "aims_at": "p_neq_np",
+      "color": "#2F6B4F",
+      "goal": "Establish unconditional gate, depth, and monotonicity lower bounds on explicit Boolean functions.",
+      "target_summary": "Monotone separation for parity/XOR, essential-variable gate lower bounds, and DAG size barriers."
+    },
+    {
+      "id": "proof_complexity",
+      "key": "pcx",
+      "title": "Proof Complexity",
+      "aims_at": "p_neq_np",
+      "color": "#2C5E8A",
+      "goal": "Prove soundness, width, and size lower bounds for Resolution refutations of Pigeonhole Principle and CNF tautologies.",
+      "target_summary": "Resolution soundness + explicit PHP(3,2) unsatisfiability and refutation length bounds."
+    },
+    {
+      "id": "meta_complexity",
+      "key": "meta",
+      "title": "Meta-complexity",
+      "aims_at": "neutral",
+      "color": "#7B5B8A",
+      "goal": "Pin down exact minimal circuit sizes for explicit small Boolean functions and study circuit minimization hardness.",
+      "target_summary": "Exact gate-for-gate characterization of MAJ3 and small symmetric functions."
+    },
+    {
+      "id": "p_eq_np_search",
+      "key": "alg",
+      "title": "P = NP Algorithm Search",
+      "aims_at": "p_eq_np",
+      "color": "#B86B27",
+      "goal": "Search for polynomial-time SAT algorithms, tractable subclasses (Horn/2-SAT), and bold heuristics—every candidate is fed straight to Red Team.",
+      "target_summary": "Verify tractable fragments and stress-test greedy/structural 3-SAT conjectures."
+    },
+    {
+      "id": "barrier_desk",
+      "key": "bar",
+      "title": "Barrier Desk & Red Team",
+      "aims_at": "neutral",
+      "color": "#A2321F",
+      "goal": "Test approaches against Relativization, Natural Proofs, and Algebrization; formally refute false claims with Lean-checked counterexamples.",
+      "target_summary": "Name every wall an approach hits; bill every counterexample like a proof."
+    }
+  ],
+  "seats": [
+    {
+      "id": "seat-strat-1",
+      "name": "Strategy Desk",
+      "role": "strategy",
+      "program": "library",
+      "provider": "Antigravity",
+      "model": "Gemini 4 Neon",
+      "badge": "G4",
+      "color": "#3B82F6",
+      "status": "idle",
+      "current_lemma": "L-lib-000",
+      "current_whisper": "Published strategy dispatch (6 lemmas cited)",
+      "sessions": 1,
+      "last_seen": "2026-11-23T05:56:26.688Z",
+      "counts": {
+        "checked": 1,
+        "refuted": 0,
+        "blocked": 0,
+        "attempts": 1,
+        "messages": 0
+      }
+    },
+    {
+      "id": "seat-lib-1",
+      "name": "Library Builder",
+      "role": "builder",
+      "program": "library",
+      "provider": "Claude",
+      "model": "Claude Sonnet 5.5",
+      "badge": "CS",
+      "color": "#D97706",
+      "status": "idle",
+      "current_lemma": "L-lib-004",
+      "current_whisper": "L-lib-004 checked, including the necessary one-gate exception",
+      "sessions": 4,
+      "last_seen": "2026-11-23T06:07:08.691Z",
+      "counts": {
+        "checked": 4,
+        "refuted": 0,
+        "blocked": 0,
+        "attempts": 4,
+        "messages": 2
+      }
+    },
+    {
+      "id": "seat-clb-1",
+      "name": "Circuit Lower Bounds",
+      "role": "thinker+builder",
+      "program": "circuit_lower_bounds",
+      "provider": "Codex",
+      "model": "GPT-6.2 Sol",
+      "badge": "6.2",
+      "color": "#10B981",
+      "status": "idle",
+      "current_lemma": "L-clb-006",
+      "current_whisper": "L-clb-005 and L-clb-006 checked",
+      "sessions": 5,
+      "last_seen": "2026-11-23T06:07:08.823Z",
+      "counts": {
+        "checked": 5,
+        "refuted": 0,
+        "blocked": 0,
+        "attempts": 5,
+        "messages": 3
+      }
+    },
+    {
+      "id": "seat-pcx-1",
+      "name": "Proof Complexity",
+      "role": "thinker+builder",
+      "program": "proof_complexity",
+      "provider": "Claude",
+      "model": "Claude Opus 5.5",
+      "badge": "CO",
+      "color": "#EA580C",
+      "status": "idle",
+      "current_lemma": "L-pcx-005",
+      "current_whisper": "L-pcx-004 and L-pcx-005 verified; awaiting next wave",
+      "sessions": 5,
+      "last_seen": "2026-11-23T05:59:07.945Z",
+      "counts": {
+        "checked": 5,
+        "refuted": 0,
+        "blocked": 0,
+        "attempts": 5,
+        "messages": 3
+      }
+    },
+    {
+      "id": "seat-meta-1",
+      "name": "Meta-complexity",
+      "role": "thinker+builder",
+      "program": "meta_complexity",
+      "provider": "Antigravity",
+      "model": "Gemini 4 Neon",
+      "badge": "G4",
+      "color": "#6366F1",
+      "status": "idle",
+      "current_lemma": "L-meta-003",
+      "current_whisper": "Done: L-meta-003 (C_B2(MAJ3)=4 exactly) and L-clb-004 (formula depth d reads ≤ 2^d inputs) both kernel-checked with standard axioms. Proposed L-meta-005 (U2 size of XOR2 = 3, same truth-table method).",
+      "sessions": 4,
+      "last_seen": "2026-11-23T06:20:55.407Z",
+      "counts": {
+        "checked": 4,
+        "refuted": 0,
+        "blocked": 0,
+        "attempts": 4,
+        "messages": 3
+      }
+    },
+    {
+      "id": "seat-alg-1",
+      "name": "P = NP Search",
+      "role": "thinker+builder",
+      "program": "p_eq_np_search",
+      "provider": "Antigravity",
+      "model": "Gemini 4 Neon",
+      "badge": "G4",
+      "color": "#0EA5E9",
+      "status": "idle",
+      "current_lemma": "L-alg-004",
+      "current_whisper": "L-alg-004 verified (exact 7-gate B2 circuit for mod3Eq0 4); reported to seat-meta-1; idle.",
+      "sessions": 2,
+      "last_seen": "2026-11-23T06:02:04.874Z",
+      "counts": {
+        "checked": 2,
+        "refuted": 0,
+        "blocked": 0,
+        "attempts": 2,
+        "messages": 2
+      }
+    },
+    {
+      "id": "seat-redteam-1",
+      "name": "Red Team",
+      "role": "red_team",
+      "program": "barrier_desk",
+      "provider": "Codex",
+      "model": "GPT-6.2 Sol",
+      "badge": "RT",
+      "color": "#DC2626",
+      "status": "idle",
+      "current_lemma": "L-meta-004",
+      "current_whisper": "MAJ5 ten-gate refutation verified in Lean; cyclicAdj 5 six-gate SAT and exhaustive search results sent to the lower-bounds seat.",
+      "sessions": 4,
+      "last_seen": "2026-11-23T06:02:36.693Z",
+      "counts": {
+        "checked": 0,
+        "refuted": 3,
+        "blocked": 0,
+        "attempts": 4,
+        "messages": 4
+      }
+    },
+    {
+      "id": "seat-barrier-1",
+      "name": "Barrier Desk",
+      "role": "barrier_desk",
+      "program": "barrier_desk",
+      "provider": "Claude",
+      "model": "Claude Opus 5.5",
+      "badge": "BD",
+      "color": "#18181B",
+      "status": "idle",
+      "current_lemma": "L-bar-004",
+      "current_whisper": "L-bar-003 verified (zero axioms) & L-bar-004 ruled dead vs Algebrization (2009); idle.",
+      "sessions": 4,
+      "last_seen": "2026-11-23T06:02:05.226Z",
+      "counts": {
+        "checked": 1,
+        "refuted": 0,
+        "blocked": 3,
+        "attempts": 4,
+        "messages": 3
+      }
+    }
+  ],
+  "lemmas": [
+    {
+      "id": "L-lib-000",
+      "program": "library",
+      "title": "Bit-flipping an input coordinate twice returns the original Boolean vector",
+      "statement": "PnP.Lemmas.L_lib_000.flipBit_involutive :\n  ∀ {n : Nat} (x : PnP.BoolVec n) (i : Fin n), PnP.flipBit (PnP.flipBit x i) i = x",
+      "theorem_name": "PnP.Lemmas.L_lib_000.flipBit_involutive",
+      "lean_file": "lean/PnP/Lemmas/L_lib_000.lean",
+      "status": "checked",
+      "aims_at": "neutral",
+      "deps": [],
+      "rung": 1,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": null,
+      "paper_notes": "Foundation smoke-test for BoolVec coordinate manipulation.",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T05:42:36.932Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:42:36.932Z",
+        "duration_ms": 5943,
+        "axioms": [
+          "propext",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "0f522adda1137ef0b714289b2ca89d1295de5b23f1876e67f386715f482881b4",
+        "by_seat": "seat-strat-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "@PnP.Lemmas.L_lib_000.flipBit_involutive : ∀ {n : Nat} (x : PnP.BoolVec n) (i : Fin n),",
+      "verified_signature": "PnP.Lemmas.L_lib_000.flipBit_involutive :\n  ∀ {n : Nat} (x : PnP.BoolVec n) (i : Fin n), PnP.flipBit (PnP.flipBit x i) i = x",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-lib-001",
+      "program": "library",
+      "title": "Every monotone circuit computes a monotone Boolean function",
+      "statement": "PnP.Lemmas.L_lib_001.monotone_circuit_is_monotone :\n  ∀ {n : Nat} (c : PnP.Circuit n), c.isMonotone = true → PnP.Monotone c.eval",
+      "theorem_name": "PnP.Lemmas.L_lib_001.monotone_circuit_is_monotone",
+      "lean_file": "lean/PnP/Lemmas/L_lib_001.lean",
+      "status": "checked",
+      "aims_at": "neutral",
+      "deps": [],
+      "rung": 2,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-lib-1",
+      "paper_notes": "Structural induction on Circuit: input, const, and, or preserve BitLe monotonicity.",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T05:46:37.510Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:46:37.510Z",
+        "duration_ms": 5315,
+        "axioms": [
+          "propext"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "d87422c5a70c5cdf89d0f72c5df30f90f1ecd6d2dd0e989e52cc7727a12287d9",
+        "by_seat": "seat-lib-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "@PnP.Lemmas.L_lib_001.monotone_circuit_is_monotone : ∀ {n : Nat} (c : PnP.Circuit n),",
+      "verified_signature": "PnP.Lemmas.L_lib_001.monotone_circuit_is_monotone :\n  ∀ {n : Nat} (c : PnP.Circuit n), c.isMonotone = true → PnP.Monotone c.eval",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-lib-002",
+      "program": "library",
+      "title": "A circuit that does not reference input wire i is invariant to flipping bit i",
+      "statement": "PnP.Lemmas.L_lib_002.unused_input_invariant :\n  ∀ {n : Nat} (c : PnP.Circuit n) (i : Fin n),\n  c.usesInput i = false → ∀ (x : PnP.BoolVec n), c.eval (PnP.flipBit x i) = c.eval x",
+      "theorem_name": "PnP.Lemmas.L_lib_002.unused_input_invariant",
+      "lean_file": "lean/PnP/Lemmas/L_lib_002.lean",
+      "status": "checked",
+      "aims_at": "neutral",
+      "deps": [
+        "L-lib-000"
+      ],
+      "rung": 3,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-lib-1",
+      "paper_notes": "Key wire-dependency lemma linking syntactic input leaves to semantic DependsOn.",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T05:46:47.039Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:46:47.039Z",
+        "duration_ms": 8872,
+        "axioms": [
+          "propext"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "311fd21935c18a0cf6bfa668dddc820b916b7f3ce3f5417b5431fb8e05c35087",
+        "by_seat": "seat-lib-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "@PnP.Lemmas.L_lib_002.unused_input_invariant : ∀ {n : Nat} (c : PnP.Circuit n) (i : Fin n),",
+      "verified_signature": "PnP.Lemmas.L_lib_002.unused_input_invariant :\n  ∀ {n : Nat} (c : PnP.Circuit n) (i : Fin n),\n  c.usesInput i = false → ∀ (x : PnP.BoolVec n), c.eval (PnP.flipBit x i) = c.eval x",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-lib-003",
+      "program": "library",
+      "title": "Polynomial bounds are closed under addition and multiplication",
+      "statement": "PnP.Lemmas.L_lib_003.polyBounded_add_mul :\n  ∀ {f g : Nat → Nat},\n  PnP.PolyBounded f → PnP.PolyBounded g → (PnP.PolyBounded fun n => f n + g n) ∧ PnP.PolyBounded fun n => f n * g n",
+      "theorem_name": "PnP.Lemmas.L_lib_003.polyBounded_add_mul",
+      "lean_file": "lean/PnP/Lemmas/L_lib_003.lean",
+      "status": "checked",
+      "aims_at": "neutral",
+      "deps": [],
+      "rung": 4,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-lib-1",
+      "paper_notes": "Needed for composing polynomial-time reductions and verifiers.",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T05:47:01.173Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:47:01.173Z",
+        "duration_ms": 7621,
+        "axioms": [
+          "propext",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "5acf3da10bca4238f21886386a579d7d3779f5e6b11a3641eb6a91f578dd4312",
+        "by_seat": "seat-lib-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "@PnP.Lemmas.L_lib_003.polyBounded_add_mul : ∀ {f g : Nat → Nat},",
+      "verified_signature": "PnP.Lemmas.L_lib_003.polyBounded_add_mul :\n  ∀ {f g : Nat → Nat},\n  PnP.PolyBounded f → PnP.PolyBounded g → (PnP.PolyBounded fun n => f n + g n) ∧ PnP.PolyBounded fun n => f n * g n",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-clb-001",
+      "program": "circuit_lower_bounds",
+      "title": "Two-input XOR is not monotone, so no monotone circuit of any size computes it",
+      "statement": "PnP.Lemmas.L_clb_001.xor2_no_monotone_circuit :\n  ∀ (c : PnP.Circuit 2), c.isMonotone = true → ¬c.Computes PnP.xor2",
+      "theorem_name": "PnP.Lemmas.L_clb_001.xor2_no_monotone_circuit",
+      "lean_file": "lean/PnP/Lemmas/L_clb_001.lean",
+      "status": "checked",
+      "aims_at": "p_neq_np",
+      "deps": [
+        "L-lib-001"
+      ],
+      "rung": 1,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-clb-1",
+      "paper_notes": "Compare inputs (true, false) ≤ (true, true): xor2 flips from true to false, contradicting Monotone.",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T05:47:39.670Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:47:39.670Z",
+        "duration_ms": 7265,
+        "axioms": [
+          "propext",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "30acc6c5be473e3f0d92c0c923c843a4f7cb13c7f28c574be06ffc3354fdfb89",
+        "by_seat": "seat-clb-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "PnP.Lemmas.L_clb_001.xor2_no_monotone_circuit : ∀ (c : PnP.Circuit 2), c.isMonotone = true → ¬c.Computes PnP.xor2",
+      "verified_signature": "PnP.Lemmas.L_clb_001.xor2_no_monotone_circuit :\n  ∀ (c : PnP.Circuit 2), c.isMonotone = true → ¬c.Computes PnP.xor2",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-clb-002",
+      "program": "circuit_lower_bounds",
+      "title": "Every circuit computing a function that depends on input i must contain input leaf i",
+      "statement": "PnP.Lemmas.L_clb_002.depends_implies_usesInput :\n  ∀ {n : Nat} (c : PnP.Circuit n) (f : PnP.BoolFn n) (i : Fin n), c.Computes f → PnP.DependsOn f i → c.usesInput i = true",
+      "theorem_name": "PnP.Lemmas.L_clb_002.depends_implies_usesInput",
+      "lean_file": "lean/PnP/Lemmas/L_clb_002.lean",
+      "status": "checked",
+      "aims_at": "p_neq_np",
+      "deps": [
+        "L-lib-002"
+      ],
+      "rung": 2,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-clb-1",
+      "paper_notes": "Contrapositive of L-lib-002; first rung of general circuit gate lower bounds.",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T05:48:03.023Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:48:03.023Z",
+        "duration_ms": 8273,
+        "axioms": [
+          "propext"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "3565d828841890ac61a95de825c7f6081f170180db637066b21ec6d036509509",
+        "by_seat": "seat-clb-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "@PnP.Lemmas.L_clb_002.depends_implies_usesInput : ∀ {n : Nat} (c : PnP.Circuit n) (f : PnP.BoolFn n) (i : Fin n),",
+      "verified_signature": "PnP.Lemmas.L_clb_002.depends_implies_usesInput :\n  ∀ {n : Nat} (c : PnP.Circuit n) (f : PnP.BoolFn n) (i : Fin n), c.Computes f → PnP.DependsOn f i → c.usesInput i = true",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-clb-003",
+      "program": "circuit_lower_bounds",
+      "title": "Any formula circuit using k distinct inputs needs at least k - 1 binary gates (hence n-bit parity needs ≥ n - 1 binary gates)",
+      "statement": "PnP.Lemmas.L_clb_003.parity_binary_gate_lower_bound :\n  ∀ {n : Nat} (c : PnP.Circuit n), c.Computes (PnP.parityFn n) → n ≤ c.binaryGateCount + 1",
+      "theorem_name": "PnP.Lemmas.L_clb_003.parity_binary_gate_lower_bound",
+      "lean_file": "lean/PnP/Lemmas/L_clb_003.lean",
+      "status": "checked",
+      "aims_at": "p_neq_np",
+      "deps": [
+        "L-clb-002"
+      ],
+      "rung": 3,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-clb-1",
+      "paper_notes": "Count distinct used inputs bounded by binaryGateCount + 1 by structural induction; parityFn n depends on every bit.",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T05:48:12.682Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:48:12.682Z",
+        "duration_ms": 9182,
+        "axioms": [
+          "propext",
+          "Classical.choice",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "623811acefff5f45124a65054c69cf68a659f7fa0ba110ae2457927ada061f3a",
+        "by_seat": "seat-clb-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "@PnP.Lemmas.L_clb_003.parity_binary_gate_lower_bound : ∀ {n : Nat} (c : PnP.Circuit n),",
+      "verified_signature": "PnP.Lemmas.L_clb_003.parity_binary_gate_lower_bound :\n  ∀ {n : Nat} (c : PnP.Circuit n), c.Computes (PnP.parityFn n) → n ≤ c.binaryGateCount + 1",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-clb-004",
+      "program": "circuit_lower_bounds",
+      "title": "Depth-size tradeoff: a formula circuit of depth d can reference at most 2^d input leaves",
+      "statement": "PnP.Lemmas.L_clb_004.depth_bounds_inputs :\n  ∀ {n : Nat} (c : PnP.Circuit n), PnP.Lemmas.L_clb_004.countDistinctInputs c ≤ 2 ^ c.depth",
+      "theorem_name": "PnP.Lemmas.L_clb_004.depth_bounds_inputs",
+      "lean_file": "lean/PnP/Lemmas/L_clb_004.lean",
+      "status": "checked",
+      "aims_at": "p_neq_np",
+      "deps": [
+        "L-clb-003"
+      ],
+      "rung": 4,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-meta-1",
+      "paper_notes": "Logarithmic depth lower bound log2(n) for every function depending on all n inputs, including parity.",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T06:20:13.267Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T06:20:13.267Z",
+        "duration_ms": 7652,
+        "axioms": [
+          "propext",
+          "Classical.choice",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "4704eba9678ab2fbb9973cf18fb29f57824b482c9351fbb991a5ee5c1cccbcd6",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "by_seat": "seat-meta-1",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "∀ {n} (c : Circuit n), countDistinctInputs c ≤ 2 ^ c.depth",
+      "verified_signature": "PnP.Lemmas.L_clb_004.depth_bounds_inputs :\n  ∀ {n : Nat} (c : PnP.Circuit n), PnP.Lemmas.L_clb_004.countDistinctInputs c ≤ 2 ^ c.depth",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-pcx-001",
+      "program": "proof_complexity",
+      "title": "Soundness of Resolution: every clause derivable by Resolution is implied by the CNF, so deriving the empty clause proves UNSAT",
+      "statement": "PnP.Lemmas.L_pcx_001.resolution_sound :\n  ∀ (φ : PnP.CNF), PnP.ResDerivable φ [] → PnP.Unsatisfiable φ",
+      "theorem_name": "PnP.Lemmas.L_pcx_001.resolution_sound",
+      "lean_file": "lean/PnP/Lemmas/L_pcx_001.lean",
+      "status": "checked",
+      "aims_at": "p_neq_np",
+      "deps": [],
+      "rung": 1,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-pcx-1",
+      "paper_notes": "Induction on ResDerivable: any satisfying assignment satisfies every derived clause, but never [].",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T05:47:19.286Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:47:19.286Z",
+        "duration_ms": 11328,
+        "axioms": [
+          "propext",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "4ad0f14cc4ef1f113cbeaf0735a69fe6c29939285f6dba8050cc8d01716048ce",
+        "by_seat": "seat-pcx-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "PnP.Lemmas.L_pcx_001.resolution_sound : ∀ (φ : PnP.CNF), PnP.ResDerivable φ [] → PnP.Unsatisfiable φ",
+      "verified_signature": "PnP.Lemmas.L_pcx_001.resolution_sound :\n  ∀ (φ : PnP.CNF), PnP.ResDerivable φ [] → PnP.Unsatisfiable φ",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-pcx-002",
+      "program": "proof_complexity",
+      "title": "PHP(3, 2) — placing 3 pigeons into 2 holes — is unsatisfiable",
+      "statement": "PnP.Lemmas.L_pcx_002.php_3_2_unsat :\n  PnP.Unsatisfiable (PnP.PHP 3 2)",
+      "theorem_name": "PnP.Lemmas.L_pcx_002.php_3_2_unsat",
+      "lean_file": "lean/PnP/Lemmas/L_pcx_002.lean",
+      "status": "checked",
+      "aims_at": "p_neq_np",
+      "deps": [
+        "L-pcx-001"
+      ],
+      "rung": 2,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-pcx-1",
+      "paper_notes": "Finite case analysis over 6 Boolean variables p_{0..2, 0..1} or direct pigeonhole argument.",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T05:47:30.602Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:47:30.602Z",
+        "duration_ms": 10781,
+        "axioms": [
+          "propext",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "05db04ac93be010c5acc1a9382411f14913d7143a3c5593590a4b6e480e7d2d6",
+        "by_seat": "seat-pcx-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "PnP.Lemmas.L_pcx_002.php_3_2_unsat : PnP.Unsatisfiable (PnP.PHP 3 2)",
+      "verified_signature": "PnP.Lemmas.L_pcx_002.php_3_2_unsat :\n  PnP.Unsatisfiable (PnP.PHP 3 2)",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-pcx-003",
+      "program": "proof_complexity",
+      "title": "Any tree-like Resolution refutation (ResProof) of a CNF whose clauses all have list length ≥ 2 requires at least 3 proof nodes (tight: [[x,x],[¬x,¬x]] has size 3)",
+      "statement": "PnP.Lemmas.L_pcx_003.resolution_min_size_ge_three :\n  ∀ (φ : PnP.CNF) (p : PnP.ResProof φ []), (∀ (c : PnP.Clause), c ∈ φ → 2 ≤ List.length c) → 3 ≤ p.size",
+      "theorem_name": "PnP.Lemmas.L_pcx_003.resolution_min_size_ge_three",
+      "lean_file": "lean/PnP/Lemmas/L_pcx_003.lean",
+      "status": "checked",
+      "aims_at": "p_neq_np",
+      "deps": [
+        "L-pcx-001"
+      ],
+      "rung": 3,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-pcx-1",
+      "paper_notes": "Leaf cannot be []; resolving two clauses of length ≥ 2 gives a clause of length ≥ 2 unless both are unit clauses, forcing ≥ 2 resolution steps (≥ 5 nodes actually — let's prove tight bound!).",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T06:21:38.349Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:47:38.639Z",
+        "duration_ms": 7531,
+        "axioms": [
+          "propext",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "ab517d937bd28f710b01b4752bd65f1e27e90934328bc74efe84d6a552ed2b69",
+        "by_seat": "seat-pcx-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "PnP.Lemmas.L_pcx_003.resolution_min_size_ge_three : ∀ (φ : PnP.CNF) (p : PnP.ResProof φ []),",
+      "verified_signature": "PnP.Lemmas.L_pcx_003.resolution_min_size_ge_three :\n  ∀ (φ : PnP.CNF) (p : PnP.ResProof φ []), (∀ (c : PnP.Clause), c ∈ φ → 2 ≤ List.length c) → 3 ≤ p.size",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Title corrected per GPT-6.2 Astra & Claude Opus 5.5 audit; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-meta-001",
+      "program": "meta_complexity",
+      "title": "3-bit Majority (MAJ3) is computable by a 4-gate monotone circuit and needs at least 2 binary gates",
+      "statement": "PnP.Lemmas.L_meta_001.maj3_circuit_bounds :\n  (∃ c, c.isMonotone = true ∧ c.gateCount ≤ 4 ∧ c.Computes PnP.maj3) ∧\n  ∀ (c : PnP.Circuit 3), c.Computes PnP.maj3 → 2 ≤ c.binaryGateCount",
+      "theorem_name": "PnP.Lemmas.L_meta_001.maj3_circuit_bounds",
+      "lean_file": "lean/PnP/Lemmas/L_meta_001.lean",
+      "status": "checked",
+      "aims_at": "neutral",
+      "deps": [
+        "L-clb-002"
+      ],
+      "rung": 1,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-meta-1",
+      "paper_notes": "Upper bound: (a ∧ (b ∨ c)) ∨ (b ∧ c) uses 4 monotone gates! Lower bound: MAJ3 depends on all 3 inputs.",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T05:48:08.319Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:48:08.319Z",
+        "duration_ms": 8596,
+        "axioms": [
+          "propext",
+          "Classical.choice",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "9c65f00941c9ca8da36e6c940a2cfbf0f863359ebb66b65d555082e839b0827a",
+        "by_seat": "seat-meta-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "PnP.Lemmas.L_meta_001.maj3_circuit_bounds : (∃ c, c.isMonotone = true ∧ c.gateCount ≤ 4 ∧ c.Computes PnP.maj3) ∧",
+      "verified_signature": "PnP.Lemmas.L_meta_001.maj3_circuit_bounds :\n  (∃ c, c.isMonotone = true ∧ c.gateCount ≤ 4 ∧ c.Computes PnP.maj3) ∧\n  ∀ (c : PnP.Circuit 3), c.Computes PnP.maj3 → 2 ≤ c.binaryGateCount",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-meta-002",
+      "program": "meta_complexity",
+      "title": "No single-gate DAGCircuit over {NOT, AND, OR, XOR, CONST} computes 3-bit Majority",
+      "statement": "PnP.Lemmas.L_meta_002.maj3_no_one_gate_dag :\n  ∀ (c : PnP.DAGCircuit 3), c.size ≤ 1 → ¬c.Computes PnP.maj3",
+      "theorem_name": "PnP.Lemmas.L_meta_002.maj3_no_one_gate_dag",
+      "lean_file": "lean/PnP/Lemmas/L_meta_002.lean",
+      "status": "checked",
+      "aims_at": "neutral",
+      "deps": [
+        "L-meta-001"
+      ],
+      "rung": 2,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-meta-1",
+      "paper_notes": "A 1-gate DAG can combine at most 2 input wires, whereas maj3 depends sensitively on all 3 inputs.",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T05:51:12.513Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:51:12.513Z",
+        "duration_ms": 17147,
+        "axioms": [
+          "propext",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "825a84f689d8d5f60ce5ba3ece97a138f437509b0b8a2cd6d1cdd2e963791ddc",
+        "by_seat": "seat-meta-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "PnP.Lemmas.L_meta_002.maj3_no_one_gate_dag : ∀ (c : PnP.DAGCircuit 3), c.size ≤ 1 → ¬c.Computes PnP.maj3",
+      "verified_signature": "PnP.Lemmas.L_meta_002.maj3_no_one_gate_dag :\n  ∀ (c : PnP.DAGCircuit 3), c.size ≤ 1 → ¬c.Computes PnP.maj3",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-alg-001",
+      "program": "p_eq_np_search",
+      "title": "Every Horn CNF in which every clause contains at least one negative literal is satisfied by the all-false assignment (excluding empty/positive-only clauses)",
+      "statement": "PnP.Lemmas.L_alg_001.horn_no_positive_unit_sat :\n  ∀ (φ : PnP.CNF),\n  PnP.IsHornCNF φ = true → (∀ (c : PnP.Clause), c ∈ φ → (List.any c fun l => !l.pos) = true) → PnP.Satisfiable φ",
+      "theorem_name": "PnP.Lemmas.L_alg_001.horn_no_positive_unit_sat",
+      "lean_file": "lean/PnP/Lemmas/L_alg_001.lean",
+      "status": "checked",
+      "aims_at": "p_eq_np",
+      "deps": [],
+      "rung": 1,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-alg-1",
+      "paper_notes": "Core invariant of polynomial-time Horn-SAT unit propagation: once no positive unit clauses remain, setting all variables false satisfies every clause containing a negative literal.",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T06:21:38.349Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:47:11.702Z",
+        "duration_ms": 7177,
+        "axioms": [
+          "propext",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "eb738e0d90473875d3571765b6fdc115a402ea04597864f966ce6c5bd628b175",
+        "by_seat": "seat-alg-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "PnP.Lemmas.L_alg_001.horn_no_positive_unit_sat : ∀ (φ : PnP.CNF),",
+      "verified_signature": "PnP.Lemmas.L_alg_001.horn_no_positive_unit_sat :\n  ∀ (φ : PnP.CNF),\n  PnP.IsHornCNF φ = true → (∀ (c : PnP.Clause), c ∈ φ → (List.any c fun l => !l.pos) = true) → PnP.Satisfiable φ",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Title corrected per GPT-6.2 Astra & Claude Opus 5.5 audit; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-alg-002",
+      "program": "p_eq_np_search",
+      "title": "CONJECTURE (Red Team target): Every 3-CNF where every clause has at least 2 literals and each variable appears at most 3 times is satisfiable",
+      "statement": "∀ φ : CNF, (∀ c ∈ φ, 2 ≤ c.length ∧ c.length ≤ 3) → boundedVarOcc φ 3 → Satisfiable φ",
+      "theorem_name": "PnP.Lemmas.L_alg_002.bounded_occ_3cnf_sat",
+      "lean_file": "lean/PnP/Lemmas/L_alg_002.lean",
+      "status": "refuted",
+      "aims_at": "p_eq_np",
+      "deps": [],
+      "rung": 2,
+      "proposed_by": "seat-alg-1",
+      "claimed_by": "seat-redteam-1",
+      "paper_notes": "Optimistic Lovász-Local-Lemma-style hypothesis: maybe degree-3 2/3-CNFs are always satisfiable? Red Team should immediately try to break this with a tiny explicit counterexample!",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T05:46:57.691Z",
+      "checker": null,
+      "refutation": {
+        "by_seat": "seat-redteam-1",
+        "summary": "Five binary clauses on four variables have occurrence counts 2, 3, 3, 2 and are unsatisfiable: they force x1, then x2, and also not x2.",
+        "counterexample_file": "lean/PnP/Lemmas/L_alg_002_refute.lean",
+        "theorem_name": "PnP.Lemmas.L_alg_002_refute.counterexample",
+        "signature": "PnP.Lemmas.L_alg_002_refute.counterexample :\n  (∀ (c : PnP.Clause), c ∈ PnP.Lemmas.L_alg_002_refute.cex_cnf → 2 ≤ List.length c ∧ List.length c ≤ 3) ∧\n  (∀ (v : Nat), PnP.Lemmas.L_alg_002_refute.varOcc PnP.Lemmas.L_alg_002_refute.cex_cnf v ≤ 3) ∧\n    PnP.Unsatisfiable PnP.Lemmas.L_alg_002_refute.cex_cnf",
+        "axioms": [
+          "propext",
+          "Classical.choice",
+          "Quot.sound"
+        ],
+        "file_hash": "fe302b01dd3985d83a9e9156b3969d72f9065b4e8849a8ae244cab69b886eece",
+        "duration_ms": 10990,
+        "at": "2026-11-23T05:46:57.691Z",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc"
+      },
+      "epitaph": null,
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Counterexample independently verified by GPT-6.2 Astra to genuinely contradict conjecture title; re-verified by isolated metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-alg-003",
+      "program": "p_eq_np_search",
+      "title": "CONJECTURE (Red Team target): Every symmetric Boolean function on 3 variables is computed by a monotone circuit",
+      "statement": "∀ f : BoolFn 3, IsSymmetric3 f → ∃ c : Circuit 3, c.isMonotone = true ∧ c.Computes f",
+      "theorem_name": "PnP.Lemmas.L_alg_003.symmetric3_monotone",
+      "lean_file": "lean/PnP/Lemmas/L_alg_003.lean",
+      "status": "refuted",
+      "aims_at": "p_eq_np",
+      "deps": [
+        "L-lib-001"
+      ],
+      "rung": 3,
+      "proposed_by": "seat-alg-1",
+      "claimed_by": "seat-redteam-1",
+      "paper_notes": "Naive generalization from MAJ3/OR3/AND3 being symmetric and monotone. Red Team: what about 3-bit Parity or Exact-1?",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T05:48:52.448Z",
+      "checker": null,
+      "refutation": {
+        "by_seat": "seat-redteam-1",
+        "summary": "Three-bit parity is invariant under every input permutation, yet it falls from true to false as 100 increases to 110. Every monotone circuit preserves that input order.",
+        "counterexample_file": "lean/PnP/Lemmas/L_alg_003_refute.lean",
+        "theorem_name": "PnP.Lemmas.L_alg_003_refute.counterexample",
+        "signature": "PnP.Lemmas.L_alg_003_refute.counterexample :\n  (∀ (perm : Fin 3 → Fin 3),\n    Function.Injective perm → ∀ (x : PnP.BoolVec 3), (PnP.parityFn 3 fun i => x (perm i)) = PnP.parityFn 3 x) ∧\n  ∀ (c : PnP.Circuit 3), c.isMonotone = true → ¬c.Computes (PnP.parityFn 3)",
+        "axioms": [
+          "propext",
+          "Classical.choice",
+          "Quot.sound"
+        ],
+        "file_hash": "0642b93cc9add0cb835d9e50879715ab3b9be17cf80241e0ecc9b27c4cb757c0",
+        "duration_ms": 7571,
+        "at": "2026-11-23T05:48:52.448Z",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc"
+      },
+      "epitaph": null,
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Counterexample independently verified by GPT-6.2 Astra to genuinely contradict conjecture title; re-verified by isolated metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-bar-001",
+      "program": "barrier_desk",
+      "title": "Approach: Separate P from NP via pure step-counting diagonalization over black-box Turing machines",
+      "statement": "-- Barrier audit target: black-box diagonalization invariant under arbitrary oracles A",
+      "theorem_name": "PnP.Lemmas.L_bar_001.relativizing_diag",
+      "lean_file": "lean/PnP/Lemmas/L_bar_001.lean",
+      "status": "dead",
+      "aims_at": "p_neq_np",
+      "deps": [],
+      "rung": 1,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-barrier-1",
+      "paper_notes": "Classic diagonalization attempt. Barrier Desk to test against Baker-Gill-Solovay (1975) Relativization barrier.",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T05:46:20.508Z",
+      "checker": null,
+      "refutation": null,
+      "epitaph": {
+        "wall": "Relativization (Baker-Gill-Solovay, 1975)",
+        "reason": "The proposed pure step-counting argument treats the oracle as a black box and uses steps that would apply uniformly in the same oracle-machine model. It would imply P^O != NP^O for every O. Baker, Gill, and Solovay exhibited oracles A and B with P^A = NP^A and P^B != NP^B, so a relativizing separation fails at A.",
+        "by_seat": "seat-barrier-1",
+        "at": "2026-11-23T05:46:20.508Z"
+      }
+    },
+    {
+      "id": "L-bar-002",
+      "program": "barrier_desk",
+      "title": "Approach: Prove super-polynomial circuit lower bounds using a constructive, dense combinatorial property of truth tables",
+      "statement": "-- Barrier audit target: largeness (≥ 2^{-O(n)}) + poly-time constructivity against P/poly",
+      "theorem_name": "PnP.Lemmas.L_bar_002.natural_property_attack",
+      "lean_file": "lean/PnP/Lemmas/L_bar_002.lean",
+      "status": "dead",
+      "aims_at": "p_neq_np",
+      "deps": [
+        "L-clb-001"
+      ],
+      "rung": 2,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-barrier-1",
+      "paper_notes": "Attempting to generalize monotone/AC0 circuit lower bounds via dense truth-table invariants. Barrier Desk to test against Razborov-Rudich (1997) Natural Proofs barrier.",
+      "created_at": "2026-11-23T05:42:30.677Z",
+      "updated_at": "2026-11-23T05:47:06.254Z",
+      "checker": null,
+      "refutation": null,
+      "epitaph": {
+        "wall": "Natural Proofs (Razborov-Rudich, 1997)",
+        "reason": "For a property of n-input functions with density at least 2^{-O(n)}, decidability in time polynomial in the 2^n-entry truth table, and usefulness against P/poly, random tables pass with probability at least 2^{-O(n)} while tables from the relevant polynomial-size PRF family eventually fail. The resulting 2^{O(n)}-time distinguisher violates the sufficiently strong pseudorandomness assumption in the Razborov-Rudich barrier. The ruling is conditional on that cryptographic assumption.",
+        "by_seat": "seat-barrier-1",
+        "at": "2026-11-23T05:47:06.254Z"
+      }
+    },
+    {
+      "id": "L-lib-004",
+      "program": "library",
+      "title": "B2 DAG Restriction: fixing an input wire preserves B2Circuit size whenever c.size > 0, outputWire ≠ n, or b = false (companion proof shows the 0-gate outputWire = n, b = true case requires 1 gate)",
+      "statement": "PnP.Lemmas.L_lib_004.b2_restrict_size_le :\n  ∀ {n : Nat} (c : PnP.B2Circuit (n + 1)) (b : Bool),\n  0 < c.size ∨ c.outputWire ≠ n ∨ b = false →\n    ∃ c', c'.size ≤ c.size ∧ ∀ (x : PnP.BoolVec n), c'.eval x = c.eval (PnP.Lemmas.L_lib_004.snocVec x b)",
+      "theorem_name": "PnP.Lemmas.L_lib_004.b2_restrict_size_le",
+      "lean_file": "lean/PnP/Lemmas/L_lib_004.lean",
+      "status": "checked",
+      "aims_at": "neutral",
+      "deps": [
+        "L-lib-002"
+      ],
+      "rung": 5,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-lib-1",
+      "paper_notes": "The restriction discards gates with constant specialized truth tables, including gates with two fixed operands. The same-size bound has one exception: a gate-free circuit outputting the input set to true. The companion theorems prove the one-gate bound and its necessity.",
+      "created_at": "2026-11-23T05:56:23.639Z",
+      "updated_at": "2026-11-23T06:21:38.349Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T06:06:21.474Z",
+        "duration_ms": 2423,
+        "axioms": [
+          "propext",
+          "Classical.choice",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "10382a6312f5123e37a812dcc94b837b9b2e2968f53b32bb6549c21638d2e840",
+        "by_seat": "seat-lib-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "@PnP.Lemmas.L_lib_004.b2_restrict_size_le : ∀ {n : Nat} (c : PnP.B2Circuit (n + 1)) (b : Bool),",
+      "verified_signature": "PnP.Lemmas.L_lib_004.b2_restrict_size_le :\n  ∀ {n : Nat} (c : PnP.B2Circuit (n + 1)) (b : Bool),\n  0 < c.size ∨ c.outputWire ≠ n ∨ b = false →\n    ∃ c', c'.size ≤ c.size ∧ ∀ (x : PnP.BoolVec n), c'.eval x = c.eval (PnP.Lemmas.L_lib_004.snocVec x b)",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Title corrected per GPT-6.2 Astra & Claude Opus 5.5 audit; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-clb-005",
+      "program": "circuit_lower_bounds",
+      "title": "Shared-wire DAG Lower Bound: any B2Circuit computing a function that depends on all n inputs requires at least n - 1 gates",
+      "statement": "PnP.Lemmas.L_clb_005.b2_depends_all_lower_bound :\n  ∀ {n : Nat} (c : PnP.B2Circuit n) (f : PnP.BoolFn n), c.Computes f → (∀ (i : Fin n), PnP.DependsOn f i) → n ≤ c.size + 1",
+      "theorem_name": "PnP.Lemmas.L_clb_005.b2_depends_all_lower_bound",
+      "lean_file": "lean/PnP/Lemmas/L_clb_005.lean",
+      "status": "checked",
+      "aims_at": "p_neq_np",
+      "deps": [
+        "L-clb-002"
+      ],
+      "rung": 5,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-clb-1",
+      "paper_notes": "Component-counting / wire-reachability proof for arbitrary shared-wire B2 DAGs (not just formula trees!): each gate adds at most 1 edge merging input components.",
+      "created_at": "2026-11-23T05:56:24.013Z",
+      "updated_at": "2026-11-23T05:59:18.432Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:59:18.432Z",
+        "duration_ms": 5519,
+        "axioms": [
+          "propext",
+          "Classical.choice",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "417fad10a9ae717acc45edf9941108284c17ad7c7521fa1e3e5ac3f4fdaf0a24",
+        "by_seat": "seat-clb-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "@PnP.Lemmas.L_clb_005.b2_depends_all_lower_bound : ∀ {n : Nat} (c : PnP.B2Circuit n) (f : PnP.BoolFn n),",
+      "verified_signature": "PnP.Lemmas.L_clb_005.b2_depends_all_lower_bound :\n  ∀ {n : Nat} (c : PnP.B2Circuit n) (f : PnP.BoolFn n), c.Computes f → (∀ (i : Fin n), PnP.DependsOn f i) → n ≤ c.size + 1",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-clb-006",
+      "program": "circuit_lower_bounds",
+      "title": "Exact Ring Upper Bound: for every n ≥ 5, cyclic-adjacent-ones on an n-ring has a U2/B2 DAG circuit with at most n + (n + 1) / 2 - 1 gates",
+      "statement": "PnP.Lemmas.L_clb_006.cyclicAdj_upper_bound :\n  ∀ (n : Nat), 5 ≤ n → ∃ c, c.isU2 = true ∧ c.size ≤ n + (n + 1) / 2 - 1 ∧ c.Computes (PnP.cyclicAdj n)",
+      "theorem_name": "PnP.Lemmas.L_clb_006.cyclicAdj_upper_bound",
+      "lean_file": "lean/PnP/Lemmas/L_clb_006.lean",
+      "status": "checked",
+      "aims_at": "p_neq_np",
+      "deps": [
+        "L-clb-005"
+      ],
+      "rung": 6,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-clb-1",
+      "paper_notes": "The construction pairs edges around odd-indexed centers. Even rings use only the pairs. Odd rings append the wraparound AND and one combining OR. All gates are AND or OR.",
+      "created_at": "2026-11-23T05:56:24.221Z",
+      "updated_at": "2026-11-23T06:05:57.912Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T06:05:57.912Z",
+        "duration_ms": 4497,
+        "axioms": [
+          "propext",
+          "Classical.choice",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "04c954ac4a674cc82b9e8139234b1a8b81eb940747a87acf05b15e2646ca1042",
+        "by_seat": "seat-clb-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "PnP.Lemmas.L_clb_006.cyclicAdj_upper_bound : ∀ (n : Nat),",
+      "verified_signature": "PnP.Lemmas.L_clb_006.cyclicAdj_upper_bound :\n  ∀ (n : Nat), 5 ≤ n → ∃ c, c.isU2 = true ∧ c.size ≤ n + (n + 1) / 2 - 1 ∧ c.Computes (PnP.cyclicAdj n)",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-clb-007",
+      "program": "circuit_lower_bounds",
+      "title": "CONJECTURE (Frontier contest): cyclicAdj 5 on a 5-ring requires at least 7 gates in the full B2 basis (can XOR beat the 7-gate U2 ring circuit?)",
+      "statement": "∀ c : B2Circuit 5, c.Computes (cyclicAdj 5) → 7 ≤ c.size",
+      "theorem_name": "PnP.Lemmas.L_clb_007.cyclicAdj5_b2_lower_bound",
+      "lean_file": "lean/PnP/Lemmas/L_clb_007.lean",
+      "status": "in_work",
+      "aims_at": "p_neq_np",
+      "deps": [
+        "L-clb-006"
+      ],
+      "rung": 7,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-redteam-1",
+      "paper_notes": "Open contest: U2 achieves 7 gates. Can Red Team synthesize a ≤ 6-gate B2 circuit using XOR/XNOR, or can Lower Bounds prove 7 is optimal?",
+      "created_at": "2026-11-23T05:56:24.397Z",
+      "updated_at": "2026-11-23T05:57:08.171Z",
+      "checker": null,
+      "refutation": null,
+      "epitaph": null
+    },
+    {
+      "id": "L-meta-003",
+      "program": "meta_complexity",
+      "title": "Exact B2 Circuit Complexity of MAJ3: 3-bit Majority requires at least 4 gates in the full binary basis B2 (matching the 4-gate upper bound gate for gate!)",
+      "statement": "PnP.Lemmas.L_meta_003.maj3_exact_b2_size_four :\n  (∃ c, c.size = 4 ∧ c.Computes PnP.maj3) ∧ ∀ (c : PnP.B2Circuit 3), c.Computes PnP.maj3 → 4 ≤ c.size",
+      "theorem_name": "PnP.Lemmas.L_meta_003.maj3_exact_b2_size_four",
+      "lean_file": "lean/PnP/Lemmas/L_meta_003.lean",
+      "status": "checked",
+      "aims_at": "neutral",
+      "deps": [
+        "L-meta-002"
+      ],
+      "rung": 3,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-meta-1",
+      "paper_notes": "Genuine non-trivial exact DAG lower bound over all 16 binary ops (including XOR/XNOR) with arbitrary fan-out. Must rule out all 2-gate and 3-gate B2 DAGs!",
+      "created_at": "2026-11-23T05:56:24.667Z",
+      "updated_at": "2026-11-23T06:20:40.238Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T06:20:40.238Z",
+        "duration_ms": 15994,
+        "axioms": [
+          "propext",
+          "Classical.choice",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "ff984a1c141b2528f67d56dd1f852bc15f75c1a2d5783756158bb9b2961ca769",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "by_seat": "seat-meta-1",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "PnP.Lemmas.L_meta_003.maj3_exact_b2_size_four : (∃ c, c.size = 4 ∧ c.Computes PnP.maj3) ∧",
+      "verified_signature": "PnP.Lemmas.L_meta_003.maj3_exact_b2_size_four :\n  (∃ c, c.size = 4 ∧ c.Computes PnP.maj3) ∧ ∀ (c : PnP.B2Circuit 3), c.Computes PnP.maj3 → 4 ≤ c.size",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-meta-004",
+      "program": "meta_complexity",
+      "title": "CONJECTURE (Red Team Synthesis Target): Every shared-wire B2 circuit computing 5-bit Majority (MAJ5) requires at least 11 gates",
+      "statement": "∀ c : B2Circuit 5, c.Computes maj5 → 11 ≤ c.size",
+      "theorem_name": "PnP.Lemmas.L_meta_004.maj5_b2_ge_11",
+      "lean_file": "lean/PnP/Lemmas/L_meta_004.lean",
+      "status": "refuted",
+      "aims_at": "neutral",
+      "deps": [
+        "L-meta-003"
+      ],
+      "rung": 4,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-redteam-1",
+      "paper_notes": "Known optimal B2 circuit for MAJ5 has 10 gates (Knuth/Kulikov). Red Team must actually synthesize a real ≤ 10-gate shared-wire B2Circuit 5 and verify it over all 32 inputs in Lean 4 to refute this!",
+      "created_at": "2026-11-23T05:56:24.880Z",
+      "updated_at": "2026-11-23T05:59:35.631Z",
+      "checker": null,
+      "refutation": {
+        "by_seat": "seat-redteam-1",
+        "summary": "Synthesized an explicit 10-gate shared-wire B2 DAG computing MAJ5 (verified over all 32 inputs in Lean 4)",
+        "counterexample_file": "lean/PnP/Lemmas/L_meta_004_refute.lean",
+        "theorem_name": "PnP.Lemmas.L_meta_004_refute.counterexample",
+        "signature": "PnP.Lemmas.L_meta_004_refute.counterexample :\n  ∃ c, c.size ≤ 10 ∧ c.Computes PnP.maj5",
+        "axioms": [
+          "propext",
+          "Quot.sound"
+        ],
+        "file_hash": "47a7f9bcce3e2c43f5efdb8878c9b5fa00cd9b5f52ba9085445fc22a5e2682cf",
+        "duration_ms": 14003,
+        "at": "2026-11-23T05:59:35.631Z",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc"
+      },
+      "epitaph": null,
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Counterexample independently verified by GPT-6.2 Astra to genuinely contradict conjecture title; re-verified by isolated metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-alg-004",
+      "program": "p_eq_np_search",
+      "title": "Synthesized Shared-Wire B2 Circuit for MOD3=0 on 4 bits: construct and verify a compact shared-wire B2Circuit 4 computing mod3Eq0 4 in ≤ 7 gates",
+      "statement": "PnP.Lemmas.L_alg_004.mod3_4_compact_b2 :\n  ∃ c, c.size ≤ 7 ∧ c.Computes (PnP.mod3Eq0 4)",
+      "theorem_name": "PnP.Lemmas.L_alg_004.mod3_4_compact_b2",
+      "lean_file": "lean/PnP/Lemmas/L_alg_004.lean",
+      "status": "checked",
+      "aims_at": "p_eq_np",
+      "deps": [
+        "L-alg-001"
+      ],
+      "rung": 4,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-alg-1",
+      "paper_notes": "Algorithmic circuit synthesis: exploit full B2 basis (XOR + AND/OR sharing) to compute Hamming weight ≡ 0 (mod 3) on 4 bits in ≤ 7 gates (naive CNF/DNF is much larger).",
+      "created_at": "2026-11-23T05:56:25.070Z",
+      "updated_at": "2026-11-23T06:01:20.459Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T06:01:20.459Z",
+        "duration_ms": 20748,
+        "axioms": [
+          "propext",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "cfa12c75287fb49e49dd1089f479b8d87b916370d110acff706efa11a3c56ffc",
+        "by_seat": "seat-alg-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "PnP.Lemmas.L_alg_004.mod3_4_compact_b2 : ∃ c, c.size ≤ 7 ∧ c.Computes (PnP.mod3Eq0 4)",
+      "verified_signature": "PnP.Lemmas.L_alg_004.mod3_4_compact_b2 :\n  ∃ c, c.size ≤ 7 ∧ c.Computes (PnP.mod3Eq0 4)",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-pcx-004",
+      "program": "proof_complexity",
+      "title": "Universal Pigeonhole Principle: for EVERY n : Nat, the CNF encoding PHP(n + 1, n) is unsatisfiable",
+      "statement": "PnP.Lemmas.L_pcx_004.php_succ_unsat :\n  ∀ (n : Nat), PnP.Unsatisfiable (PnP.PHP (n + 1) n)",
+      "theorem_name": "PnP.Lemmas.L_pcx_004.php_succ_unsat",
+      "lean_file": "lean/PnP/Lemmas/L_pcx_004.lean",
+      "status": "checked",
+      "aims_at": "p_neq_np",
+      "deps": [
+        "L-pcx-002"
+      ],
+      "rung": 4,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-pcx-1",
+      "paper_notes": "Full universal induction over all n (not finite case-split!): map each pigeon to a chosen hole via a satisfying assignment and derive an injection Fin (n+1) → Fin n contradiction.",
+      "created_at": "2026-11-23T05:56:25.313Z",
+      "updated_at": "2026-11-23T05:58:59.321Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:58:59.321Z",
+        "duration_ms": 10335,
+        "axioms": [
+          "propext",
+          "Classical.choice",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "269a64c739457c123a9de30c443b8cda4e319350b07e18e6932815d10677b800",
+        "by_seat": "seat-pcx-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "PnP.Lemmas.L_pcx_004.php_succ_unsat : ∀ (n : Nat), PnP.Unsatisfiable (PnP.PHP (n + 1) n)",
+      "verified_signature": "PnP.Lemmas.L_pcx_004.php_succ_unsat :\n  ∀ (n : Nat), PnP.Unsatisfiable (PnP.PHP (n + 1) n)",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Independently verified clean by GPT-6.2 Astra; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-pcx-005",
+      "program": "proof_complexity",
+      "title": "Qualitative Resolution Restriction: restricting a variable v := b maps any Resolution refutability (ResDerivable φ []) to a Resolution refutability of restrictCNF v b φ",
+      "statement": "PnP.Lemmas.L_pcx_005.resolution_restrict_preserves_refutation :\n  ∀ (φ : PnP.CNF) (v : Nat) (b : Bool), PnP.ResDerivable φ [] → PnP.ResDerivable (PnP.restrictCNF v b φ) []",
+      "theorem_name": "PnP.Lemmas.L_pcx_005.resolution_restrict_preserves_refutation",
+      "lean_file": "lean/PnP/Lemmas/L_pcx_005.lean",
+      "status": "checked",
+      "aims_at": "p_neq_np",
+      "deps": [
+        "L-pcx-001"
+      ],
+      "rung": 5,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-pcx-1",
+      "paper_notes": "Core structural lemma of Ben-Sasson & Wigderson (2001) width-size tradeoff for Resolution lower bounds.",
+      "created_at": "2026-11-23T05:56:25.606Z",
+      "updated_at": "2026-11-23T06:21:38.349Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T05:59:03.828Z",
+        "duration_ms": 4193,
+        "axioms": [
+          "propext",
+          "Classical.choice",
+          "Quot.sound"
+        ],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "c1d587f86af67fecc464cbb673c5019f2cea00868a81ff6ea463e074ec357c1f",
+        "by_seat": "seat-pcx-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "PnP.Lemmas.L_pcx_005.resolution_restrict_preserves_refutation : ∀ (φ : PnP.CNF) (v : Nat) (b : Bool),",
+      "verified_signature": "PnP.Lemmas.L_pcx_005.resolution_restrict_preserves_refutation :\n  ∀ (φ : PnP.CNF) (v : Nat) (b : Bool), PnP.ResDerivable φ [] → PnP.ResDerivable (PnP.restrictCNF v b φ) []",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Title corrected per GPT-6.2 Astra & Claude Opus 5.5 audit; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-bar-003",
+      "program": "barrier_desk",
+      "title": "Abstract Oracle-Barrier Conditional: if oracle-indexed propositions P_O, NP_O agree on some oracle A and disagree on some oracle B, neither ∀ O, P_O O ≠ NP_O O nor ∀ O, P_O O = NP_O O holds",
+      "statement": "PnP.Lemmas.L_bar_003.relativization_barrier_meta :\n  ∀ (P_O NP_O : PnP.Lemmas.L_bar_003.Oracle → Prop),\n  (∃ A, P_O A = NP_O A) →\n    (∃ B, P_O B ≠ NP_O B) →\n      (¬∀ (O : PnP.Lemmas.L_bar_003.Oracle), P_O O ≠ NP_O O) ∧ ¬∀ (O : PnP.Lemmas.L_bar_003.Oracle), P_O O = NP_O O",
+      "theorem_name": "PnP.Lemmas.L_bar_003.relativization_barrier_meta",
+      "lean_file": "lean/PnP/Lemmas/L_bar_003.lean",
+      "status": "checked",
+      "aims_at": "neutral",
+      "deps": [
+        "L-bar-001"
+      ],
+      "rung": 3,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-barrier-1",
+      "paper_notes": "Formalized Lean 4 metatheorem backing Baker-Gill-Solovay barrier rulings on the hub.",
+      "created_at": "2026-11-23T05:56:26.011Z",
+      "updated_at": "2026-11-23T06:21:38.349Z",
+      "checker": {
+        "ok": true,
+        "checked_at": "2026-11-23T06:01:27.242Z",
+        "duration_ms": 6611,
+        "axioms": [],
+        "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+        "file_hash": "1537cd2f65f7e725b8b1e907524b341e7b688cecad8806a03b839101d0d71f54",
+        "by_seat": "seat-barrier-1",
+        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
+      },
+      "refutation": null,
+      "epitaph": null,
+      "registered_statement": "PnP.Lemmas.L_bar_003.relativization_barrier_meta : ∀ (P_O NP_O : PnP.Lemmas.L_bar_003.Oracle → Prop),",
+      "verified_signature": "PnP.Lemmas.L_bar_003.relativization_barrier_meta :\n  ∀ (P_O NP_O : PnP.Lemmas.L_bar_003.Oracle → Prop),\n  (∃ A, P_O A = NP_O A) →\n    (∃ B, P_O B ≠ NP_O B) →\n      (¬∀ (O : PnP.Lemmas.L_bar_003.Oracle), P_O O ≠ NP_O O) ∧ ¬∀ (O : PnP.Lemmas.L_bar_003.Oracle), P_O O = NP_O O",
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-astra",
+        "by_model": "GPT-6.2 Astra",
+        "notes": "Title corrected per GPT-6.2 Astra & Claude Opus 5.5 audit; full multi-line signature re-verified by isolated Lean 4 metaprogram Judge.",
+        "at": "2026-11-23T06:21:38.349Z"
+      }
+    },
+    {
+      "id": "L-bar-004",
+      "program": "barrier_desk",
+      "title": "Approach: Separate P from NP via IP = PSPACE arithmetization / low-degree polynomial extension over finite fields alone",
+      "statement": true,
+      "theorem_name": "PnP.Lemmas.L_bar_004.algebrizing_attack",
+      "lean_file": "lean/PnP/Lemmas/L_bar_004.lean",
+      "status": "dead",
+      "aims_at": "p_neq_np",
+      "deps": [
+        "L-bar-003"
+      ],
+      "rung": 4,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": "seat-barrier-1",
+      "paper_notes": "Barrier Desk to audit against Aaronson-Wigderson (2009) Algebrization barrier.",
+      "created_at": "2026-11-23T05:56:26.241Z",
+      "updated_at": "2026-11-23T06:01:36.588Z",
+      "checker": null,
+      "refutation": null,
+      "epitaph": {
+        "wall": "Algebrization (Aaronson-Wigderson, 2009)",
+        "reason": "Pure arithmetization / low-degree polynomial extensions over finite fields algebrize: Aaronson-Wigderson (2009) construct an oracle A with low-degree algebraic extension A~ relative to which P^A = NP^A holds even when machines query A~, blocking any P != NP separation derived from IP = PSPACE-style arithmetization alone.",
+        "by_seat": "seat-barrier-1",
+        "at": "2026-11-23T06:01:36.588Z"
+      }
+    },
+    {
+      "id": "L-meta-005",
+      "program": "meta_complexity",
+      "title": "Exact U2 complexity of XOR2: without XOR/XNOR gates, 2-bit parity needs exactly 3 gates",
+      "statement": "(∃ c : B2Circuit 2, c.isU2 = true ∧ c.size = 3 ∧ c.Computes xor2) ∧ (∀ c : B2Circuit 2, c.isU2 = true → c.Computes xor2 → 3 ≤ c.size)",
+      "registered_statement": "(∃ c : B2Circuit 2, c.isU2 = true ∧ c.size = 3 ∧ c.Computes xor2) ∧ (∀ c : B2Circuit 2, c.isU2 = true → c.Computes xor2 → 3 ≤ c.size)",
+      "verified_signature": null,
+      "theorem_name": "PnP.Lemmas.L_meta_005.xor2_exact_u2_size_three",
+      "lean_file": "lean/PnP/Lemmas/L_meta_005.lean",
+      "status": "conjecture",
+      "aims_at": "neutral",
+      "deps": [
+        "L-meta-003"
+      ],
+      "rung": 4,
+      "proposed_by": "seat-meta-1",
+      "claimed_by": null,
+      "paper_notes": "",
+      "created_at": "2026-11-23T06:20:55.097Z",
+      "updated_at": "2026-11-23T06:20:55.102Z",
+      "checker": null,
+      "refutation": null,
+      "epitaph": null,
+      "audit": null
+    }
+  ],
+  "messages": [
+    {
+      "id": "m-1795414677105-hnm",
+      "from": "seat-meta-1",
+      "to": "seat-strat-1",
+      "kind": "result",
+      "lemma_id": "L-meta-003",
+      "text": "L-meta-003 verified (ok:true, axioms propext/choice/Quot.sound). Lower bound = simulation to truth tables + 6 kernel certificates, about 2.4s CPU. Gate-3 case splits: reads only f1::S0 (pairs cert), reads f2 and f1 (F1×F1 cert, or composes to a pair), reads f2 and an input (8-table Bad0 + mixed cert). Suggest next rung: the same method for U2-size of XOR3 or C_B2(maj5).",
+      "at": "2026-11-23T06:17:57.105Z"
+    },
+    {
+      "id": "m-1795414676480-rkl",
+      "from": "seat-meta-1",
+      "to": "seat-clb-1",
+      "kind": "result",
+      "lemma_id": "L-meta-003",
+      "text": "L-meta-003 CHECKED: C_B2(MAJ3) = 4 exactly, over all 16 ops, fan-out allowed, any wire indices. Reusable kit in L_meta_003.lean: opT/opT_bit (8-bit table semantics), the eval_sim simulation lemma for B2Circuit 3, and sepT_sound ('t is a function of (a,b)' via 4 class masks). The certificates use decide +kernel, which adds no extra axioms. Pattern for any n=3 exact lower bound.",
+      "at": "2026-11-23T06:17:56.480Z"
+    },
+    {
+      "id": "m-1795414028579-i5e",
+      "from": "seat-lib-1",
+      "to": "seat-strat-1",
+      "kind": "report",
+      "lemma_id": "L-lib-004",
+      "text": "Lean accepted all three Wave 2 proofs. Restriction drops constant specialized gates; only a gate-free circuit outputting the input fixed to true requires one extra gate. Backward support gives n ≤ size + 1, and the ring construction meets n + ceil(n/2) − 1 with AND and OR.",
+      "at": "2026-11-23T06:07:08.579Z"
+    },
+    {
+      "id": "m-1795413755629-hgs",
+      "from": "seat-redteam-1",
+      "to": "seat-clb-1",
+      "kind": "report",
+      "lemma_id": "L-clb-007",
+      "text": "Computational result for cyclicAdj 5 (32-bit table 0xffeaf8c8): Z3 4.15.4 returned UNSAT for <=6 B2 gates over all 32 inputs (224,067 conflicts). The encoding covers shared wires, implicit false on invalid indices, and smaller circuits via output-projection padding. An independent exhaustive C enumeration modulo dihedral input symmetry also found no <=6 witness (75,463,404 five-gate prefixes). Both use all-zero normalization, which absorbs wire complements into gate truth tables and retains XOR. The C search found a seven-gate witness. Scripts: /tmp/pnp-redteam-KXNyQ9/cyclic_sat.py and /tmp/pnp-redteam-KXNyQ9/cyclic_exhaustive.c. The lower bound is computational evidence; Lean has not verified it.",
+      "at": "2026-11-23T06:02:35.629Z"
+    },
+    {
+      "id": "m-1795413724647-zpj",
+      "from": "seat-alg-1",
+      "to": "seat-meta-1",
+      "kind": "report",
+      "lemma_id": "L-alg-004",
+      "text": "L-alg-004 verified in Lean 4! Achieved exact 7-gate shared-wire B2Circuit for mod3Eq0 4: two half-adders (s=x0^x1, a1=x0&x1, t=x2^x3, b1=x2&x3), two XNORs (s<->b1, t<->a1), and final AND. Exhaustive search over all B2 DAGs confirms 7 gates is exact optimal (no <=6-gate B2 circuit computes mod3Eq0 4).",
+      "at": "2026-11-23T06:02:04.647Z"
+    },
+    {
+      "id": "m-1795413695258-ftm",
+      "from": "seat-barrier-1",
+      "to": "seat-strat-1",
+      "kind": "ruling",
+      "lemma_id": "L-bar-004",
+      "text": "RULING on L-bar-004: Dead against Algebrization (Aaronson-Wigderson, 2009). Arithmetization / low-degree polynomial extension over finite fields alone algebrizes: there exists an oracle A and a low-degree algebraic extension A~ such that P^A = NP^A (and even P^{A~} = NP^{A~} in the algebrizing model where both prover and verifier access A~). Any technique that only exploits low-degree polynomial extensions of Boolean predicates and sumcheck/interactive-proof arithmetization (as in IP = PSPACE) cannot separate P from NP without an additional non-algebrizing ingredient (e.g. circuit-level gate structure, GCT representation theory, or non-algebrizing lower bounds).",
+      "at": "2026-11-23T06:01:35.258Z"
+    },
+    {
+      "id": "m-1795413595875-oov",
+      "from": "seat-redteam-1",
+      "to": "seat-meta-1",
+      "kind": "challenge",
+      "lemma_id": "L-meta-004",
+      "text": "L-meta-004 is refuted by a ten-gate AND/OR DAG. For two disjoint pairs, take MAJ3 of (either pair is full), (both pairs are nonempty), and the fifth input. Six gates form the first two conditions and four gates compute MAJ3. The judge verified all 32 cases in Lean 4.36.0.",
+      "at": "2026-11-23T05:59:55.875Z"
+    },
+    {
+      "id": "m-1795413547685-bzo",
+      "from": "seat-pcx-1",
+      "to": "seat-strat-1",
+      "kind": "report",
+      "lemma_id": "L-pcx-005",
+      "text": "L-pcx-004 (PHP(n+1,n) UNSAT for all n) and L-pcx-005 (restriction preserves resolution refutation) both verified by Lean 4.36.0 kernel, standard axioms only. Files: lean/PnP/Lemmas/L_pcx_004.lean, L_pcx_005.lean.",
+      "at": "2026-11-23T05:59:07.685Z"
+    },
+    {
+      "id": "m-1795413432715-cgl",
+      "from": "seat-clb-1",
+      "to": "seat-redteam-1",
+      "kind": "challenge",
+      "lemma_id": "L-clb-007",
+      "text": "The alternating-center construction uses seven U2 gates on C5. Can the full B2 basis beat it? A six-gate witness would settle the challenge.",
+      "at": "2026-11-23T05:57:12.715Z"
+    },
+    {
+      "id": "m-1795413072811-kab",
+      "from": "seat-meta-1",
+      "to": "seat-clb-1",
+      "kind": "report",
+      "lemma_id": "L-meta-002",
+      "text": "MAJ3 bounds cleared Lean 4 kernel! L-meta-001 (4-gate monotone upper bound + >=2 binary gate formula lower bound) and L-meta-002 (no <=1-gate DAGCircuit over full binary basis computes MAJ3) are both verified with zero sorry.",
+      "at": "2026-11-23T05:51:12.811Z"
+    },
+    {
+      "id": "m-1795412946826-6a9",
+      "from": "seat-redteam-1",
+      "to": "seat-alg-1",
+      "kind": "challenge",
+      "lemma_id": "L-alg-003",
+      "text": "Lean verified three-bit parity is permutation-invariant and that no monotone circuit computes it. The ordered inputs 100 and 110 give outputs true and false.",
+      "at": "2026-11-23T05:49:06.826Z"
+    },
+    {
+      "id": "m-1795412904459-t7h",
+      "from": "seat-clb-1",
+      "to": "seat-meta-1",
+      "kind": "handoff",
+      "lemma_id": null,
+      "text": "L-clb-001 through L-clb-003 are checked. Files L_clb_001.lean through L_clb_003.lean each import only PnP.Core. L-clb-003 proves every parity bit is essential and bounds the input occurrence list by binary gates plus one.",
+      "at": "2026-11-23T05:48:24.459Z"
+    },
+    {
+      "id": "m-1795412904162-i5y",
+      "from": "seat-clb-1",
+      "to": "seat-strat-1",
+      "kind": "report",
+      "lemma_id": null,
+      "text": "Lean 4.36.0 verified L-clb-001, L-clb-002, and L-clb-003 with zero sorry and standard axioms only. XOR refutes monotonicity, dependence forces input use, and n-bit parity needs at least n−1 binary gates on the Circuit formula basis.",
+      "at": "2026-11-23T05:48:24.162Z"
+    },
+    {
+      "id": "m-1795412869304-7ai",
+      "from": "seat-alg-1",
+      "to": "seat-redteam-1",
+      "kind": "handoff",
+      "lemma_id": "L-alg-002",
+      "text": "L-alg-001 (Horn CNF w/o positive unit clauses) verified by Lean 4 kernel! Dare you to break L-alg-002 (bounded-occurrence 3-CNF) and L-alg-003 (symmetric 3-var monotone) — try finding explicit counterexamples.",
+      "at": "2026-11-23T05:47:49.304Z"
+    },
+    {
+      "id": "m-1795412866823-gm0",
+      "from": "seat-pcx-1",
+      "to": "seat-alg-1",
+      "kind": "challenge",
+      "lemma_id": "L-pcx-001",
+      "text": "Resolution soundness + PHP(3,2) UNSAT are kernel-checked. Challenge: any poly-time SAT approach must refute PHP(m,m-1) family; tree/general resolution can't do it in poly size (Haken). Show your algorithm escapes resolution-style reasoning, or it's dead on PHP.",
+      "at": "2026-11-23T05:47:46.823Z"
+    },
+    {
+      "id": "m-1795412866432-zs5",
+      "from": "seat-pcx-1",
+      "to": "seat-strat-1",
+      "kind": "report",
+      "lemma_id": "L-pcx-002",
+      "text": "Kernel-verified: L-pcx-001 resolution_sound (ResDerivable φ [] → Unsat φ), L-pcx-002 PHP(3,2) UNSAT, L-pcx-003 size≥3 for width≥2 axioms. Axioms: propext, Quot.sound only. Note: 5≤size is FALSE with list-clauses ([[x,x],[¬x,¬x]] refutes in size 3; witness in L_pcx_003.lean).",
+      "at": "2026-11-23T05:47:46.432Z"
+    },
+    {
+      "id": "m-1795412836874-pzx",
+      "from": "seat-redteam-1",
+      "to": "seat-alg-1",
+      "kind": "challenge",
+      "lemma_id": "L-alg-002",
+      "text": "Lean verified a five-clause UNSAT counterexample. All clauses are binary, and the four variables occur 2, 3, 3, and 2 times.",
+      "at": "2026-11-23T05:47:16.874Z"
+    },
+    {
+      "id": "m-1795412825891-0y7",
+      "from": "seat-barrier-1",
+      "to": "seat-clb-1",
+      "kind": "ruling",
+      "lemma_id": "L-bar-002",
+      "text": "A dense, truth-table polynomial-time test useful against P/poly would distinguish secure PRFs from random functions, under the Razborov-Rudich hardness hypothesis.",
+      "at": "2026-11-23T05:47:05.893Z"
+    },
+    {
+      "id": "m-1795412813244-xoq",
+      "from": "seat-lib-1",
+      "to": "seat-clb-1",
+      "kind": "handoff",
+      "lemma_id": "L-lib-001",
+      "text": "L-lib-001 (monotone_circuit_is_monotone) and L-lib-002 (unused_input_invariant) are Lean-verified (axioms: propext only). Import PnP.Lemmas.L_lib_001 / L_lib_002 to use: monotone circuits compute Monotone fns (so XOR/parity circuits must use not/xor), and unused inputs can't affect eval.",
+      "at": "2026-11-23T05:46:53.244Z"
+    },
+    {
+      "id": "m-1795412780007-qoa",
+      "from": "seat-barrier-1",
+      "to": "seat-strat-1",
+      "kind": "ruling",
+      "lemma_id": "L-bar-001",
+      "text": "An oracle-invariant diagonalization would separate P^O from NP^O for every O. Baker-Gill-Solovay give an equality oracle, which defeats this route.",
+      "at": "2026-11-23T05:46:20.007Z"
+    },
+    {
+      "id": "m-init-1",
+      "from": "seat-strat-1",
+      "to": "all",
+      "kind": "report",
+      "lemma_id": null,
+      "text": "Hub online. Pure Lean 4.36.0 kernel armed. Remember the rule: thinking first, Lean second — nothing counts as checked until the kernel verifies zero sorry and standard axioms only.",
+      "at": "2026-11-23T05:42:30.677Z"
+    }
+  ],
+  "whispers": [
+    {
+      "id": "w-1795414855407-lsg",
+      "seat": "seat-meta-1",
+      "lemma_id": "L-meta-003",
+      "text": "Done: L-meta-003 (C_B2(MAJ3)=4 exactly) and L-clb-004 (formula depth d reads ≤ 2^d inputs) both kernel-checked with standard axioms. Proposed L-meta-005 (U2 size of XOR2 = 3, same truth-table method).",
+      "at": "2026-11-23T06:20:55.407Z"
+    },
+    {
+      "id": "w-1795414855103-nau",
+      "seat": "seat-meta-1",
+      "lemma_id": "L-meta-005",
+      "text": "Stated conjecture L-meta-005: Exact U2 complexity of XOR2: without XOR/XNOR gates, 2-bit parity needs exactly 3 gates",
+      "at": "2026-11-23T06:20:55.103Z"
+    },
+    {
+      "id": "w-1795414840238-3b3",
+      "seat": "seat-meta-1",
+      "lemma_id": "L-meta-003",
+      "text": "CHECKED L-meta-003 in 15994ms (propext, Classical.choice, Quot.sound)",
+      "at": "2026-11-23T06:20:40.238Z"
+    },
+    {
+      "id": "w-1795414824237-ueq",
+      "seat": "seat-meta-1",
+      "lemma_id": "L-meta-003",
+      "text": "Submitting L-meta-003 (PnP.Lemmas.L_meta_003.maj3_exact_b2_size_four) to Lean 4 kernel…",
+      "at": "2026-11-23T06:20:24.237Z"
+    },
+    {
+      "id": "w-1795414813267-z68",
+      "seat": "seat-meta-1",
+      "lemma_id": "L-clb-004",
+      "text": "CHECKED L-clb-004 in 7652ms (propext, Classical.choice, Quot.sound)",
+      "at": "2026-11-23T06:20:13.267Z"
+    },
+    {
+      "id": "w-1795414805583-tqw",
+      "seat": "seat-meta-1",
+      "lemma_id": "L-clb-004",
+      "text": "Submitting L-clb-004 (PnP.Lemmas.L_clb_004.depth_bounds_inputs) to Lean 4 kernel…",
+      "at": "2026-11-23T06:20:05.583Z"
+    },
+    {
+      "id": "w-1795414709818-5qn",
+      "seat": "seat-meta-1",
+      "lemma_id": "L-clb-004",
+      "text": "L-meta-003 done; taking open L-clb-004. countDistinctInputs is undefined in Core, so the lemma file defines it as #{i : Fin n | c.usesInput i}. Proof: count(a∨b) ≤ count a + count b ≤ 2^da + 2^db ≤ 2^(1+max).",
+      "at": "2026-11-23T06:18:29.818Z"
+    },
+    {
+      "id": "w-1795414677107-rai",
+      "seat": "seat-meta-1",
+      "lemma_id": "L-meta-003",
+      "text": "→ seat-strat-1: L-meta-003 verified (ok:true, axioms propext/choice/Quot.sound). Lower bound = simulation to truth tables + 6 ",
+      "at": "2026-11-23T06:17:57.107Z"
+    },
+    {
+      "id": "w-1795414676492-z5g",
+      "seat": "seat-meta-1",
+      "lemma_id": "L-meta-003",
+      "text": "→ seat-clb-1: L-meta-003 CHECKED: C_B2(MAJ3) = 4 exactly, over all 16 ops, fan-out allowed, any wire indices. Reusable kit i",
+      "at": "2026-11-23T06:17:56.492Z"
+    },
+    {
+      "id": "w-1795414664043-hmo",
+      "seat": "seat-meta-1",
+      "lemma_id": "L-meta-003",
+      "text": "CHECKED L-meta-003 in 24593ms (propext, Classical.choice, Quot.sound)",
+      "at": "2026-11-23T06:17:44.043Z"
+    },
+    {
+      "id": "w-1795414639425-rqs",
+      "seat": "seat-meta-1",
+      "lemma_id": "L-meta-003",
+      "text": "Submitting L-meta-003 (PnP.Lemmas.L_meta_003.maj3_exact_b2_size_four) to Lean 4 kernel…",
+      "at": "2026-11-23T06:17:19.426Z"
+    },
+    {
+      "id": "w-1795414513329-v0t",
+      "seat": "seat-meta-1",
+      "lemma_id": "L-meta-003",
+      "text": "Brute force over all 3-gate tables is 6.7s CPU, too slow under fleet load. Cut it with structure: F1 has 38 one-gate tables, and only 8 tables {23,24,36,66,189,219,231,232} can feed a final gate with an input partner. 'm is a function of (a,b)' is checked by 4 class masks. Total certificate ~1s.",
+      "at": "2026-11-23T06:15:13.329Z"
+    },
+    {
+      "id": "w-1795414028823-rpl",
+      "seat": "seat-clb-1",
+      "lemma_id": "L-clb-006",
+      "text": "L-clb-005 and L-clb-006 checked",
+      "at": "2026-11-23T06:07:08.823Z"
+    },
+    {
+      "id": "w-1795414028691-5rc",
+      "seat": "seat-lib-1",
+      "lemma_id": "L-lib-004",
+      "text": "L-lib-004 checked, including the necessary one-gate exception",
+      "at": "2026-11-23T06:07:08.691Z"
+    },
+    {
+      "id": "w-1795414028581-m0w",
+      "seat": "seat-lib-1",
+      "lemma_id": "L-lib-004",
+      "text": "→ seat-strat-1: Lean accepted all three Wave 2 proofs. Restriction drops constant specialized gates; only a gate-free circuit ",
+      "at": "2026-11-23T06:07:08.581Z"
+    },
+    {
+      "id": "w-1795413981474-urd",
+      "seat": "seat-lib-1",
+      "lemma_id": "L-lib-004",
+      "text": "CHECKED L-lib-004 in 2423ms (propext, Classical.choice, Quot.sound)",
+      "at": "2026-11-23T06:06:21.474Z"
+    },
+    {
+      "id": "w-1795413979049-unc",
+      "seat": "seat-lib-1",
+      "lemma_id": "L-lib-004",
+      "text": "Submitting L-lib-004 (PnP.Lemmas.L_lib_004.b2_restrict_size_le) to Lean 4 kernel…",
+      "at": "2026-11-23T06:06:19.049Z"
+    },
+    {
+      "id": "w-1795413957912-98m",
+      "seat": "seat-clb-1",
+      "lemma_id": "L-clb-006",
+      "text": "CHECKED L-clb-006 in 4497ms (propext, Classical.choice, Quot.sound)",
+      "at": "2026-11-23T06:05:57.912Z"
+    },
+    {
+      "id": "w-1795413953401-2ip",
+      "seat": "seat-clb-1",
+      "lemma_id": "L-clb-006",
+      "text": "Submitting L-clb-006 (PnP.Lemmas.L_clb_006.cyclicAdj_upper_bound) to Lean 4 kernel…",
+      "at": "2026-11-23T06:05:53.401Z"
+    },
+    {
+      "id": "w-1795413779789-2x6",
+      "seat": "seat-lib-1",
+      "lemma_id": "L-lib-004",
+      "text": "CHECKED L-lib-004 in 7699ms (propext, Classical.choice, Quot.sound)",
+      "at": "2026-11-23T06:02:59.789Z"
+    },
+    {
+      "id": "w-1795413772061-daw",
+      "seat": "seat-lib-1",
+      "lemma_id": "L-lib-004",
+      "text": "Submitting L-lib-004 (PnP.Lemmas.L_lib_004.b2_restrict_size_le) to Lean 4 kernel…",
+      "at": "2026-11-23T06:02:52.072Z"
+    },
+    {
+      "id": "w-1795413765463-p3i",
+      "seat": "seat-clb-1",
+      "lemma_id": "L-clb-006",
+      "text": "Pair consecutive edges around odd-indexed centers. The odd ring then needs just the wraparound edge, which makes the parity cases share the same prefix.",
+      "at": "2026-11-23T06:02:45.463Z"
+    },
+    {
+      "id": "w-1795413756693-rnm",
+      "seat": "seat-redteam-1",
+      "lemma_id": "L-meta-004",
+      "text": "MAJ5 ten-gate refutation verified in Lean; cyclicAdj 5 six-gate SAT and exhaustive search results sent to the lower-bounds seat.",
+      "at": "2026-11-23T06:02:36.693Z"
+    },
+    {
+      "id": "w-1795413755648-oae",
+      "seat": "seat-redteam-1",
+      "lemma_id": "L-clb-007",
+      "text": "→ seat-clb-1: Computational result for cyclicAdj 5 (32-bit table 0xffeaf8c8): Z3 4.15.4 returned UNSAT for <=6 B2 gates over",
+      "at": "2026-11-23T06:02:35.648Z"
+    },
+    {
+      "id": "w-1795413725226-57m",
+      "seat": "seat-barrier-1",
+      "lemma_id": "L-bar-004",
+      "text": "L-bar-003 verified (zero axioms) & L-bar-004 ruled dead vs Algebrization (2009); idle.",
+      "at": "2026-11-23T06:02:05.226Z"
+    },
+    {
+      "id": "w-1795413724873-41p",
+      "seat": "seat-alg-1",
+      "lemma_id": "L-alg-004",
+      "text": "L-alg-004 verified (exact 7-gate B2 circuit for mod3Eq0 4); reported to seat-meta-1; idle.",
+      "at": "2026-11-23T06:02:04.874Z"
+    },
+    {
+      "id": "w-1795413724652-ya1",
+      "seat": "seat-alg-1",
+      "lemma_id": "L-alg-004",
+      "text": "→ seat-meta-1: L-alg-004 verified in Lean 4! Achieved exact 7-gate shared-wire B2Circuit for mod3Eq0 4: two half-adders (s=x0",
+      "at": "2026-11-23T06:02:04.652Z"
+    },
+    {
+      "id": "w-1795413696621-uxp",
+      "seat": "seat-barrier-1",
+      "lemma_id": "L-bar-004",
+      "text": "Ruled L-bar-004 DEAD — hits Algebrization (Aaronson-Wigderson, 2009)",
+      "at": "2026-11-23T06:01:36.621Z"
+    },
+    {
+      "id": "w-1795413695456-x45",
+      "seat": "seat-barrier-1",
+      "lemma_id": "L-bar-004",
+      "text": "→ seat-strat-1: RULING on L-bar-004: Dead against Algebrization (Aaronson-Wigderson, 2009). Arithmetization / low-degree polyn",
+      "at": "2026-11-23T06:01:35.456Z"
+    },
+    {
+      "id": "w-1795413694797-k0d",
+      "seat": "seat-barrier-1",
+      "lemma_id": "L-bar-004",
+      "text": "Auditing L-bar-004 (IP=PSPACE arithmetization) against the Algebrization barrier (Aaronson-Wigderson 2009)",
+      "at": "2026-11-23T06:01:34.797Z"
+    },
+    {
+      "id": "w-1795413687242-4a5",
+      "seat": "seat-barrier-1",
+      "lemma_id": "L-bar-003",
+      "text": "CHECKED L-bar-003 in 6611ms (no axioms)",
+      "at": "2026-11-23T06:01:27.242Z"
+    },
+    {
+      "id": "w-1795413682725-eh7",
+      "seat": "seat-meta-1",
+      "lemma_id": "L-meta-003",
+      "text": "Upper bound: (x0∧x1)∨((x0∨x1)∧x2), 4 gates. Lower bound plan: abstract each wire to its 8-bit truth table (Nat bitwise), prove simulation lemma, then kernel-check (no native_decide) that no 3-gate table list hits 232 = maj3.",
+      "at": "2026-11-23T06:01:22.725Z"
+    },
+    {
+      "id": "w-1795413680620-rpq",
+      "seat": "seat-barrier-1",
+      "lemma_id": "L-bar-003",
+      "text": "Submitting L-bar-003 (PnP.Lemmas.L_bar_003.relativization_barrier_meta) to Lean 4 kernel…",
+      "at": "2026-11-23T06:01:20.620Z"
+    },
+    {
+      "id": "w-1795413680459-9vt",
+      "seat": "seat-alg-1",
+      "lemma_id": "L-alg-004",
+      "text": "CHECKED L-alg-004 in 20748ms (propext, Quot.sound)",
+      "at": "2026-11-23T06:01:20.459Z"
+    },
+    {
+      "id": "w-1795413659695-itf",
+      "seat": "seat-alg-1",
+      "lemma_id": "L-alg-004",
+      "text": "Submitting L-alg-004 (PnP.Lemmas.L_alg_004.mod3_4_compact_b2) to Lean 4 kernel…",
+      "at": "2026-11-23T06:00:59.695Z"
+    },
+    {
+      "id": "w-1795413603749-cdw",
+      "seat": "seat-barrier-1",
+      "lemma_id": "L-bar-003",
+      "text": "Checker rejected L-bar-003: Lean kernel typecheck failed",
+      "at": "2026-11-23T06:00:03.749Z"
+    },
+    {
+      "id": "w-1795413596464-6cc",
+      "seat": "seat-barrier-1",
+      "lemma_id": "L-bar-003",
+      "text": "Submitting L-bar-003 (PnP.Lemmas.L_bar_003.relativization_barrier_meta) to Lean 4 kernel…",
+      "at": "2026-11-23T05:59:56.464Z"
+    },
+    {
+      "id": "w-1795413595881-evw",
+      "seat": "seat-redteam-1",
+      "lemma_id": "L-meta-004",
+      "text": "→ seat-meta-1: L-meta-004 is refuted by a ten-gate AND/OR DAG. For two disjoint pairs, take MAJ3 of (either pair is full), (b",
+      "at": "2026-11-23T05:59:55.881Z"
+    },
+    {
+      "id": "w-1795413583225-5jn",
+      "seat": "seat-lib-1",
+      "lemma_id": "L-lib-004",
+      "text": "The translation maps each old wire to a surviving wire or a constant, specializes gate truth tables, and drops gates whose specialized tables are constant.",
+      "at": "2026-11-23T05:59:43.225Z"
+    },
+    {
+      "id": "w-1795413575631-qhp",
+      "seat": "seat-redteam-1",
+      "lemma_id": "L-meta-004",
+      "text": "REFUTED L-meta-004 (Lean-checked): Synthesized an explicit 10-gate shared-wire B2 DAG computing MAJ5 (verified over all 32 inputs in Lean 4)",
+      "at": "2026-11-23T05:59:35.631Z"
+    },
+    {
+      "id": "w-1795413561595-enz",
+      "seat": "seat-redteam-1",
+      "lemma_id": "L-meta-004",
+      "text": "Submitting Lean counterexample for L-meta-004…",
+      "at": "2026-11-23T05:59:21.595Z"
+    },
+    {
+      "id": "w-1795413558433-s59",
+      "seat": "seat-clb-1",
+      "lemma_id": "L-clb-005",
+      "text": "CHECKED L-clb-005 in 5519ms (propext, Classical.choice, Quot.sound)",
+      "at": "2026-11-23T05:59:18.433Z"
+    },
+    {
+      "id": "w-1795413552897-4l1",
+      "seat": "seat-clb-1",
+      "lemma_id": "L-clb-005",
+      "text": "Submitting L-clb-005 (PnP.Lemmas.L_clb_005.b2_depends_all_lower_bound) to Lean 4 kernel…",
+      "at": "2026-11-23T05:59:12.897Z"
+    },
+    {
+      "id": "w-1795413549583-b9f",
+      "seat": "seat-barrier-1",
+      "lemma_id": "L-bar-003",
+      "text": "Drafted L_bar_003.lean with relativization_barrier_meta + RelativizingProof obstruction + concrete oracle model",
+      "at": "2026-11-23T05:59:09.583Z"
+    },
+    {
+      "id": "w-1795413549331-iym",
+      "seat": "seat-alg-1",
+      "lemma_id": "L-alg-004",
+      "text": "Found clean 7-gate B2 circuit (2 half-adders + 2 XNOR + AND); checking if 6 gates is possible",
+      "at": "2026-11-23T05:59:09.331Z"
+    },
+    {
+      "id": "w-1795413547945-xhm",
+      "seat": "seat-pcx-1",
+      "lemma_id": "L-pcx-005",
+      "text": "L-pcx-004 and L-pcx-005 verified; awaiting next wave",
+      "at": "2026-11-23T05:59:07.945Z"
+    },
+    {
+      "id": "w-1795413547692-hkt",
+      "seat": "seat-pcx-1",
+      "lemma_id": "L-pcx-005",
+      "text": "→ seat-strat-1: L-pcx-004 (PHP(n+1,n) UNSAT for all n) and L-pcx-005 (restriction preserves resolution refutation) both verifi",
+      "at": "2026-11-23T05:59:07.692Z"
+    },
+    {
+      "id": "w-1795413543828-i2p",
+      "seat": "seat-pcx-1",
+      "lemma_id": "L-pcx-005",
+      "text": "CHECKED L-pcx-005 in 4193ms (propext, Classical.choice, Quot.sound)",
+      "at": "2026-11-23T05:59:03.828Z"
+    },
+    {
+      "id": "w-1795413539617-fk6",
+      "seat": "seat-pcx-1",
+      "lemma_id": "L-pcx-005",
+      "text": "Submitting L-pcx-005 (PnP.Lemmas.L_pcx_005.resolution_restrict_preserves_refutation) to Lean 4 kernel…",
+      "at": "2026-11-23T05:58:59.617Z"
+    },
+    {
+      "id": "w-1795413539446-7x8",
+      "seat": "seat-pcx-1",
+      "lemma_id": "L-pcx-005",
+      "text": "Invariant Sat-or-subclause proven by induction on ResDerivable; submitting",
+      "at": "2026-11-23T05:58:59.446Z"
+    },
+    {
+      "id": "w-1795413539321-rwb",
+      "seat": "seat-pcx-1",
+      "lemma_id": "L-pcx-004",
+      "text": "CHECKED L-pcx-004 in 10335ms (propext, Classical.choice, Quot.sound)",
+      "at": "2026-11-23T05:58:59.321Z"
+    },
+    {
+      "id": "w-1795413528979-xfl",
+      "seat": "seat-pcx-1",
+      "lemma_id": "L-pcx-004",
+      "text": "Submitting L-pcx-004 (PnP.Lemmas.L_pcx_004.php_succ_unsat) to Lean 4 kernel…",
+      "at": "2026-11-23T05:58:48.979Z"
+    },
+    {
+      "id": "w-1795413528217-d2g",
+      "seat": "seat-pcx-1",
+      "lemma_id": "L-pcx-004",
+      "text": "Finite pigeonhole by induction + choice of hole function; compiles clean, submitting to Judge",
+      "at": "2026-11-23T05:58:48.217Z"
+    },
+    {
+      "id": "w-1795413514506-2if",
+      "seat": "seat-redteam-1",
+      "lemma_id": "L-clb-007",
+      "text": "Running a six-gate SAT search across all 32 assignments, with shared wires and XOR/XNOR represented by the gate truth tables.",
+      "at": "2026-11-23T05:58:34.506Z"
+    },
+    {
+      "id": "w-1795413514197-wmf",
+      "seat": "seat-redteam-1",
+      "lemma_id": "L-meta-004",
+      "text": "Found a ten-gate AND/OR DAG. Pair four inputs, then take MAJ3 of the fifth bit, whether either pair is full, and whether both pairs are nonempty. All 32 Python checks passed.",
+      "at": "2026-11-23T05:58:34.197Z"
+    },
+    {
+      "id": "w-1795413473682-hzf",
+      "seat": "seat-clb-1",
+      "lemma_id": "L-clb-005",
+      "text": "A backward support list can keep duplicates. Removing all copies of a live gate output frees at least one slot before adding the two parents.",
+      "at": "2026-11-23T05:57:53.682Z"
+    },
+    {
+      "id": "w-1795413472626-26c",
+      "seat": "seat-barrier-1",
+      "lemma_id": "L-bar-003",
+      "text": "Formalizing Relativization Barrier metatheorem and RelativizingProof obstruction",
+      "at": "2026-11-23T05:57:52.626Z"
+    },
+    {
+      "id": "w-1795413472433-ch8",
+      "seat": "seat-alg-1",
+      "lemma_id": "L-alg-004",
+      "text": "Synthesizing minimal shared-wire B2 circuit for MOD3=0 on 4 bits",
+      "at": "2026-11-23T05:57:52.433Z"
+    },
+    {
+      "id": "w-1795413458401-9bf",
+      "seat": "seat-pcx-1",
+      "lemma_id": "L-pcx-005",
+      "text": "Restriction preserves resolution refutation: invariant satisfied-or-subclause",
+      "at": "2026-11-23T05:57:38.401Z"
+    },
+    {
+      "id": "w-1795413458148-097",
+      "seat": "seat-pcx-1",
+      "lemma_id": "L-pcx-004",
+      "text": "Proving PHP(n+1,n) unsat via finite pigeonhole induction",
+      "at": "2026-11-23T05:57:38.148Z"
+    }
+  ],
+  "checker_runs": [
+    {
+      "id": "chk-1795414840238-bbw",
+      "at": "2026-11-23T06:20:40.238Z",
+      "kind": "proof",
+      "lemma_id": "L-meta-003",
+      "seat": "seat-meta-1",
+      "theorem": "PnP.Lemmas.L_meta_003.maj3_exact_b2_size_four",
+      "file": "lean/PnP/Lemmas/L_meta_003.lean",
+      "ok": true,
+      "duration_ms": 15994,
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "reason": "Verified by isolated Lean 4 kernel metaprogram (zero sorry, standard axioms only, module-bound)",
+      "file_hash": "ff984a1c141b2528f67d56dd1f852bc15f75c1a2d5783756158bb9b2961ca769",
+      "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc"
+    },
+    {
+      "id": "chk-1795414813267-ssl",
+      "at": "2026-11-23T06:20:13.267Z",
+      "kind": "proof",
+      "lemma_id": "L-clb-004",
+      "seat": "seat-meta-1",
+      "theorem": "PnP.Lemmas.L_clb_004.depth_bounds_inputs",
+      "file": "lean/PnP/Lemmas/L_clb_004.lean",
+      "ok": true,
+      "duration_ms": 7652,
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "reason": "Verified by isolated Lean 4 kernel metaprogram (zero sorry, standard axioms only, module-bound)",
+      "file_hash": "4704eba9678ab2fbb9973cf18fb29f57824b482c9351fbb991a5ee5c1cccbcd6",
+      "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc"
+    },
+    {
+      "id": "chk-1795414664042-tv6",
+      "at": "2026-11-23T06:17:44.042Z",
+      "kind": "proof",
+      "lemma_id": "L-meta-003",
+      "seat": "seat-meta-1",
+      "theorem": "PnP.Lemmas.L_meta_003.maj3_exact_b2_size_four",
+      "file": "lean/PnP/Lemmas/L_meta_003.lean",
+      "ok": true,
+      "duration_ms": 24593,
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "ff984a1c141b2528"
+    },
+    {
+      "id": "chk-1795413981474-fql",
+      "at": "2026-11-23T06:06:21.474Z",
+      "kind": "proof",
+      "lemma_id": "L-lib-004",
+      "seat": "seat-lib-1",
+      "theorem": "PnP.Lemmas.L_lib_004.b2_restrict_size_le",
+      "file": "lean/PnP/Lemmas/L_lib_004.lean",
+      "ok": true,
+      "duration_ms": 2423,
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "10382a6312f5123e"
+    },
+    {
+      "id": "chk-1795413957912-806",
+      "at": "2026-11-23T06:05:57.912Z",
+      "kind": "proof",
+      "lemma_id": "L-clb-006",
+      "seat": "seat-clb-1",
+      "theorem": "PnP.Lemmas.L_clb_006.cyclicAdj_upper_bound",
+      "file": "lean/PnP/Lemmas/L_clb_006.lean",
+      "ok": true,
+      "duration_ms": 4497,
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "04c954ac4a674cc8"
+    },
+    {
+      "id": "chk-1795413779789-4bm",
+      "at": "2026-11-23T06:02:59.789Z",
+      "kind": "proof",
+      "lemma_id": "L-lib-004",
+      "seat": "seat-lib-1",
+      "theorem": "PnP.Lemmas.L_lib_004.b2_restrict_size_le",
+      "file": "lean/PnP/Lemmas/L_lib_004.lean",
+      "ok": true,
+      "duration_ms": 7699,
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "807405202282f410"
+    },
+    {
+      "id": "chk-1795413687242-oji",
+      "at": "2026-11-23T06:01:27.242Z",
+      "kind": "proof",
+      "lemma_id": "L-bar-003",
+      "seat": "seat-barrier-1",
+      "theorem": "PnP.Lemmas.L_bar_003.relativization_barrier_meta",
+      "file": "lean/PnP/Lemmas/L_bar_003.lean",
+      "ok": true,
+      "duration_ms": 6611,
+      "axioms": [],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "1537cd2f65f7e725"
+    },
+    {
+      "id": "chk-1795413680459-rhb",
+      "at": "2026-11-23T06:01:20.459Z",
+      "kind": "proof",
+      "lemma_id": "L-alg-004",
+      "seat": "seat-alg-1",
+      "theorem": "PnP.Lemmas.L_alg_004.mod3_4_compact_b2",
+      "file": "lean/PnP/Lemmas/L_alg_004.lean",
+      "ok": true,
+      "duration_ms": 20748,
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "cfa12c75287fb49e"
+    },
+    {
+      "id": "chk-1795413603749-8qy",
+      "at": "2026-11-23T06:00:03.749Z",
+      "kind": "proof",
+      "lemma_id": "L-bar-003",
+      "seat": "seat-barrier-1",
+      "theorem": "PnP.Lemmas.L_bar_003.relativization_barrier_meta",
+      "file": "lean/PnP/Lemmas/L_bar_003.lean",
+      "ok": false,
+      "duration_ms": 7283,
+      "axioms": [],
+      "reason": "Lean kernel typecheck failed",
+      "file_hash": "7baeb9439054ef0d"
+    },
+    {
+      "id": "chk-1795413575631-t6n",
+      "at": "2026-11-23T05:59:35.631Z",
+      "kind": "refutation",
+      "lemma_id": "L-meta-004",
+      "seat": "seat-redteam-1",
+      "theorem": "PnP.Lemmas.L_meta_004_refute.counterexample",
+      "file": "lean/PnP/Lemmas/L_meta_004_refute.lean",
+      "ok": true,
+      "duration_ms": 14003,
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "47a7f9bcce3e2c43"
+    },
+    {
+      "id": "chk-1795413558432-vgd",
+      "at": "2026-11-23T05:59:18.432Z",
+      "kind": "proof",
+      "lemma_id": "L-clb-005",
+      "seat": "seat-clb-1",
+      "theorem": "PnP.Lemmas.L_clb_005.b2_depends_all_lower_bound",
+      "file": "lean/PnP/Lemmas/L_clb_005.lean",
+      "ok": true,
+      "duration_ms": 5519,
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "417fad10a9ae717a"
+    },
+    {
+      "id": "chk-1795413543828-qxx",
+      "at": "2026-11-23T05:59:03.828Z",
+      "kind": "proof",
+      "lemma_id": "L-pcx-005",
+      "seat": "seat-pcx-1",
+      "theorem": "PnP.Lemmas.L_pcx_005.resolution_restrict_preserves_refutation",
+      "file": "lean/PnP/Lemmas/L_pcx_005.lean",
+      "ok": true,
+      "duration_ms": 4193,
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "c1d587f86af67fec"
+    },
+    {
+      "id": "chk-1795413539321-88y",
+      "at": "2026-11-23T05:58:59.321Z",
+      "kind": "proof",
+      "lemma_id": "L-pcx-004",
+      "seat": "seat-pcx-1",
+      "theorem": "PnP.Lemmas.L_pcx_004.php_succ_unsat",
+      "file": "lean/PnP/Lemmas/L_pcx_004.lean",
+      "ok": true,
+      "duration_ms": 10335,
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "269a64c739457c12"
+    },
+    {
+      "id": "chk-1795413072512-9d6",
+      "at": "2026-11-23T05:51:12.513Z",
+      "kind": "proof",
+      "lemma_id": "L-meta-002",
+      "seat": "seat-meta-1",
+      "theorem": "PnP.Lemmas.L_meta_002.maj3_no_one_gate_dag",
+      "file": "lean/PnP/Lemmas/L_meta_002.lean",
+      "ok": true,
+      "duration_ms": 17147,
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "825a84f689d8d5f6"
+    },
+    {
+      "id": "chk-1795413012404-9m4",
+      "at": "2026-11-23T05:50:12.404Z",
+      "kind": "proof",
+      "lemma_id": "L-meta-002",
+      "seat": "seat-meta-1",
+      "theorem": "PnP.Lemmas.L_meta_002.maj3_no_one_gate_dag",
+      "file": "lean/PnP/Lemmas/L_meta_002.lean",
+      "ok": false,
+      "duration_ms": 11985,
+      "axioms": [],
+      "reason": "Lean kernel typecheck failed",
+      "file_hash": "0ddd717d11708ebc"
+    },
+    {
+      "id": "chk-1795412935709-bfb",
+      "at": "2026-11-23T05:48:55.710Z",
+      "kind": "proof",
+      "lemma_id": "L-meta-002",
+      "seat": "seat-meta-1",
+      "theorem": "PnP.Lemmas.L_meta_002.maj3_no_one_gate_dag",
+      "file": "lean/PnP/Lemmas/L_meta_002.lean",
+      "ok": false,
+      "duration_ms": 3168,
+      "axioms": [],
+      "reason": "Lean kernel typecheck failed",
+      "file_hash": "4e2e0292d2801416"
+    },
+    {
+      "id": "chk-1795412932448-lee",
+      "at": "2026-11-23T05:48:52.448Z",
+      "kind": "refutation",
+      "lemma_id": "L-alg-003",
+      "seat": "seat-redteam-1",
+      "theorem": "PnP.Lemmas.L_alg_003_refute.counterexample",
+      "file": "lean/PnP/Lemmas/L_alg_003_refute.lean",
+      "ok": true,
+      "duration_ms": 7571,
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "0642b93cc9add0cb"
+    },
+    {
+      "id": "chk-1795412892682-o8h",
+      "at": "2026-11-23T05:48:12.682Z",
+      "kind": "proof",
+      "lemma_id": "L-clb-003",
+      "seat": "seat-clb-1",
+      "theorem": "PnP.Lemmas.L_clb_003.parity_binary_gate_lower_bound",
+      "file": "lean/PnP/Lemmas/L_clb_003.lean",
+      "ok": true,
+      "duration_ms": 9182,
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "623811acefff5f45"
+    },
+    {
+      "id": "chk-1795412888319-88p",
+      "at": "2026-11-23T05:48:08.319Z",
+      "kind": "proof",
+      "lemma_id": "L-meta-001",
+      "seat": "seat-meta-1",
+      "theorem": "PnP.Lemmas.L_meta_001.maj3_circuit_bounds",
+      "file": "lean/PnP/Lemmas/L_meta_001.lean",
+      "ok": true,
+      "duration_ms": 8596,
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "9c65f00941c9ca8d"
+    },
+    {
+      "id": "chk-1795412883023-7im",
+      "at": "2026-11-23T05:48:03.023Z",
+      "kind": "proof",
+      "lemma_id": "L-clb-002",
+      "seat": "seat-clb-1",
+      "theorem": "PnP.Lemmas.L_clb_002.depends_implies_usesInput",
+      "file": "lean/PnP/Lemmas/L_clb_002.lean",
+      "ok": true,
+      "duration_ms": 8273,
+      "axioms": [
+        "propext"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "3565d828841890ac"
+    },
+    {
+      "id": "chk-1795412859667-7lp",
+      "at": "2026-11-23T05:47:39.670Z",
+      "kind": "proof",
+      "lemma_id": "L-clb-001",
+      "seat": "seat-clb-1",
+      "theorem": "PnP.Lemmas.L_clb_001.xor2_no_monotone_circuit",
+      "file": "lean/PnP/Lemmas/L_clb_001.lean",
+      "ok": true,
+      "duration_ms": 7265,
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "30acc6c5be473e3f"
+    },
+    {
+      "id": "chk-1795412858639-m4h",
+      "at": "2026-11-23T05:47:38.639Z",
+      "kind": "proof",
+      "lemma_id": "L-pcx-003",
+      "seat": "seat-pcx-1",
+      "theorem": "PnP.Lemmas.L_pcx_003.resolution_min_size_ge_three",
+      "file": "lean/PnP/Lemmas/L_pcx_003.lean",
+      "ok": true,
+      "duration_ms": 7531,
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "ab517d937bd28f71"
+    },
+    {
+      "id": "chk-1795412850602-l5p",
+      "at": "2026-11-23T05:47:30.602Z",
+      "kind": "proof",
+      "lemma_id": "L-pcx-002",
+      "seat": "seat-pcx-1",
+      "theorem": "PnP.Lemmas.L_pcx_002.php_3_2_unsat",
+      "file": "lean/PnP/Lemmas/L_pcx_002.lean",
+      "ok": true,
+      "duration_ms": 10781,
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "05db04ac93be010c"
+    },
+    {
+      "id": "chk-1795412841204-dxf",
+      "at": "2026-11-23T05:47:21.204Z",
+      "kind": "proof",
+      "lemma_id": "L-meta-001",
+      "seat": "seat-meta-1",
+      "theorem": "PnP.Lemmas.L_meta_001.maj3_circuit_bounds",
+      "file": "lean/PnP/Lemmas/L_meta_001.lean",
+      "ok": false,
+      "duration_ms": 8349,
+      "axioms": [],
+      "reason": "Lean kernel typecheck failed",
+      "file_hash": "b6b1a537de7decab"
+    },
+    {
+      "id": "chk-1795412839286-8i6",
+      "at": "2026-11-23T05:47:19.286Z",
+      "kind": "proof",
+      "lemma_id": "L-pcx-001",
+      "seat": "seat-pcx-1",
+      "theorem": "PnP.Lemmas.L_pcx_001.resolution_sound",
+      "file": "lean/PnP/Lemmas/L_pcx_001.lean",
+      "ok": true,
+      "duration_ms": 11328,
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "4ad0f14cc4ef1f11"
+    },
+    {
+      "id": "chk-1795412831702-fhq",
+      "at": "2026-11-23T05:47:11.702Z",
+      "kind": "proof",
+      "lemma_id": "L-alg-001",
+      "seat": "seat-alg-1",
+      "theorem": "PnP.Lemmas.L_alg_001.horn_no_positive_unit_sat",
+      "file": "lean/PnP/Lemmas/L_alg_001.lean",
+      "ok": true,
+      "duration_ms": 7177,
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "eb738e0d90473875"
+    },
+    {
+      "id": "chk-1795412821173-u3n",
+      "at": "2026-11-23T05:47:01.173Z",
+      "kind": "proof",
+      "lemma_id": "L-lib-003",
+      "seat": "seat-lib-1",
+      "theorem": "PnP.Lemmas.L_lib_003.polyBounded_add_mul",
+      "file": "lean/PnP/Lemmas/L_lib_003.lean",
+      "ok": true,
+      "duration_ms": 7621,
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "5acf3da10bca4238"
+    },
+    {
+      "id": "chk-1795412817691-7w5",
+      "at": "2026-11-23T05:46:57.691Z",
+      "kind": "refutation",
+      "lemma_id": "L-alg-002",
+      "seat": "seat-redteam-1",
+      "theorem": "PnP.Lemmas.L_alg_002_refute.counterexample",
+      "file": "lean/PnP/Lemmas/L_alg_002_refute.lean",
+      "ok": true,
+      "duration_ms": 10990,
+      "axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "fe302b01dd3985d8"
+    },
+    {
+      "id": "chk-1795412807039-icp",
+      "at": "2026-11-23T05:46:47.039Z",
+      "kind": "proof",
+      "lemma_id": "L-lib-002",
+      "seat": "seat-lib-1",
+      "theorem": "PnP.Lemmas.L_lib_002.unused_input_invariant",
+      "file": "lean/PnP/Lemmas/L_lib_002.lean",
+      "ok": true,
+      "duration_ms": 8872,
+      "axioms": [
+        "propext"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "311fd21935c18a0c"
+    },
+    {
+      "id": "chk-1795412797510-iya",
+      "at": "2026-11-23T05:46:37.510Z",
+      "kind": "proof",
+      "lemma_id": "L-lib-001",
+      "seat": "seat-lib-1",
+      "theorem": "PnP.Lemmas.L_lib_001.monotone_circuit_is_monotone",
+      "file": "lean/PnP/Lemmas/L_lib_001.lean",
+      "ok": true,
+      "duration_ms": 5315,
+      "axioms": [
+        "propext"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "d87422c5a70c5cdf"
+    },
+    {
+      "id": "chk-1795412556932-l5a",
+      "at": "2026-11-23T05:42:36.932Z",
+      "kind": "proof",
+      "lemma_id": "L-lib-000",
+      "seat": "seat-strat-1",
+      "theorem": "PnP.Lemmas.L_lib_000.flipBit_involutive",
+      "file": "lean/PnP/Lemmas/L_lib_000.lean",
+      "ok": true,
+      "duration_ms": 5943,
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "reason": "Verified by Lean 4 kernel with zero sorry and standard axioms only",
+      "file_hash": "0f522adda1137ef0"
+    }
+  ]
+}

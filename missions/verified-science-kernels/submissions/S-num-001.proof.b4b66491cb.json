@@ -1,0 +1,24 @@
+{
+  "schema": "fleet-submission/1",
+  "mission": "verified-science-kernels",
+  "lemma_id": "S-num-001",
+  "kind": "proof",
+  "at": "2026-11-23T11:59:15.398Z",
+  "file": "missions/verified-science-kernels/artifacts/S_num_001.mjs",
+  "theorem": "kahan_compensated_sum",
+  "signature": "compensatedSum(xs : Float64[]) : preserves exact sum across 1e16 and 1e100 catastrophic cancellation",
+  "checker": {
+    "ok": true,
+    "judge": "command",
+    "checked_at": "2026-11-23T11:59:15.398Z",
+    "duration_ms": 48,
+    "axioms": [
+      "catastrophic_1e16_cancel",
+      "neumaier_1e100_cancel"
+    ],
+    "lean_version": "Deterministic IEEE-754 Stress Judge v1",
+    "file_hash": "b4b66491cbda9816e0cfcca652d6febeb2d3aa615eee9238c911d489523f61b8",
+    "core_hash": "a36bd33c425d706b323e0defe78324da5ec48c18a4ddadff402c3e27ac125f68",
+    "by_seat": "donor-smoke"
+  }
+}
