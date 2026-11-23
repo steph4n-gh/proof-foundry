@@ -1,0 +1,27 @@
+{
+  "schema": "fleet-submission/2",
+  "mission": "erdos-combinatorics",
+  "lemma_id": "E-vdw-001",
+  "kind": "proof",
+  "at": "2026-11-23T22:40:01.975Z",
+  "file": "missions/erdos-combinatorics/lean/Erdos/Claims/E_vdw_001.lean",
+  "theorem": "Erdos.Claims.E_vdw_001.vdw_3_3_exact",
+  "signature": "Erdos.Claims.E_vdw_001.vdw_3_3_exact :\n  Erdos.Statements.E_vdw_001.Claim",
+  "checker": {
+    "by_seat": "donor-steph4n-gh",
+    "duration_ms": 1744,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "file_hash": "06549c89e9c3b089613e924251b34b2dddaa46fe708a297cc4641cc82bd72f5d",
+    "core_hash": "d340c0dbbf11c6f8b34fdffed7b9b6a14a1587a2a516de89911dc5a93235a3d8",
+    "statement_frozen": true,
+    "statement_hash": "0aa6df864499f75fd9f48b32d067633e42d6090bf91e96d9b8a3f173f24c88a1",
+    "ok": true,
+    "judge": "lean4",
+    "checked_at": "2026-11-23T22:40:01.975Z",
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)"
+  }
+}
