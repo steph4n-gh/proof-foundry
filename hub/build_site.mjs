@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 /**
- * hub/build_site.mjs — Compiles:
- *   1. Static GitHub Pages dashboard (`dist/`) across all missions (with live GitHub open-PR snapshot!).
- *   2. Canonical human-readable master catalog (`PROOFS.md`) in the repository root.
+ * hub/build_site.mjs — Pure static site & PROOFS.md builder (v3).
+ *
+ * Hardened per Opus 5.5 + Astra 6.2 reviews:
+ * - Pure derivation (`deriveMissionState`): NEVER mutates tracked `state.json` on disk!
+ * - Always publishes fresh `dist/PROOFS.md` directly on GitHub Pages; only writes repo-root
+ *   `PROOFS.md` when invoked with `--sync-root-proofs`.
+ * - Per-line resilient NDJSON event reader (one corrupt line never wipes event history).
+ * - Mission-scoped PR map (`by_mission_claim` + `by_claim`) paginating up to 200 open PRs.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -13,7 +18,7 @@ import {
   loadMission,
   loadAllMissionsSummary,
   readAllowedArtifactFile,
-  compileSubmissionsIntoState,
+  deriveMissionState,
   computeTrustSeal,
   normalizeObjectiveReqs,
   isRungConquered,
@@ -32,59 +37,81 @@ function copyDir(src, dst) {
   }
 }
 
-function readEvents(eventsPath, limit = 160) {
+export function readEvents(eventsPath, limit = 160) {
   try {
-    const lines = fs.readFileSync(eventsPath, "utf8").trim().split("\n").filter(Boolean);
-    return lines.slice(-limit).reverse().map((l) => JSON.parse(l));
+    const lines = fs.readFileSync(eventsPath, "utf8").split(/\r?\n/).filter(Boolean);
+    const parsed = [];
+    for (let i = Math.max(0, lines.length - limit); i < lines.length; i++) {
+      try {
+        parsed.push(JSON.parse(lines[i]));
+      } catch {
+        // Skip malformed event line without losing the rest of the audit log
+      }
+    }
+    return parsed.reverse();
   } catch {
     return [];
   }
 }
 
 /**
- * Fetch open PRs from GitHub (non-fatal offline fallback) so Pages & local UI show live PR badges.
+ * Fetch up to 200 open PRs from GitHub (non-fatal offline fallback) keyed by BOTH
+ * `mission/claimId` (from changed submission paths) and bare `claimId` (from title fallback).
  */
 export function fetchOpenPRs(repo = "steph4n-gh/proof-foundry") {
   const fetchedAt = new Date().toISOString();
   try {
     const res = spawnSync(
       "gh",
-      ["pr", "list", "--repo", repo, "--state", "open", "--limit", "50", "--json", "number,title,url,headRefName,updatedAt,files"],
-      { encoding: "utf8", timeout: 8000 }
+      ["pr", "list", "--repo", repo, "--state", "open", "--limit", "200", "--json", "number,title,url,headRefName,updatedAt,files"],
+      { encoding: "utf8", timeout: 10000 }
     );
-    if (res.status !== 0 || !res.stdout) return { ok: false, fetched_at: fetchedAt, by_claim: {} };
+    if (res.status !== 0 || !res.stdout) {
+      return { ok: false, fetched_at: fetchedAt, by_mission_claim: {}, by_claim: {} };
+    }
     const prs = JSON.parse(res.stdout);
+    const byMissionClaim = {};
     const byClaim = {};
     for (const pr of prs) {
-      const ids = new Set();
-      const titleMatches = String(pr.title || "").matchAll(/\b([A-Z]-[a-z0-9]+-\d+)\b/g);
-      for (const m of titleMatches) ids.add(m[1]);
+      const info = {
+        number: pr.number,
+        title: pr.title,
+        url: pr.url,
+        branch: pr.headRefName,
+        updated_at: pr.updatedAt,
+      };
+      const scopedKeys = new Set();
+      const bareIds = new Set();
+
       for (const f of pr.files || []) {
-        const m = String(f.path || "").match(/submissions\/([A-Z]-[a-z0-9]+-\d+)\./);
-        if (m) ids.add(m[1]);
+        const m = String(f.path || "").match(/^missions\/([a-z0-9-_]+)\/submissions\/([A-Z]-[a-z0-9]+-\d+)\./);
+        if (m) scopedKeys.add(`${m[1]}/${m[2]}`);
       }
-      for (const id of ids) {
-        (byClaim[id] = byClaim[id] || []).push({
-          number: pr.number,
-          title: pr.title,
-          url: pr.url,
-          branch: pr.headRefName,
-          updated_at: pr.updatedAt,
-        });
+      if (scopedKeys.size === 0) {
+        const titleMatches = String(pr.title || "").matchAll(/\b([A-Z]-[a-z0-9]+-\d+)\b/g);
+        for (const m of titleMatches) bareIds.add(m[1]);
+      }
+
+      for (const key of scopedKeys) {
+        (byMissionClaim[key] = byMissionClaim[key] || []).push(info);
+      }
+      for (const id of bareIds) {
+        (byClaim[id] = byClaim[id] || []).push(info);
       }
     }
-    return { ok: true, fetched_at: fetchedAt, by_claim: byClaim };
+    return { ok: true, fetched_at: fetchedAt, by_mission_claim: byMissionClaim, by_claim: byClaim };
   } catch {
-    return { ok: false, fetched_at: fetchedAt, by_claim: {} };
+    return { ok: false, fetched_at: fetchedAt, by_mission_claim: {}, by_claim: {} };
   }
 }
 
 export function buildMissionSnapshot(mission, prSnap = null) {
-  const state = JSON.parse(fs.readFileSync(mission.paths.stateFile, "utf8"));
+  const { state } = deriveMissionState(mission.slug);
   const events = readEvents(mission.paths.eventsFile, 160);
   const leftKey = mission.tug_of_war?.left_key || "p_neq_np";
   const rightKey = mission.tug_of_war?.right_key || "p_eq_np";
-  const openPrMap = prSnap?.by_claim || {};
+  const scopedPrMap = prSnap?.by_mission_claim || {};
+  const barePrMap = prSnap?.by_claim || {};
 
   const counts = {
     lemmas: state.lemmas.length,
@@ -108,7 +135,15 @@ export function buildMissionSnapshot(mission, prSnap = null) {
   let frontier = null;
   const enrichedLemmas = state.lemmas.map((l) => {
     const seal = computeTrustSeal(l);
-    const open_prs = openPrMap[l.id] || [];
+    const scoped = scopedPrMap[`${mission.slug}/${l.id}`] || [];
+    const bare = barePrMap[l.id] || [];
+    const seenPrNums = new Set();
+    const open_prs = [...scoped, ...bare].filter((p) => {
+      if (seenPrNums.has(p.number)) return false;
+      seenPrNums.add(p.number);
+      return true;
+    });
+
     counts[l.status] = (counts[l.status] || 0) + 1;
     if (seal === "audited") counts.audited_faithful++;
     if (seal === "frozen") counts.frozen_matched++;
@@ -173,7 +208,7 @@ export function buildMissionSnapshot(mission, prSnap = null) {
   return {
     ready: true,
     snapshot_at: new Date().toISOString(),
-    pr_sync: prSnap ? { ok: prSnap.ok, fetched_at: prSnap.fetched_at } : null,
+    pr_sync: prSnap ? { ok: prSnap.ok, fetched_at: prSnap.fetched_at } : { ok: false, fetched_at: null },
     mission: {
       slug: mission.slug,
       brand: mission.brand,
@@ -195,10 +230,7 @@ export function buildMissionSnapshot(mission, prSnap = null) {
   };
 }
 
-/**
- * Generate master human-readable `PROOFS.md` catalog in the repository root.
- */
-export function writeMasterProofsMarkdown(snapshots) {
+export function renderMasterProofsMarkdown(snapshots) {
   const sealIcons = {
     frozen: "◆ Frozen",
     audited: "✓ Audited",
@@ -229,7 +261,7 @@ export function writeMasterProofsMarkdown(snapshots) {
   for (const snap of snapshots) {
     lines.push(`## ${snap.mission.title} (\`${snap.mission.slug}\`)`);
     lines.push(`*Judge: ${snap.mission.judge?.label}*\n`);
-    const verified = snap.lemmas.filter((l) => l.status === "checked" || l.status === "refuted");
+    const verified = snap.lemmas.filter((l) => l.status === "checked" || l.status === "refuted" || l.status === "contradiction");
     if (!verified.length) {
       lines.push("_No verified claims yet._\n");
       continue;
@@ -240,7 +272,7 @@ export function writeMasterProofsMarkdown(snapshots) {
       const file = l.status === "refuted" ? l.refutation?.counterexample_file : l.lean_file;
       const hash = (l.status === "refuted" ? l.refutation?.file_hash : l.checker?.file_hash) || "";
       const ax = (l.status === "refuted" ? l.refutation?.axioms : l.checker?.axioms) || [];
-      const link = file ? `[${path.basename(file)}](./${file})` : "—";
+      const link = file ? `[${path.basename(file)}](https://github.com/${snap.mission.github_repo}/blob/main/${file})` : "—";
       const safeTitle = String(l.title || "").replace(/\|/g, "\\|");
       lines.push(
         `| \`${l.id}\` | ${sealIcons[l.seal] || l.status} | ${safeTitle} | ${link} | ${ax.length ? `\`${ax.join(", ")}\`` : "`none`"} | \`${hash.slice(0, 10)}\` |`
@@ -249,21 +281,23 @@ export function writeMasterProofsMarkdown(snapshots) {
     lines.push("");
   }
 
-  fs.writeFileSync(path.join(ROOT, "PROOFS.md"), lines.join("\n") + "\n", "utf8");
+  return lines.join("\n") + "\n";
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  const syncRootProofs = process.argv.includes("--sync-root-proofs");
+  const offline = process.argv.includes("--offline");
+
   fs.rmSync(DIST, { recursive: true, force: true });
   copyDir(PUBLIC_DIR, DIST);
   const dataDir = path.join(DIST, "data");
   fs.mkdirSync(dataDir, { recursive: true });
 
-  const prSnap = fetchOpenPRs();
+  const prSnap = offline ? { ok: false, fetched_at: null, by_mission_claim: {}, by_claim: {} } : fetchOpenPRs();
   const slugs = listMissionSlugs();
   const snaps = [];
 
   for (const slug of slugs) {
-    compileSubmissionsIntoState(slug);
     const mission = loadMission(slug);
     const snap = buildMissionSnapshot(mission, prSnap);
     snaps.push(snap);
@@ -289,12 +323,16 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     }
   }
 
-  writeMasterProofsMarkdown(snaps);
+  const proofsMd = renderMasterProofsMarkdown(snaps);
+  fs.writeFileSync(path.join(DIST, "PROOFS.md"), proofsMd, "utf8");
+  if (syncRootProofs) {
+    fs.writeFileSync(path.join(ROOT, "PROOFS.md"), proofsMd, "utf8");
+  }
 
   fs.writeFileSync(
     path.join(dataDir, "missions.json"),
     JSON.stringify({ missions: loadAllMissionsSummary(), static: true, snapshot_at: new Date().toISOString() }, null, 2),
     "utf8"
   );
-  console.log(`Built static GitHub Pages dashboard in dist/ + PROOFS.md for ${slugs.length} missions: ${slugs.join(", ")}`);
+  console.log(`Built static GitHub Pages dashboard in dist/ (including dist/PROOFS.md) for ${slugs.length} missions: ${slugs.join(", ")}`);
 }

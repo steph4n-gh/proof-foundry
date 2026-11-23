@@ -1,0 +1,11 @@
+# Proof Foundry — Maintainer Code Ownership
+/.github/ @steph4n-gh
+/hub/ @steph4n-gh
+/web/ @steph4n-gh
+/package.json @steph4n-gh
+/lean/PnP/Core.lean @steph4n-gh
+/missions/*/mission.json @steph4n-gh
+/missions/*/state.json @steph4n-gh
+/missions/*/judge/ @steph4n-gh
+/missions/*/lean/*/Core.lean @steph4n-gh
+/missions/*/lean/*/Statements/ @steph4n-gh

@@ -1,19 +1,96 @@
-name: Mechanical Judge (Base-Trusted PR Verification)
+name: Mechanical Judge & Self-Test Gate
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
+concurrency:
+  group: pr-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  classify:
+    name: Classify PR Lane
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      lane: ${{ steps.cls.outputs.lane }}
+      same_repo: ${{ steps.cls.outputs.same_repo }}
+      needs_lean: ${{ steps.cls.outputs.needs_lean }}
+      submissions_count: ${{ steps.cls.outputs.submissions_count }}
+      frozen_ok: ${{ steps.cls.outputs.frozen_ok }}
+    steps:
+      - name: Checkout trusted base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Classify diff strictly via git raw -z (never executes PR code)
+        id: cls
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          CUR_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ]; then
+            echo "lane=infra" >> "$GITHUB_OUTPUT"
+            echo "same_repo=true" >> "$GITHUB_OUTPUT"
+            echo "needs_lean=true" >> "$GITHUB_OUTPUT"
+            echo "submissions_count=0" >> "$GITHUB_OUTPUT"
+            echo "frozen_ok=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$HEAD_REPO" = "$CUR_REPO" ]; then
+            echo "same_repo=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "same_repo=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          git fetch --no-tags origin "refs/pull/$PR_NUM/head:pr-head"
+          git diff -z --no-renames --raw "$BASE_SHA...pr-head" > "$RUNNER_TEMP/diff.rawz"
+
+          set +e
+          node hub/fleet.mjs classify-pr --git-raw-z "$RUNNER_TEMP/diff.rawz" > "$RUNNER_TEMP/classify.json"
+          CLS_RC=$?
+          set -e
+          cat "$RUNNER_TEMP/classify.json"
+
+          LANE=$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP+"/classify.json","utf8")); console.log(c.lane);')
+          NEEDS_LEAN=$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP+"/classify.json","utf8")); console.log(Boolean(c.needs_lean));')
+          SUBS=$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP+"/classify.json","utf8")); console.log(c.submissions_count || 0);')
+
+          echo "lane=$LANE" >> "$GITHUB_OUTPUT"
+          echo "needs_lean=$NEEDS_LEAN" >> "$GITHUB_OUTPUT"
+          echo "submissions_count=$SUBS" >> "$GITHUB_OUTPUT"
+          if [ "$CLS_RC" -eq 0 ]; then
+            echo "frozen_ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "frozen_ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
   judge:
     name: Verify Swarm Submission
+    needs: [classify]
+    if: github.event_name == 'pull_request' && needs.classify.outputs.submissions_count != '0' && (needs.classify.outputs.lane == 'donor' || needs.classify.outputs.same_repo == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      # Check out TRUSTED base ref for hub/, Core.lean, Statements/, and Judge harnesses
       - name: Checkout trusted base
         uses: actions/checkout@v4
         with:
@@ -26,45 +103,34 @@ jobs:
         with:
           node-version: "22"
 
-      # Three-dot merge-base diff + safe newline file (zero bash filename injection!)
-      - name: Compute merge-base diff and stage ONLY allowlisted PR claim files
-        id: stage
+      - name: Stage ONLY verified allowlisted 100644 files via Node
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUM: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin "refs/pull/$PR_NUM/head:pr-head"
-          git diff --name-only "$BASE_SHA...pr-head" > "$RUNNER_TEMP/changed_files.txt"
-          cat "$RUNNER_TEMP/changed_files.txt"
-
-          # Copy ONLY strictly allowlisted claim/artifact/submission files from pr-head onto trusted base
-          while IFS= read -r f; do
-            [ -z "$f" ] && continue
-            if echo "$f" | grep -qE '^(missions/[a-z0-9-_]+/(submissions/[A-Za-z0-9_.-]+\.json|artifacts/[A-Za-z0-9_.-]+|lean/[A-Za-z0-9_]+/Claims/[A-Za-z0-9_]+\.lean)|lean/PnP/Lemmas/[A-Za-z0-9_]+\.lean)$'; then
-              mkdir -p "$(dirname "$f")"
-              git show "pr-head:$f" > "$f"
-            fi
-          done < "$RUNNER_TEMP/changed_files.txt"
-
-          if grep -qE '\.lean$|missions/(p-vs-np|erdos-combinatorics)/submissions/' "$RUNNER_TEMP/changed_files.txt"; then
-            echo "needs_lean=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "needs_lean=false" >> "$GITHUB_OUTPUT"
-          fi
+          git diff -z --no-renames --raw "$BASE_SHA...pr-head" > "$RUNNER_TEMP/diff.rawz"
+          node hub/fleet.mjs stage-pr --git-raw-z "$RUNNER_TEMP/diff.rawz" --ref pr-head
 
       - name: Install Lean 4 (elan) if needed
-        if: steps.stage.outputs.needs_lean == 'true'
+        if: needs.classify.outputs.needs_lean == 'true'
         run: |
           set -euo pipefail
           curl -sSfL --retry 5 --retry-delay 2 --retry-all-errors https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain leanprover/lean4:v4.36.0
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Run Trusted Base Mechanical Judge
+        env:
+          LANE: ${{ needs.classify.outputs.lane }}
+          SAME_REPO: ${{ needs.classify.outputs.same_repo }}
         run: |
           set +e
-          node hub/fleet.mjs verify-pr --files-list "$RUNNER_TEMP/changed_files.txt" | tee "$RUNNER_TEMP/judge-report.json"
+          EXTRA_ARGS=""
+          if [ "$LANE" = "infra" ] && [ "$SAME_REPO" = "true" ]; then
+            EXTRA_ARGS="--allow-infra --allow-meta"
+          fi
+          node hub/fleet.mjs verify-pr --git-raw-z "$RUNNER_TEMP/diff.rawz" $EXTRA_ARGS | tee "$RUNNER_TEMP/judge-report.json"
           STATUS=${PIPESTATUS[0]}
           {
             echo "## Proof Foundry Mechanical Judge Receipt (Base-Trusted)"
@@ -80,3 +146,77 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$STATUS"
+
+  selftest:
+    name: Repo Self-Test Suite
+    needs: [classify]
+    if: needs.classify.outputs.lane == 'infra' && needs.classify.outputs.same_repo == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout PR head (same-repo maintainer PR or push to main)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Lean 4 (elan)
+        run: |
+          set -euo pipefail
+          curl -sSfL --retry 5 --retry-delay 2 --retry-all-errors https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain leanprover/lean4:v4.36.0
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Run npm test
+        run: npm test
+
+  # Single always-running required status check for `main` branch ruleset
+  gate:
+    name: gate
+    needs: [classify, judge, selftest]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      LANE: ${{ needs.classify.outputs.lane }}
+      SAME_REPO: ${{ needs.classify.outputs.same_repo }}
+      SUBS: ${{ needs.classify.outputs.submissions_count }}
+      FROZEN_OK: ${{ needs.classify.outputs.frozen_ok }}
+      CLS_RES: ${{ needs.classify.result }}
+      JUDGE_RES: ${{ needs.judge.result }}
+      SELF_RES: ${{ needs.selftest.result }}
+    steps:
+      - name: Evaluate final gate
+        run: |
+          set -euo pipefail
+          echo "lane=$LANE same_repo=$SAME_REPO subs=$SUBS frozen_ok=$FROZEN_OK classify=$CLS_RES judge=$JUDGE_RES selftest=$SELF_RES"
+          if [ "$CLS_RES" != "success" ] || [ "$FROZEN_OK" != "true" ]; then
+            echo "FAIL: Classification failed or immutable frozen statement was modified."
+            exit 1
+          fi
+          if [ "$LANE" = "donor" ]; then
+            if [ "$JUDGE_RES" = "success" ]; then
+              echo "PASS: Donor submission verified by isolated Mechanical Judge."
+              exit 0
+            fi
+            echo "FAIL: Donor submission failed Mechanical Judge ($JUDGE_RES)."
+            exit 1
+          fi
+          # Infra lane
+          if [ "$SAME_REPO" != "true" ]; then
+            echo "FAIL: Infra/non-allowlist changes from a fork require maintainer adoption."
+            exit 1
+          fi
+          if [ "$SELF_RES" != "success" ]; then
+            echo "FAIL: Repo self-test suite failed ($SELF_RES)."
+            exit 1
+          fi
+          if [ "$SUBS" != "0" ] && [ "$JUDGE_RES" != "success" ]; then
+            echo "FAIL: Submissions in maintainer PR failed Judge ($JUDGE_RES)."
+            exit 1
+          fi
+          echo "PASS: Maintainer infra check passed."

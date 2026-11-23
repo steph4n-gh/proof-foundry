@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   workflow_run:
-    workflows: ["Mechanical Judge (Base-Trusted PR Verification)"]
+    workflows: ["Optional Frozen-Bounty Auto-Merge (Fork-Safe)"]
     types: [completed]
   schedule:
     - cron: "0 */6 * * *"
@@ -12,12 +12,13 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
   pages: write
   id-token: write
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build-and-deploy:
@@ -25,12 +26,14 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       # Always check out trusted main — never executes PR/fork code!
       - name: Checkout trusted main
         uses: actions/checkout@v4
         with:
           ref: main
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Node.js
@@ -38,7 +41,7 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Compile submissions, sync live open PR badges & build static dashboard
+      - name: Derive live mission state, sync open PR badges & build dist/ + dist/PROOFS.md
         env:
           GH_TOKEN: ${{ github.token }}
         run: node hub/build_site.mjs

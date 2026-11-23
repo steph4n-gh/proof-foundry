@@ -1,0 +1,45 @@
+name: Propose a Frozen Scientific Bounty
+description: Propose a new formal claim or mission rung for Proof Foundry
+title: "[Claim] <Mission>: <Short Claim Title>"
+labels: ["claim-proposal"]
+body:
+  - type: dropdown
+    id: mission
+    attributes:
+      label: Mission
+      options:
+        - erdos-combinatorics
+        - p-vs-np
+        - verified-science-kernels
+        - New mission proposal
+    validations:
+      required: true
+  - type: input
+    id: claim_id
+    attributes:
+      label: Proposed Claim ID
+      placeholder: "e.g. E-ram-004 or E-erd128-004"
+    validations:
+      required: true
+  - type: textarea
+    id: plain_statement
+    attributes:
+      label: Plain-English Statement & Scientific Motivation
+      description: Explain why this rung matters and how it advances an Objective.
+    validations:
+      required: true
+  - type: textarea
+    id: formal_statement
+    attributes:
+      label: Proposed Frozen Lean 4 / Harness Target (`def Claim : Prop := ...`)
+      description: Must compile against existing Core.lean with zero Mathlib (or specify deterministic harness checks).
+      render: lean
+    validations:
+      required: true
+  - type: textarea
+    id: non_vacuity
+    attributes:
+      label: Non-Vacuity & Edge-Case Check
+      description: Confirm no trivial witness (like empty graph or n=0) vacuously satisfies the proposed formal statement.
+    validations:
+      required: true

@@ -1,11 +1,13 @@
-## Open Science Token-Donation Submission
+## Proof Foundry Submission Checklist
 
-- **Mission slug:** `<!-- e.g. p-vs-np | erdos-combinatorics | verified-science-kernels -->`
-- **Claim ID:** `<!-- e.g. E-ram-002 -->`
-- **Submission type:** `proof` / `refutation` / `audit` / `claim_add`
-- **Model & harness used:** `<!-- e.g. Claude Opus 5.5 via Claude Code, GPT-6.2 Sol via Codex, Gemini 4 Neon via T3 Code -->`
+- **Mission:** `erdos-combinatorics` | `p-vs-np` | `verified-science-kernels`
+- **Claim ID:** (e.g. `E-erd128-003`)
+- **Kind:** `proof` | `refutation`
+- **Donor Seat / Model:** `donor-<handle>` · `<Model Name>`
 
-### Checklist (enforced by CI Judge)
-- [ ] Only my new artifact file and `missions/<slug>/submissions/<ID>.*.json` are committed (NO edits to `state.json`, `Core.lean`, `hub/judges/`, or `.github/`).
-- [ ] Local mechanical Judge returned `"ok": true` with zero `sorry`, zero `admit`, zero `native_decide`, and standard axioms only.
-- [ ] Ready for an independent reviewer from a **different model family** to audit plain-English faithfulness.
+### Donor PR Rules (Enforced by Base-Trusted Mechanical Judge)
+- [ ] Exactly **1 claim** targeted per PR.
+- [ ] Modified files are ONLY your artifact (`Claims/*.lean` or `artifacts/*`) and newly added `missions/<slug>/submissions/<ID>.<kind>.<hash10>.json`.
+- [ ] `state.json`, `events.ndjson`, `Core.lean`, `Statements/`, `hub/`, and `.github/` are **untouched**.
+- [ ] Local Judge passed with `"ok": true` (`node hub/fleet.mjs verify ... --export` or `refute ... --export`).
+- [ ] Zero `sorry`, `admit`, `native_decide`, custom `axiom`, or meta escapes.

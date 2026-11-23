@@ -72,10 +72,10 @@
     },
     {
       "id": "OBJ-erdos-156",
-      "title": "Erdős Problem #156: Exact Smallest Maximal Sidon Set in {1..30}",
+      "title": "Erdős Problem #156: Smallest Maximal Sidon Set in {1..30}",
       "tier": "Open Erdős Frontier",
       "url": "https://www.erdosproblems.com/156",
-      "finish_line": "Prove the Sidon blocking lemma, synthesize a 5-element maximal Sidon set in {1..30}, and prove no size ≤ 4 maximal Sidon set exists in {1..30}.",
+      "finish_line": "Prove the Sidon blocking lemma, verify a ≤6 maximal Sidon set in {1..30} (5-element witness [1,4,11,15,17]), and prove no size ≤ 4 maximal Sidon set exists in {1..30}.",
       "required": [
         { "id": "E-erd156-001", "expect": "proof" },
         { "id": "E-erd156-002", "expect": "proof" },

@@ -1,23 +1,22 @@
 #!/usr/bin/env node
 /**
- * hub/judges/lean4.mjs — Hardened Isolated Lean 4 Kernel Metaprogram Judge (v2).
+ * hub/judges/lean4.mjs — Hardened Isolated Lean 4 Kernel Metaprogram Judge (v3).
  *
- * Security & Verification Guarantees:
+ * Security & Verification Guarantees (hardened per Opus 5.5 + Astra 6.2 audits):
  * 1. Canonical realpath containment inside mission's `allowed_dirs`.
- * 2. Lean-aware lexer (handles nested `/- ... -/`, `-- ...`, `"..."` strings, AND `'c'` char literals
- *    so `'"'` can never desync string scanning!) rejecting meta/escape constructs including:
- *    sorry, admit, axiom, unsafe, opaque, extern, implemented_by, native_decide, #eval, #exit,
- *    #print, run_cmd, run_tac, by_elab, elab, command_elab, tactic, macro, syntax, initialize,
- *    skipKernelTC, modifyEnv.
- * 3. Isolated per-run `.olean` compilation.
- * 4. Optional Frozen-Statement Kernel Type-Matching (`statementFile` + `statementDef`):
- *    - Compiles trusted `statementFile` into `FleetStmtTmp.<Stem>.olean`.
- *    - Imports BOTH `stmtMod` and `claimMod` (shadowing fails safe with duplicate-decl error!).
- *    - Verifies `c` is `.defnInfo` in `stmtMod` with `levelParams.isEmpty` and `c.type == .sort .zero` (Prop).
- *    - Verifies `t` is `.thmInfo` in `claimMod` with `levelParams.isEmpty`.
- *    - Verifies EXACT syntactic Expr equality: `t.type == .const claimN []` (or `Not (.const claimN [])`
- *      for refutations) — zero unifier DoS, zero macro hijacking!
- * 5. Calls kernel `Lean.collectAxioms` directly and writes structured JSON to a Judge-owned file.
+ * 2. Lean-aware lexer rejecting guillemets (`«`/`»`) and raw strings (`r"`/`r#`), handling nested
+ *    `/- ... -/`, `-- ...`, `"..."` strings, and `'c'` char literals with zero desync.
+ * 3. Strict import allowlist (`<lake_target>.*`, `Init`, `Std` — zero `import Lean*`), strict
+ *    `set_option` allowlist (`maxHeartbeats`, `maxRecDepth`, `autoImplicit`), and expanded forbidden
+ *    token gate (`sorry`, `admit`, `axiom`, `unsafe`, `opaque`, `extern`, `implemented_by`,
+ *    `native_decide`, `#eval`, `#exit`, `#print`, `run_cmd`, `run_tac`, `run_meta`, `by_elab`,
+ *    `elab`, `macro`, `syntax`, `declare_syntax_cat`, `simproc`, `dsimproc`, `initialize`,
+ *    `builtin_initialize`, `@[init`, `@[tactic`, `@[delab`, `@[app_unexpander`, `skipKernelTC`,
+ *    `modifyEnv`).
+ * 4. Minimal sanitized environment (never passes `...process.env`) and resolved absolute `lean` path.
+ * 5. Isolated per-run `.olean` compilation + Frozen-Statement Kernel Type-Matching importing BOTH
+ *    trusted `stmtMod` and `claimMod` (dual-import blocks shadowing) with exact syntactic `Expr` match.
+ * 6. Kernel `Lean.collectAxioms` written to a Judge-owned JSON file.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -36,6 +35,8 @@ const DEFAULT_JUDGE_CONFIG = {
   allowed_axioms: ["propext", "Classical.choice", "Quot.sound"],
 };
 
+const ALLOWED_SET_OPTIONS = new Set(["maxHeartbeats", "maxRecDepth", "autoImplicit"]);
+
 const FORBIDDEN_TOKENS = [
   { name: "sorry", re: /\bsorry\b/ },
   { name: "admit", re: /\badmit\b/ },
@@ -50,18 +51,55 @@ const FORBIDDEN_TOKENS = [
   { name: "#print", re: /#print\b/ },
   { name: "run_cmd", re: /\brun_cmd\b/ },
   { name: "run_tac", re: /\brun_tac\b/ },
+  { name: "run_meta", re: /\brun_meta\b/ },
   { name: "by_elab", re: /\bby_elab\b/ },
   { name: "elab", re: /\b([a-z_]*elab(_rules)?)\b/ },
   { name: "tactic attribute", re: /@\[[^\]]*\btactic\b/ },
+  { name: "init attribute", re: /@\[[^\]]*\binit\b/ },
+  { name: "delab/unexpander attribute", re: /@\[[^\]]*\b(delab|app_unexpander)\b/ },
   { name: "macro", re: /\bmacro(_rules)?\b/ },
   { name: "syntax", re: /\bsyntax\b/ },
-  { name: "initialize", re: /\binitialize\b/ },
+  { name: "declare_syntax_cat", re: /\bdeclare_syntax_cat\b/ },
+  { name: "simproc", re: /\b(d?simproc(_decl)?)\b/ },
+  { name: "initialize", re: /\b(builtin_)?initialize\b/ },
   { name: "skipKernelTC", re: /\bskipKernelTC\b/ },
   { name: "modifyEnv", re: /\bmodifyEnv\b/ },
 ];
 
+function minimalEnv(extra = {}) {
+  return {
+    PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
+    HOME: process.env.HOME || os.homedir(),
+    TMPDIR: process.env.TMPDIR || os.tmpdir(),
+    LANG: process.env.LANG || "C.UTF-8",
+    ...extra,
+  };
+}
+
+let cachedLeanBin = null;
+function resolveBinary(name) {
+  const candidates = [
+    path.join(os.homedir(), ".elan", "bin", name),
+    `/usr/local/bin/${name}`,
+    `/usr/bin/${name}`,
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  const which = spawnSync("which", [name], { encoding: "utf8", env: minimalEnv() });
+  if (which.status === 0 && which.stdout.trim()) return which.stdout.trim().split("\n")[0];
+  return name;
+}
+
+function getLeanBin() {
+  if (!cachedLeanBin) cachedLeanBin = resolveBinary("lean");
+  return cachedLeanBin;
+}
+
 /**
- * Strip nested block comments, line comments, string literals, and char literals (`'x'`, `'\"'`).
+ * Strip nested block comments, line comments, string literals, and char literals.
+ * Explicitly flags guillemet identifiers («…») and raw strings (r"…"/r#"…"#) as forbidden
+ * so they can NEVER desync string/comment scanning.
  */
 export function stripLeanCommentsAndStrings(src) {
   let out = "";
@@ -69,6 +107,7 @@ export function stripLeanCommentsAndStrings(src) {
   let blockDepth = 0;
   let inLine = false;
   let inString = false;
+  let forbiddenLexeme = null;
 
   while (i < src.length) {
     const ch = src[i];
@@ -120,6 +159,20 @@ export function stripLeanCommentsAndStrings(src) {
       i += 2;
       continue;
     }
+    // Reject guillemet identifiers «...» (can contain ", /-, -- and desync lexing!)
+    if (ch === "«" || ch === "»") {
+      forbiddenLexeme = "guillemet identifier («…»)";
+      break;
+    }
+    // Reject Lean raw strings r"..." / r#"..."# (not preceded by identifier char)
+    if (ch === "r" && (i === 0 || !/[A-Za-z0-9_']/.test(src[i - 1])) && (next === '"' || next === "#")) {
+      let j = i + 1;
+      while (src[j] === "#") j++;
+      if (src[j] === '"') {
+        forbiddenLexeme = "raw string literal (r\"…\" / r#\"…\"#)";
+        break;
+      }
+    }
     // Char literal: e.g. 'a', '"', '\n', '\'' — only when NOT preceded by identifier char (prime suffix x')
     if (ch === "'" && (i === 0 || !/[A-Za-z0-9_']/.test(src[i - 1]))) {
       if (next === "\\" && i + 3 < src.length && src[i + 3] === "'") {
@@ -141,7 +194,7 @@ export function stripLeanCommentsAndStrings(src) {
     out += ch;
     i++;
   }
-  return { stripped: out, unclosedComment: blockDepth > 0, unclosedString: inString };
+  return { stripped: out, unclosedComment: blockDepth > 0, unclosedString: inString, forbiddenLexeme };
 }
 
 export function sha256File(filePath) {
@@ -150,13 +203,37 @@ export function sha256File(filePath) {
 }
 
 export function getLeanVersion(leanDir) {
-  const res = spawnSync("lean", ["--version"], { encoding: "utf8", cwd: leanDir });
+  const res = spawnSync(getLeanBin(), ["--version"], { encoding: "utf8", cwd: leanDir, env: minimalEnv() });
   if (res.status !== 0) return "lean-unknown";
   return (res.stdout || "").trim().split("\n")[0] || "lean-unknown";
 }
 
 function validateLeanIdentifier(name) {
   return /^[A-Za-z_][A-Za-z0-9_']*(\.[A-Za-z_][A-Za-z0-9_']*)*$/.test(String(name || ""));
+}
+
+function checkImportsAndOptions(stripped, lakeTarget) {
+  // Enforce import allowlist: only `<lakeTarget>`, `<lakeTarget>.*`, `Init`, `Init.*`, `Std`, `Std.*`
+  const importRe = /^\s*import\s+([^\s]+)/gm;
+  let m;
+  while ((m = importRe.exec(stripped)) !== null) {
+    const mod = m[1];
+    const allowedPrefixes = ["Init", "Std"];
+    if (lakeTarget) allowedPrefixes.push(lakeTarget);
+    const ok = allowedPrefixes.some((p) => mod === p || mod.startsWith(`${p}.`));
+    if (!ok) {
+      return `Disallowed import "${mod}" (only ${allowedPrefixes.join(", ")} modules allowed)`;
+    }
+  }
+  // Enforce set_option allowlist (blocks debug.skipKernelTC, etc.)
+  const optRe = /\bset_option\s+([A-Za-z0-9_.]+)/g;
+  while ((m = optRe.exec(stripped)) !== null) {
+    const opt = m[1];
+    if (!ALLOWED_SET_OPTIONS.has(opt)) {
+      return `Disallowed set_option "${opt}" (only ${[...ALLOWED_SET_OPTIONS].join(", ")} allowed)`;
+    }
+  }
+  return null;
 }
 
 export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
@@ -167,6 +244,8 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
   const allowedDirs = (cfg.allowed_dirs || []).map((d) => path.resolve(ROOT, d));
   const allowedAxioms = new Set(cfg.allowed_axioms || ["propext", "Classical.choice", "Quot.sound"]);
   const kind = opts.kind === "refutation" ? "refutation" : "proof";
+  const leanBin = getLeanBin();
+  const lakeBin = resolveBinary("lake");
 
   const started = Date.now();
   const leanVersion = getLeanVersion(leanDir);
@@ -196,6 +275,11 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
   const absFile = path.isAbsolute(relOrAbsFile) ? relOrAbsFile : path.resolve(ROOT, relOrAbsFile);
   if (!fs.existsSync(absFile)) return fail(`File not found: ${relOrAbsFile}`);
 
+  // Reject symlinks directly even before realpath containment
+  if (fs.lstatSync(absFile).isSymbolicLink()) {
+    return fail(`Rejected by path gate: symlinks are forbidden (${relOrAbsFile})`);
+  }
+
   const realFile = fs.realpathSync(absFile);
   const relFile = path.relative(ROOT, realFile);
   if (!realFile.endsWith(".lean")) return fail("Submitted file must have a .lean extension", { file: relFile });
@@ -218,8 +302,15 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
   const fileHash = crypto.createHash("sha256").update(rawSource).digest("hex");
 
   const lex = stripLeanCommentsAndStrings(rawSource);
+  if (lex.forbiddenLexeme) {
+    return fail(`Rejected by static gate: forbidden ${lex.forbiddenLexeme}`, { file: relFile, file_hash: fileHash });
+  }
   if (lex.unclosedComment || lex.unclosedString) {
     return fail("Rejected by static gate: unclosed comment or string literal", { file: relFile, file_hash: fileHash });
+  }
+  const impOptErr = checkImportsAndOptions(lex.stripped, cfg.lake_target);
+  if (impOptErr) {
+    return fail(`Rejected by static gate: ${impOptErr}`, { file: relFile, file_hash: fileHash });
   }
   for (const pat of FORBIDDEN_TOKENS) {
     if (pat.re.test(lex.stripped)) {
@@ -255,7 +346,7 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
     needBuild = false;
   }
   if (needBuild && cfg.lake_target) {
-    const b = spawnSync("lake", ["build", cfg.lake_target], { encoding: "utf8", cwd: leanDir });
+    const b = spawnSync(lakeBin, ["build", cfg.lake_target], { encoding: "utf8", cwd: leanDir, env: minimalEnv() });
     if (b.status !== 0) {
       return fail(`Core library \`lake build ${cfg.lake_target}\` failed`, {
         file: relFile,
@@ -275,16 +366,15 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
   const resultJsonPath = path.join(tmpDir, "result.json");
 
   try {
-    const lpRes = spawnSync("lake", ["env", "printenv", "LEAN_PATH"], { encoding: "utf8", cwd: leanDir });
+    const lpRes = spawnSync(lakeBin, ["env", "printenv", "LEAN_PATH"], { encoding: "utf8", cwd: leanDir, env: minimalEnv() });
     const baseLeanPath =
       lpRes.status === 0 ? (lpRes.stdout || "").trim() : path.join(leanDir, ".lake", "build", "lib", "lean");
-    const envWithPath = {
-      ...process.env,
+    const envWithPath = minimalEnv({
       LEAN_PATH: `${tmpDir}${path.delimiter}${baseLeanPath}`,
-    };
+    });
 
     // Pass 0 (when frozen statement exists): mirror trusted base package .oleans into tmpDir
-    // so Lean's top-level package search sees BOTH trusted Core.olean AND freshly compiled stmtOlean!
+    // so Lean's top-level package search sees BOTH trusted Core.olean AND freshly compiled stmtOlean.
     let stmtMod = null;
     if (realStmtFile) {
       const relFromLean = path.relative(leanDir, realStmtFile);
@@ -303,7 +393,7 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
         }
         const stmtOlean = path.join(tmpDir, relFromLean.slice(0, -5) + ".olean");
         fs.mkdirSync(path.dirname(stmtOlean), { recursive: true });
-        const pass0 = spawnSync("lean", ["-o", stmtOlean, realStmtFile], {
+        const pass0 = spawnSync(leanBin, ["-o", stmtOlean, realStmtFile], {
           encoding: "utf8",
           cwd: leanDir,
           env: envWithPath,
@@ -327,7 +417,7 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
     }
 
     // Pass 1: Compile submitted Lean file cleanly into isolated .olean
-    const pass1 = spawnSync("lean", ["-o", claimOlean, realFile], {
+    const pass1 = spawnSync(leanBin, ["-o", claimOlean, realFile], {
       encoding: "utf8",
       cwd: leanDir,
       env: envWithPath,
@@ -362,7 +452,6 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
                 : `Expr.const stmtTarget []`
             }
             let exactMatch := info.type == wantExpr
-            -- Also accept direct unfolded syntactic equality against c.value when proof wrote the body directly
             let bodyMatch := info.type == (${
               kind === "refutation" ? `Expr.app (Expr.const \`Not []) c.value` : `c.value`
             })
@@ -408,7 +497,7 @@ ${stmtCheckBlock}
 `;
     fs.writeFileSync(auditLeanPath, auditProgram, "utf8");
 
-    const pass2 = spawnSync("lean", [auditLeanPath], {
+    const pass2 = spawnSync(leanBin, [auditLeanPath], {
       encoding: "utf8",
       cwd: leanDir,
       env: envWithPath,

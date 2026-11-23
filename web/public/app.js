@@ -19,7 +19,8 @@
   let CURRENT_VIEW = (location.hash || "").replace("#", "") || (new URLSearchParams(location.search).get("mission") ? "control" : "missions");
   if (!VALID_VIEWS.includes(CURRENT_VIEW)) CURRENT_VIEW = "missions";
   let BOUNTY_MODE = "open";
-  let LAST_FOCUS = null;
+  const FOCUS_STACK = [];
+  let PENDING_CLAIM_ID = null;
 
   // Donate modal state
   let DONATE_LEMMA = null;
@@ -162,7 +163,7 @@
     if (!labMenu.hidden && !$("#lab-dropdown").contains(e.target)) closeLabMenu();
   });
 
-  function setView(view, { push = false } = {}) {
+  function setView(view, { push = false, preserveClaim = false } = {}) {
     if (!VALID_VIEWS.includes(view)) view = "missions";
     CURRENT_VIEW = view;
     closeLabMenu();
@@ -180,7 +181,8 @@
     };
     $("#lab-drop-label").textContent = isLab ? labNames[view] : "Lab";
     $$("#lab-menu button").forEach((b) => b.classList.toggle("active", b.dataset.nav === view));
-    syncURL({ view, mission: CURRENT_MISSION, claim: currentOpenClaimId(), push });
+    const claimForUrl = preserveClaim ? (PENDING_CLAIM_ID || currentOpenClaimId()) : currentOpenClaimId();
+    syncURL({ view, mission: CURRENT_MISSION, claim: claimForUrl, push });
     renderCurrentView();
   }
 
@@ -211,33 +213,46 @@
     if (m !== CURRENT_MISSION) {
       switchMission(m, { targetView: v, openClaim: c, fromHistory: true });
     } else {
-      setView(v, { push: false });
+      PENDING_CLAIM_ID = c || null;
+      setView(v, { push: false, preserveClaim: Boolean(c) });
       if (c) openDossier(c, { syncUrl: false });
       else if ($("#lemma-drawer").classList.contains("open")) closeDossier({ syncUrl: false });
     }
   });
 
-  // Boot & mission loading (race-safe)
+  // Boot & mission loading (race-safe; zero 404 console noise on github.io!)
   async function boot() {
     $("#boot-error").hidden = true;
-    try {
-      let res = await fetch("/api/missions");
-      if (!res.ok) throw new Error("live api unavailable");
-      const data = await res.json();
-      MISSIONS = data.missions || [];
-      STATIC_MODE = Boolean(data.static);
-    } catch {
+    const preferStatic = location.hostname.endsWith(".github.io") || location.protocol === "file:";
+    const sources = preferStatic
+      ? [
+          { url: "./data/missions.json", isStatic: true },
+          { url: "/api/missions", isStatic: false },
+        ]
+      : [
+          { url: "/api/missions", isStatic: false },
+          { url: "./data/missions.json", isStatic: true },
+        ];
+
+    let loaded = false;
+    let lastErr = null;
+    for (const src of sources) {
       try {
-        const res = await fetch("./data/missions.json");
-        if (!res.ok) throw new Error("static catalog unavailable");
+        const res = await fetch(src.url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         MISSIONS = data.missions || [];
-        STATIC_MODE = true;
+        STATIC_MODE = src.isStatic || Boolean(data.static);
+        loaded = true;
+        break;
       } catch (err) {
-        $("#boot-error-msg").textContent = `Unable to load Proof Foundry catalog (${err.message}).`;
-        $("#boot-error").hidden = false;
-        return;
+        lastErr = err;
       }
+    }
+    if (!loaded) {
+      $("#boot-error-msg").textContent = `Unable to load Proof Foundry catalog (${lastErr?.message || "network error"}).`;
+      $("#boot-error").hidden = false;
+      return;
     }
 
     if (!MISSIONS.some((m) => m.slug === CURRENT_MISSION) && MISSIONS.length) {
@@ -265,9 +280,13 @@
   });
 
   async function switchMission(slug, { targetView = CURRENT_VIEW, openClaim = null, fromHistory = false } = {}) {
+    const prevMission = CURRENT_MISSION;
     const seq = ++MISSION_REQ_SEQ;
-    CURRENT_MISSION = slug;
-    if ($("#mission-select").value !== slug) $("#mission-select").value = slug;
+    // Cancel any in-flight dossier fetch from the previous mission & close open drawer unless deep-linking into new mission
+    DOSSIER_REQ_SEQ++;
+    if (!openClaim && $("#lemma-drawer").classList.contains("open")) {
+      closeDossier({ syncUrl: false });
+    }
     if (SSE) {
       SSE.close();
       SSE = null;
@@ -279,13 +298,21 @@
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const snap = await res.json();
       if (seq !== MISSION_REQ_SEQ) return; // Stale mission switch discarded!
+
+      // Commit mission slug ONLY after fetch succeeds!
+      CURRENT_MISSION = slug;
+      if ($("#mission-select").value !== slug) $("#mission-select").value = slug;
+      PENDING_CLAIM_ID = openClaim || null;
+
       applySnapshot(snap);
       $("#boot-error").hidden = true;
       if (!STATIC_MODE) connectSSE(slug, seq);
-      setView(targetView, { push: !fromHistory });
-      if (openClaim) openDossier(openClaim, { syncUrl: false });
+      setView(targetView, { push: !fromHistory, preserveClaim: Boolean(openClaim) });
+      if (openClaim) openDossier(openClaim, { syncUrl: !fromHistory });
     } catch (err) {
       if (seq !== MISSION_REQ_SEQ) return;
+      // Restore selector to still-active mission on failure!
+      if ($("#mission-select").value !== prevMission) $("#mission-select").value = prevMission;
       $("#boot-error-msg").textContent = `Could not load mission "${slug}": ${err.message}`;
       $("#boot-error").hidden = false;
     }
@@ -314,22 +341,21 @@
     // Update topbar & sync pill
     const repo = snap.mission?.github_repo || "steph4n-gh/proof-foundry";
     $("#gh-repo-link").href = `https://github.com/${repo}`;
-    $("#gh-catalog-link").href = `https://github.com/${repo}/blob/main/PROOFS.md`;
-    $("#hub-proofs-link").href = `https://github.com/${repo}/blob/main/PROOFS.md`;
+    $("#hub-proofs-link").href = STATIC_MODE ? "./PROOFS.md" : "/PROOFS.md";
     const openCount = snap.lemmas.filter((l) => l.status === "conjecture").length;
     $("#nav-bounty-count").textContent = String(openCount);
 
     const pillDot = $("#sse-pill .pulse-dot");
     if (STATIC_MODE) {
       pillDot.classList.add("static");
-      $("#sse-label").textContent = `Snapshot · ${relTime(snap.snapshot_at) || "synced"}`;
+      $("#sse-label").textContent = relTime(snap.snapshot_at) || "synced";
     } else {
       pillDot.classList.remove("static");
-      $("#sse-label").textContent = "Live SSE";
+      $("#sse-label").textContent = "Live";
     }
     $("#footer-judge").textContent = `Judge: ${snap.mission?.judge?.label || "Isolated Mechanical Judge"}`;
 
-    // Just-in ribbon
+    // Just-in ribbon (explicit label for EVERY event type — never mislabel approach_dead as VERIFIED!)
     if (snap.just_in) {
       const e = snap.just_in;
       const tag = $("#just-in-tag");
@@ -337,6 +363,9 @@
       if (e.type === "claim_refuted") {
         tag.classList.add("refuted");
         tag.textContent = "REFUTED";
+      } else if (e.type === "approach_dead") {
+        tag.classList.add("dead");
+        tag.textContent = "BARRIER / DEAD";
       } else if (e.type === "lemma_audited" && String(e.detail || "").startsWith("flagged")) {
         tag.classList.add("flagged");
         tag.textContent = "AUDIT FLAGGED";
@@ -346,19 +375,20 @@
         tag.textContent = "VERIFIED ✓";
       }
       $("#just-in-text").textContent = `${e.lemma_id || ""} · ${e.title || e.detail || ""} (${relTime(e.at)})`;
-      $("#just-in-open").onclick = () => e.lemma_id && openDossier(e.lemma_id);
+      $("#just-in-open").onclick = () => e.lemma_id && openDossier(e.lemma_id, { triggerEl: $("#just-in-open") });
       $("#just-in").hidden = false;
     } else {
       $("#just-in").hidden = true;
     }
 
-    // Populate program filter dropdown
+    // Populate program filter dropdown; reset to "all" if previous mission's program isn't in the new mission!
     const progSel = $("#board-program");
     const curProg = progSel.value || "all";
+    const validProgIds = new Set((snap.programs || []).map((p) => p.id));
     progSel.innerHTML =
       `<option value="all">All programs</option>` +
       (snap.programs || []).map((p) => `<option value="${esc(p.id)}">${esc(p.title)}</option>`).join("");
-    progSel.value = curProg;
+    progSel.value = validProgIds.has(curProg) ? curProg : "all";
 
     renderCurrentView();
   }
@@ -484,7 +514,11 @@
     $("#m-checked").textContent = String(c.trusted ?? c.checked);
     $("#m-audited-sub").textContent = `${c.frozen_matched || 0} frozen · ${c.audited_faithful || 0} audited · ${c.checked} total`;
     $("#m-open").textContent = String(c.conjecture || 0);
-    $("#m-active-sub").textContent = openPrCount > 0 ? `${openPrCount} active GitHub PR${openPrCount > 1 ? "s" : ""}` : `${(c.agents_working || 0) + (c.agents_checking || 0)} active seats`;
+    $("#m-active-sub").textContent = !STATE.pr_sync?.ok
+      ? "PR sync offline"
+      : openPrCount > 0
+      ? `${openPrCount} active GitHub PR${openPrCount > 1 ? "s" : ""}`
+      : "0 open PRs · ready";
     $("#m-fallen").textContent = String((c.refuted || 0) + (c.dead || 0));
     $("#m-fallen-sub").textContent = `${c.refuted || 0} refuted · ${c.dead || 0} barriers`;
 
@@ -671,7 +705,7 @@
               const dur = l.checker?.duration_ms || l.refutation?.duration_ms;
               return `
                 <tr data-open-claim="${esc(l.id)}">
-                  <td class="mono"><strong>${esc(l.id)}</strong></td>
+                  <td class="mono"><button class="table-id-btn" type="button" data-open-claim="${esc(l.id)}">${esc(l.id)}</button></td>
                   <td>${sealHTML(l)} ${prBadgesHTML(l)}</td>
                   <td>${progMonogram(l.program)}</td>
                   <td><div>${esc(l.title)}</div><div class="mono small muted">${esc((l.statement || "").slice(0, 110))}</div></td>
@@ -1144,22 +1178,33 @@
     $("#full-feed-list").innerHTML = evs.length ? evs.map(renderEventItem).join("") : `<li class="empty-state">No matching audit events.</li>`;
   }
 
+  function pushFocus(triggerEl) {
+    const el = triggerEl || (document.activeElement && document.activeElement !== document.body ? document.activeElement : null);
+    FOCUS_STACK.push(el);
+  }
+  function popFocus() {
+    const el = FOCUS_STACK.pop();
+    if (el && document.contains(el) && typeof el.focus === "function") el.focus();
+  }
+
   // =========================================================================
-  // VERIFICATION RECEIPT DOSSIER (Race-safe + Focus Restore + Retry)
+  // VERIFICATION RECEIPT DOSSIER (Race-safe + Inert A11y + Focus Stack + Retry)
   // =========================================================================
   async function openDossier(id, { syncUrl = true, triggerEl = null } = {}) {
     if (!id) return;
-    if (triggerEl) LAST_FOCUS = triggerEl;
-    else if (document.activeElement && document.activeElement !== document.body) LAST_FOCUS = document.activeElement;
+    const drawer = $("#lemma-drawer");
+    if (!drawer.classList.contains("open")) pushFocus(triggerEl);
 
     const seq = ++DOSSIER_REQ_SEQ;
-    const drawer = $("#lemma-drawer");
+    PENDING_CLAIM_ID = id;
     $("#drawer-backdrop").hidden = false;
+    drawer.inert = false;
     drawer.classList.add("open");
     drawer.setAttribute("aria-hidden", "false");
     $("#drawer-id").textContent = id;
     $("#drawer-badge").innerHTML = `<span class="seal seal-provisional">Loading…</span>`;
     $("#drawer-body").innerHTML = `<div class="empty-state">Fetching verification receipt &amp; source…</div>`;
+    $("#drawer-close").focus();
     if (syncUrl) syncURL({ view: CURRENT_VIEW, mission: CURRENT_MISSION, claim: id, push: false });
 
     try {
@@ -1169,7 +1214,7 @@
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json();
-      if (seq !== DOSSIER_REQ_SEQ) return; // Discard stale response (even after closeDossier!)
+      if (seq !== DOSSIER_REQ_SEQ) return; // Discard stale response (even after closeDossier or mission switch!)
       renderDossierContent(d);
     } catch (err) {
       if (seq !== DOSSIER_REQ_SEQ) return;
@@ -1266,12 +1311,15 @@
 
   function closeDossier({ syncUrl = true } = {}) {
     DOSSIER_REQ_SEQ++; // Cancel any in-flight dossier fetch!
+    PENDING_CLAIM_ID = null;
     const drawer = $("#lemma-drawer");
+    const wasOpen = drawer.classList.contains("open");
     drawer.classList.remove("open");
     drawer.setAttribute("aria-hidden", "true");
+    drawer.inert = true;
     $("#drawer-backdrop").hidden = true;
     if (syncUrl) syncURL({ view: CURRENT_VIEW, mission: CURRENT_MISSION, claim: null, push: false });
-    if (LAST_FOCUS && typeof LAST_FOCUS.focus === "function") LAST_FOCUS.focus();
+    if (wasOpen) popFocus();
   }
   $("#drawer-close").addEventListener("click", () => closeDossier());
   $("#drawer-backdrop").addEventListener("click", () => closeDossier());
@@ -1320,7 +1368,7 @@
 
   function openDonateModal(lemma, triggerEl = null) {
     if (!lemma || !isClaimDonateable(lemma)) return;
-    if (triggerEl) LAST_FOCUS = triggerEl;
+    pushFocus(triggerEl);
     DONATE_LEMMA = lemma;
     $("#donate-claim-meta").textContent = `${CURRENT_MISSION} · ${lemma.id}${lemma.statement_file ? " · ◆ Frozen Statement" : ""}`;
     $("#donate-title").textContent = lemma.title.slice(0, 90);
@@ -1354,7 +1402,7 @@
     $("#donate-backdrop").hidden = true;
     $("#donate-modal").hidden = true;
     DONATE_LEMMA = null;
-    if (LAST_FOCUS && typeof LAST_FOCUS.focus === "function") LAST_FOCUS.focus();
+    popFocus();
   }
 
   $("#donate-close").addEventListener("click", closeDonateModal);
@@ -1395,7 +1443,7 @@
   // COMMAND PALETTE (⌘K / Ctrl+K)
   // =========================================================================
   function openCmdPalette() {
-    LAST_FOCUS = document.activeElement;
+    pushFocus(document.activeElement);
     $("#cmd-backdrop").hidden = false;
     $("#cmd-modal").hidden = false;
     $("#cmd-input").value = "";
@@ -1405,7 +1453,7 @@
   function closeCmdPalette() {
     $("#cmd-backdrop").hidden = true;
     $("#cmd-modal").hidden = true;
-    if (LAST_FOCUS && typeof LAST_FOCUS.focus === "function") LAST_FOCUS.focus();
+    popFocus();
   }
   function renderCmdList(query) {
     const q = query.trim().toLowerCase();

@@ -15,7 +15,7 @@ import {
   loadAllMissionsSummary,
   readAllowedArtifactFile,
 } from "../hub/missions.mjs";
-import { buildMissionSnapshot, fetchOpenPRs } from "../hub/build_site.mjs";
+import { buildMissionSnapshot, fetchOpenPRs, renderMasterProofsMarkdown } from "../hub/build_site.mjs";
 
 const PUBLIC_DIR = path.join(ROOT, "web", "public");
 const PORT = Number(process.env.PORT || 4321);
@@ -134,6 +134,13 @@ const server = http.createServer((req, res) => {
   }
 
   const slug = safeSlug(url.searchParams.get("mission"));
+
+  if (pathname === "/PROOFS.md") {
+    const snaps = listMissionSlugs().map((s) => snapshotFor(s)).filter((s) => s.ready);
+    res.writeHead(200, { "Content-Type": "text/markdown; charset=utf-8", "X-Content-Type-Options": "nosniff" });
+    res.end(renderMasterProofsMarkdown(snaps));
+    return;
+  }
 
   if (pathname === "/api/missions") {
     res.writeHead(200, {

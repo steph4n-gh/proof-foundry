@@ -1,0 +1,24 @@
+name: Report Audit Dispute / Statement Gap
+description: Flag a verified proof whose formal theorem does not faithfully match its plain-English title
+title: "[Audit Flag] <Claim ID>: <Short Summary>"
+labels: ["audit-flag"]
+body:
+  - type: input
+    id: claim_id
+    attributes:
+      label: Claim ID & Mission
+      placeholder: "e.g. E-erd128-002 (erdos-combinatorics)"
+    validations:
+      required: true
+  - type: textarea
+    id: gap
+    attributes:
+      label: Formal vs. Informal Gap
+      description: Show the exact formal statement, why it is weaker than or different from the title, and any trivial witness if applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: replacement
+    attributes:
+      label: Proposed Frozen Replacement Statement (Optional)
+      render: lean

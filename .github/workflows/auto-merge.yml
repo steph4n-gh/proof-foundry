@@ -1,40 +1,50 @@
 name: Optional Frozen-Bounty Auto-Merge (Fork-Safe)
 
-# Runs ONLY on default branch `main` after the Mechanical Judge finishes,
-# and ONLY when repo variable ENABLE_AUTO_MERGE == 'true'.
-# Re-verifies the exact PR head SHA from trusted main against frozen statements
-# and strict allowlist before merging with --match-head-commit.
+# Hardened split pattern (Opus 5.5 P0 #4):
+# - `decide` runs read-only with ZERO secrets and `persist-credentials: false`, NEVER executes Lean
+#   or `.mjs` PR files — purely inspects `git diff -z --no-renames --raw` + `JSON.parse` + base state.
+# - `merge` has NO checkout and uses GitHub's native `--auto --squash --match-head-commit` so the
+#   `main` branch ruleset still enforces `gate` + up-to-date branch!
+# - Dormant unless repo variable ENABLE_AUTO_MERGE == 'true'.
 on:
   workflow_run:
-    workflows: ["Mechanical Judge (Base-Trusted PR Verification)"]
+    workflows: ["Mechanical Judge & Self-Test Gate"]
     types: [completed]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
-  auto-merge:
+  decide:
     if: >-
       vars.ENABLE_AUTO_MERGE == 'true' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      eligible: ${{ steps.check.outputs.eligible }}
+      pr_number: ${{ steps.check.outputs.pr_number }}
+      head_sha: ${{ steps.check.outputs.head_sha }}
+      lemma_id: ${{ steps.check.outputs.lemma_id }}
     steps:
-      - name: Checkout trusted main
+      - name: Checkout trusted main (no credentials persisted)
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      - name: Locate matching open PR for exact verified head SHA
-        id: pr
+      - name: Pure data-only eligibility check (never executes PR files)
+        id: check
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -42,55 +52,44 @@ jobs:
           set -euo pipefail
           PR_NUM=$(gh pr list --state open --json number,headRefOid,baseRefName,isDraft --jq ".[] | select(.headRefOid == \"$HEAD_SHA\" and .baseRefName == \"main\" and .isDraft == false) | .number" | head -n 1)
           if [ -z "$PR_NUM" ]; then
-            echo "No non-draft open PR targeting main matches head SHA $HEAD_SHA; skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "skip=false" >> "$GITHUB_OUTPUT"
-          echo "number=$PR_NUM" >> "$GITHUB_OUTPUT"
-          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Stage allowlisted claim files from PR head onto trusted main
-        if: steps.pr.outputs.skip == 'false'
-        env:
-          PR_NUM: ${{ steps.pr.outputs.number }}
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
-        run: |
-          set -euo pipefail
           git fetch --no-tags origin "refs/pull/$PR_NUM/head:pr-head"
           ACTUAL_SHA=$(git rev-parse pr-head)
           if [ "$ACTUAL_SHA" != "$HEAD_SHA" ]; then
-            echo "PR head moved ($ACTUAL_SHA != $HEAD_SHA); aborting auto-merge."
-            exit 1
-          fi
-          git diff --name-only "HEAD...pr-head" > "$RUNNER_TEMP/changed_files.txt"
-          while IFS= read -r f; do
-            [ -z "$f" ] && continue
-            if echo "$f" | grep -qE '^(missions/[a-z0-9-_]+/(submissions/[A-Za-z0-9_.-]+\.json|artifacts/[A-Za-z0-9_.-]+|lean/[A-Za-z0-9_]+/Claims/[A-Za-z0-9_]+\.lean)|lean/PnP/Lemmas/[A-Za-z0-9_]+\.lean)$'; then
-              mkdir -p "$(dirname "$f")"
-              git show "pr-head:$f" > "$f"
-            fi
-          done < "$RUNNER_TEMP/changed_files.txt"
-
-      - name: Install Lean 4 (elan)
-        if: steps.pr.outputs.skip == 'false'
-        run: |
-          set -euo pipefail
-          curl -sSfL --retry 5 --retry-delay 2 --retry-all-errors https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain leanprover/lean4:v4.36.0
-          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-
-      - name: Re-verify from trusted main & require frozen-statement match
-        if: steps.pr.outputs.skip == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.AUTO_MERGE_APP_TOKEN || github.token }}
-          PR_NUM: ${{ steps.pr.outputs.number }}
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
-        run: |
-          set -euo pipefail
-          node hub/fleet.mjs verify-pr --files-list "$RUNNER_TEMP/changed_files.txt" > "$RUNNER_TEMP/report.json"
-          ELIGIBLE=$(node -e 'const r = JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP + "/report.json","utf8")); console.log(Boolean(r.ok && r.eligible_for_auto_merge));')
-          if [ "$ELIGIBLE" != "true" ]; then
-            echo "PR #$PR_NUM passed Judge but is NOT frozen-statement matched (requires cross-model audit before merge)."
+            echo "PR head moved ($ACTUAL_SHA != $HEAD_SHA)."
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          gh pr merge "$PR_NUM" --squash --match-head-commit "$HEAD_SHA" --subject "proof(auto): merge verified frozen bounty PR #$PR_NUM"
+
+          git diff -z --no-renames --raw "HEAD...pr-head" > "$RUNNER_TEMP/diff.rawz"
+          node hub/fleet.mjs decide-auto-merge --git-raw-z "$RUNNER_TEMP/diff.rawz" --ref pr-head > "$RUNNER_TEMP/decide.json"
+          cat "$RUNNER_TEMP/decide.json"
+
+          ELIGIBLE=$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP+"/decide.json","utf8")); console.log(Boolean(d.eligible));')
+          LEMMA=$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP+"/decide.json","utf8")); console.log(d.lemma_id || "");')
+          echo "eligible=$ELIGIBLE" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUM" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "lemma_id=$LEMMA" >> "$GITHUB_OUTPUT"
+
+  merge:
+    needs: [decide]
+    if: needs.decide.outputs.eligible == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Enable native squash auto-merge pinned to exact verified head SHA
+        env:
+          GH_TOKEN: ${{ secrets.AUTO_MERGE_APP_TOKEN || github.token }}
+          PR_NUM: ${{ needs.decide.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+          LEMMA_ID: ${{ needs.decide.outputs.lemma_id }}
+        run: |
+          set -euo pipefail
+          gh pr merge "$PR_NUM" --repo "${{ github.repository }}" --auto --squash --match-head-commit "$HEAD_SHA" --subject "proof(auto): merge verified frozen bounty $LEMMA_ID (PR #$PR_NUM)"

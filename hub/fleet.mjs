@@ -17,11 +17,20 @@ import {
   loadMission,
   loadAllMissionsSummary,
   getMissionPaths,
+  deriveMissionState,
   compileSubmissionsIntoState,
   computeTrustSeal,
 } from "./missions.mjs";
 import { fetchOpenPRs } from "./build_site.mjs";
 import { runJudge } from "./judges/index.mjs";
+import {
+  parseGitRawZ,
+  entriesFromPaths,
+  classifyEntries,
+  stageAllowlistedEntries,
+  evaluateAutoMergeDataOnly,
+  verifyPrEntries,
+} from "./pr_gate.mjs";
 
 function sleepMs(ms) {
   const arr = new Int32Array(new SharedArrayBuffer(4));
@@ -257,8 +266,8 @@ function writeSubmissionFile(lemma, kind, payload) {
 }
 
 if (cmd === "status") {
-  const state = loadState(mission);
-  const counts = { checked: 0, trusted: 0, flagged: 0, in_work: 0, conjecture: 0, refuted: 0, dead: 0 };
+  const { state } = deriveMissionState(mission.slug);
+  const counts = { checked: 0, trusted: 0, flagged: 0, in_work: 0, conjecture: 0, refuted: 0, dead: 0, contradiction: 0 };
   for (const l of state.lemmas) {
     counts[l.status] = (counts[l.status] || 0) + 1;
     const seal = computeTrustSeal(l);
@@ -270,9 +279,9 @@ if (cmd === "status") {
 }
 
 if (cmd === "next") {
-  // Compile any merged submissions first, then query open GitHub PRs to avoid collision!
-  const { state } = compileSubmissionsIntoState(mission.slug);
-  const prSnap = flags.offline ? { ok: false, by_claim: {} } : fetchOpenPRs(mission.github_repo);
+  // Pure in-memory derivation (NEVER mutates tracked state.json in donor checkouts!)
+  const { state } = deriveMissionState(mission.slug);
+  const prSnap = flags.offline ? { ok: false, by_mission_claim: {}, by_claim: {} } : fetchOpenPRs(mission.github_repo);
   const nowMs = Date.now();
   const STALE_PR_MS = 72 * 3600 * 1000;
   const byId = Object.fromEntries(state.lemmas.map((l) => [l.id, l]));
@@ -281,13 +290,12 @@ if (cmd === "next") {
   const candidates = state.lemmas
     .filter((l) => l.status === "conjecture" && (!flags.program || l.program === flags.program))
     .filter((l) => {
-      // Skip if an active PR (<72h) already targets this claim
-      const prs = (prSnap.by_claim[l.id] || []).filter((p) => nowMs - new Date(p.updated_at).getTime() < STALE_PR_MS);
+      const combined = [...(prSnap.by_mission_claim?.[`${mission.slug}/${l.id}`] || []), ...(prSnap.by_claim?.[l.id] || [])];
+      const prs = combined.filter((p) => nowMs - new Date(p.updated_at).getTime() < STALE_PR_MS);
       if (prs.length > 0) {
-        skippedActivePr.push({ id: l.id, prs: prs.map((p) => `#${p.number}`) });
+        skippedActivePr.push({ id: l.id, prs: [...new Set(prs.map((p) => `#${p.number}`))] });
         return false;
       }
-      // Prefer claims whose dependencies are already checked/refuted
       return (l.deps || []).every((d) => !byId[d] || byId[d].status === "checked" || byId[d].status === "refuted");
     })
     .sort((a, b) => (b.statement_file ? 1 : 0) - (a.statement_file ? 1 : 0) || (a.rung || 99) - (b.rung || 99));
@@ -718,127 +726,72 @@ if (cmd === "compile") {
   process.exit(0);
 }
 
+if (cmd === "classify-pr") {
+  if (!flags["git-raw-z"]) {
+    console.error("Required: --git-raw-z <file>");
+    process.exit(2);
+  }
+  const entries = parseGitRawZ(fs.readFileSync(flags["git-raw-z"]));
+  const cls = classifyEntries(entries);
+  console.log(
+    JSON.stringify(
+      {
+        ok: cls.frozenStatementMutations.length === 0,
+        lane: cls.lane,
+        needs_lean: cls.needsLean,
+        submissions_count: cls.submissionEntries.length,
+        artifacts_count: cls.artifactEntries.length,
+        reasons: cls.reasons,
+        frozen_statement_mutations: cls.frozenStatementMutations,
+      },
+      null,
+      2
+    )
+  );
+  process.exit(cls.frozenStatementMutations.length === 0 ? 0 : 1);
+}
+
+if (cmd === "stage-pr") {
+  if (!flags["git-raw-z"]) {
+    console.error("Required: --git-raw-z <file> [--ref pr-head]");
+    process.exit(2);
+  }
+  const entries = parseGitRawZ(fs.readFileSync(flags["git-raw-z"]));
+  const staged = stageAllowlistedEntries(entries, flags.ref || "pr-head");
+  console.log(JSON.stringify({ ok: true, staged }, null, 2));
+  process.exit(0);
+}
+
+if (cmd === "decide-auto-merge") {
+  if (!flags["git-raw-z"]) {
+    console.error("Required: --git-raw-z <file> [--ref pr-head]");
+    process.exit(2);
+  }
+  const entries = parseGitRawZ(fs.readFileSync(flags["git-raw-z"]));
+  const res = evaluateAutoMergeDataOnly(entries, flags.ref || "pr-head");
+  console.log(JSON.stringify(res, null, 2));
+  process.exit(0);
+}
+
 if (cmd === "verify-pr") {
-  // Read changed paths safely from --files-list <file> OR --files <csv>
-  let rawFiles = [];
-  if (flags["files-list"]) {
-    rawFiles = fs
-      .readFileSync(flags["files-list"], "utf8")
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+  let entries = [];
+  if (flags["git-raw-z"]) {
+    entries = parseGitRawZ(fs.readFileSync(flags["git-raw-z"]));
+  } else if (flags["files-list"]) {
+    // NEVER trim paths so trailing-space filenames cannot sneak past allowlist!
+    const rawLines = fs.readFileSync(flags["files-list"], "utf8").split(/\r?\n/).filter((s) => s.length > 0);
+    entries = entriesFromPaths(rawLines);
   } else if (flags.files) {
-    rawFiles = String(flags.files)
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const rawLines = String(flags.files).split(",").filter((s) => s.length > 0);
+    entries = entriesFromPaths(rawLines);
   }
 
-  if (!rawFiles.length) {
-    console.log(JSON.stringify({ ok: true, checked: 0, message: "No files changed." }, null, 2));
-    process.exit(0);
-  }
-
-  // STRICT ALLOWLIST (Opus 5.5 security fix: never rely on a denylist!)
-  const ALLOWED_PR_PATH =
-    /^(missions\/[a-z0-9-_]+\/(submissions\/[A-Za-z0-9_.-]+\.json|artifacts\/[A-Za-z0-9_.-]+|lean\/[A-Za-z0-9_]+\/Claims\/[A-Za-z0-9_]+\.lean)|lean\/PnP\/Lemmas\/[A-Za-z0-9_]+\.lean)$/;
-
-  const disallowed = rawFiles.filter((f) => !ALLOWED_PR_PATH.test(f) || f.includes(".."));
-  if (disallowed.length > 0 && !flags["allow-infra"]) {
-    console.log(
-      JSON.stringify(
-        {
-          ok: false,
-          reason: `PR modifies files outside the strict donor allowlist (only Claims/*.lean, artifacts/*, and submissions/*.json are allowed in donor PRs): ${disallowed.join(", ")}`,
-          disallowed,
-        },
-        null,
-        2
-      )
-    );
-    process.exit(1);
-  }
-
-  const subFiles = rawFiles.filter((f) => /^missions\/[^/]+\/submissions\/[^/]+\.json$/.test(f));
-  if (!subFiles.length) {
-    console.log(JSON.stringify({ ok: false, reason: "Donor PR must include at least one exported missions/<slug>/submissions/*.json record" }, null, 2));
-    process.exit(1);
-  }
-
-  const reports = [];
-  let allOk = true;
-  let allFrozenMatched = true;
-
-  for (const sf of subFiles) {
-    const abs = path.resolve(ROOT, sf);
-    if (!fs.existsSync(abs)) continue;
-    const sub = JSON.parse(fs.readFileSync(abs, "utf8"));
-    const m = loadMission(sub.mission);
-    const mState = loadState(m);
-    const registered = mState.lemmas.find((l) => l.id === sub.lemma_id);
-    if (!registered) {
-      allOk = false;
-      allFrozenMatched = false;
-      reports.push({ submission: sf, ok: false, reason: `Unknown claim ID "${sub.lemma_id}" in mission "${m.slug}"` });
-      continue;
-    }
-
-    if (sub.kind === "proof" || sub.kind === "refutation") {
-      // Enforce registered theorem binding on proofs
-      if (sub.kind === "proof" && registered.theorem_name && sub.theorem !== registered.theorem_name) {
-        allOk = false;
-        allFrozenMatched = false;
-        reports.push({
-          submission: sf,
-          lemma_id: sub.lemma_id,
-          ok: false,
-          reason: `Theorem binding mismatch: expected "${registered.theorem_name}", got "${sub.theorem}"`,
-        });
-        continue;
-      }
-
-      const verdict = runJudge(m, {
-        file: sub.file,
-        target: sub.theorem,
-        kind: sub.kind,
-        statementFile: registered.statement_file || null,
-        statementDef: registered.statement_def || null,
-      });
-      if (!verdict.ok) allOk = false;
-      if (!verdict.statement_frozen) allFrozenMatched = false;
-      reports.push({
-        submission: sf,
-        mission: m.slug,
-        lemma_id: sub.lemma_id,
-        kind: sub.kind,
-        ok: verdict.ok,
-        statement_frozen: Boolean(verdict.statement_frozen),
-        duration_ms: verdict.duration_ms,
-        axioms: verdict.axioms,
-        file_hash: verdict.file_hash,
-        signature: verdict.signature || "",
-        reason: verdict.reason,
-      });
-    } else {
-      // Non-proof metadata PRs (audit / rule_dead / claim_add) are NEVER auto-mergeable
-      allFrozenMatched = false;
-      if (!flags["allow-meta"]) {
-        allOk = false;
-        reports.push({
-          submission: sf,
-          lemma_id: sub.lemma_id,
-          kind: sub.kind,
-          ok: false,
-          reason: `Metadata submission kind "${sub.kind}" requires maintainer review (cannot self-certify via donor PR)`,
-        });
-      } else {
-        reports.push({ submission: sf, lemma_id: sub.lemma_id, kind: sub.kind, ok: true, reason: "Metadata validated" });
-      }
-    }
-  }
-
-  console.log(JSON.stringify({ ok: allOk, eligible_for_auto_merge: allOk && allFrozenMatched, checked: reports.length, reports }, null, 2));
-  process.exit(allOk ? 0 : 1);
+  const result = verifyPrEntries(entries, {
+    allowInfra: Boolean(flags["allow-infra"]),
+    allowMeta: Boolean(flags["allow-meta"]),
+  });
+  console.log(JSON.stringify(result, null, 2));
+  process.exit(result.ok ? 0 : 1);
 }
 
 if (cmd === "strategy-note") {

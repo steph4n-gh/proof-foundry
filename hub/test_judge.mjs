@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 /**
- * hub/test_judge.mjs — Adversarial security & frozen-statement regression test for Lean 4 Judge v2.
+ * hub/test_judge.mjs — Adversarial security & frozen-statement regression suite for Lean 4 & Command Judges.
+ * Every negative test asserts BOTH `!res.ok` AND the exact expected rejection reason!
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { checkLeanProof } from "./judges/lean4.mjs";
+import { checkCommandArtifact } from "./judges/command.mjs";
 import { loadMission } from "./missions.mjs";
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pnp-attack-"));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pf-judge-test-"));
+const salt = `${process.pid}_${Date.now()}`;
 let failed = 0;
 
 function assert(cond, label, detail) {
@@ -21,20 +24,20 @@ function assert(cond, label, detail) {
 }
 
 try {
-  // Attack A: #eval spoofing + #exit (no theorem exists)
+  // Attack A: #eval spoofing + #exit
   const fileA = path.join(tmp, "AttackA.lean");
   fs.writeFileSync(fileA, `#eval IO.println "'X.t' depends on axioms: [propext]"\n#exit\n`);
   const resA = checkLeanProof(fileA, "X.t", { allowTempForTests: true });
-  assert(!resA.ok, "Attack A (#eval spoof + #exit) rejected", JSON.stringify(resA));
+  assert(!resA.ok && resA.reason.includes("#eval"), "Attack A (#eval spoof + #exit) rejected by static gate", JSON.stringify(resA));
 
   // Attack B: inline `axiom cheat : False`
   const fileB = path.join(tmp, "AttackB.lean");
   fs.writeFileSync(fileB, `namespace X\ndef a := 1 axiom cheat : False\ntheorem t : 1 = 2 := cheat.elim\nend X\n`);
   const resB = checkLeanProof(fileB, "X.t", { allowTempForTests: true });
-  assert(!resB.ok, "Attack B (inline axiom cheat : False) rejected", JSON.stringify(resB));
+  assert(!resB.ok && resB.reason.includes("axiom"), "Attack B (inline axiom cheat : False) rejected", JSON.stringify(resB));
 
   // Attack C: foreign theorem Nat.add_comm rejected by module binding
-  const fileC = path.resolve("lean/PnP/Lemmas/.test_attack_c.lean");
+  const fileC = path.resolve(`lean/PnP/Lemmas/.test_attack_c_${salt}.lean`);
   fs.writeFileSync(fileC, `import PnP.Core\nnamespace Fake\nend Fake\n`);
   try {
     const resC = checkLeanProof(fileC, "Nat.add_comm");
@@ -51,126 +54,154 @@ try {
   const fileD = path.join(tmp, "AttackD.lean");
   fs.writeFileSync(fileD, `def s := "/-"\ntheorem fake : False := by sorry\ndef e := "-/"\n`);
   const resD = checkLeanProof(fileD, "fake", { allowTempForTests: true });
-  assert(!resD.ok, "Attack D (string-escaped comment hiding sorry) rejected", JSON.stringify(resD));
+  assert(!resD.ok && resD.reason.includes("sorry"), "Attack D (string-escaped comment hiding sorry) rejected", JSON.stringify(resD));
 
   // Attack E: canonical path gate outside allowed_dirs
   const fileE = path.join(tmp, "AttackE.lean");
   fs.writeFileSync(fileE, `import PnP.Core\n`);
   const resE = checkLeanProof(fileE, "Nat.add_comm");
-  assert(
-    !resE.ok && resE.reason.includes("path gate"),
-    "Attack E (outside allowed_dirs) rejected by canonical path gate",
-    JSON.stringify(resE)
-  );
+  assert(!resE.ok && resE.reason.includes("path gate"), "Attack E (outside allowed_dirs) rejected by canonical path gate", JSON.stringify(resE));
 
-  // Attack F (Opus 5.5 finding): char literal '"' desyncing string lexer to hide `sorry`
+  // Attack F: char literal '"' desync hiding `sorry`
   const fileF = path.join(tmp, "AttackF.lean");
-  fs.writeFileSync(
-    fileF,
-    `def q : Char := '"'\ntheorem fake : False := by sorry\ndef r : Char := '"'\n`
-  );
+  fs.writeFileSync(fileF, `def q : Char := '"'\ntheorem fake : False := by sorry\ndef r : Char := '"'\n`);
   const resF = checkLeanProof(fileF, "fake", { allowTempForTests: true });
-  assert(
-    !resF.ok && resF.reason.includes("sorry"),
-    "Attack F (char literal '\"' desync hiding sorry) rejected by Lean-aware lexer",
-    JSON.stringify(resF)
-  );
+  assert(!resF.ok && resF.reason.includes("sorry"), "Attack F (char literal '\"' desync hiding sorry) rejected", JSON.stringify(resF));
 
-  // Attack G: meta-escape via `by_elab` / `skipKernelTC`
+  // Attack G: meta-escape via `by_elab`
   const fileG = path.join(tmp, "AttackG.lean");
   fs.writeFileSync(fileG, `theorem fake : True := by_elab pure (Lean.mkConst \`True.intro)\n`);
   const resG = checkLeanProof(fileG, "fake", { allowTempForTests: true });
-  assert(
-    !resG.ok && resG.reason.includes("by_elab"),
-    "Attack G (by_elab meta escape) rejected by static gate",
-    JSON.stringify(resG)
-  );
+  assert(!resG.ok && resG.reason.includes("by_elab"), "Attack G (by_elab meta escape) rejected", JSON.stringify(resG));
 
-  // Legitimate proof check: L_lib_000.lean must PASS with full untruncated signature
+  // Attack H (Opus P0 #3): guillemet «q"» desync hiding `#eval`
+  const fileH = path.join(tmp, "AttackH.lean");
+  fs.writeFileSync(fileH, `def «q"» : Nat := 0\n#eval IO.println "HIDDEN_EVAL_RAN"\ndef «r"» : Nat := 0\ntheorem ok : True := trivial\n`);
+  const resH = checkLeanProof(fileH, "ok", { allowTempForTests: true });
+  assert(!resH.ok && resH.reason.includes("guillemet"), "Attack H (Opus P0 #3: guillemet «q\"» desync) rejected", JSON.stringify(resH));
+
+  // Attack I (Opus P0 #3): raw string r#"..."# desync
+  const fileI = path.join(tmp, "AttackI.lean");
+  fs.writeFileSync(fileI, `def s := r#"hello"#\ntheorem ok : True := trivial\n`);
+  const resI = checkLeanProof(fileI, "ok", { allowTempForTests: true });
+  assert(!resI.ok && resI.reason.includes("raw string"), "Attack I (raw string r#\"…\"#) rejected", JSON.stringify(resI));
+
+  // Attack J (Opus P0 #3): `import Lean` blocked by import allowlist
+  const fileJ = path.join(tmp, "AttackJ.lean");
+  fs.writeFileSync(fileJ, `import Lean\ntheorem ok : True := trivial\n`);
+  const resJ = checkLeanProof(fileJ, "ok", { allowTempForTests: true });
+  assert(!resJ.ok && resJ.reason.includes("Disallowed import"), "Attack J (`import Lean`) rejected by import allowlist", JSON.stringify(resJ));
+
+  // Attack K (Opus P0 #3): `set_option debug.skipKernelTC true` blocked by set_option allowlist
+  const fileK = path.join(tmp, "AttackK.lean");
+  fs.writeFileSync(fileK, `set_option debug.skipKernelTC true\ntheorem ok : True := trivial\n`);
+  const resK = checkLeanProof(fileK, "ok", { allowTempForTests: true });
+  assert(!resK.ok && resK.reason.includes("Disallowed set_option"), "Attack K (`set_option debug.skipKernelTC`) rejected", JSON.stringify(resK));
+
+  // Attack L (Opus P0 #3): `run_meta` blocked
+  const fileL = path.join(tmp, "AttackL.lean");
+  fs.writeFileSync(fileL, `run_meta pure ()\ntheorem ok : True := trivial\n`);
+  const resL = checkLeanProof(fileL, "ok", { allowTempForTests: true });
+  assert(!resL.ok && resL.reason.includes("run_meta"), "Attack L (`run_meta`) rejected", JSON.stringify(resL));
+
+  // Attack M (Opus P0 #2): symlink inside allowed dir rejected directly
+  const symlinkPath = path.resolve(`lean/PnP/Lemmas/.test_symlink_${salt}.lean`);
+  fs.symlinkSync(path.resolve("lean/PnP/Lemmas/L_lib_000.lean"), symlinkPath);
+  try {
+    const resM = checkLeanProof(symlinkPath, "PnP.Lemmas.L_lib_000.flipBit_involutive");
+    assert(!resM.ok && resM.reason.includes("symlink"), "Attack M (symlink inside allowed_dirs) rejected", JSON.stringify(resM));
+  } finally {
+    try { fs.unlinkSync(symlinkPath); } catch {}
+  }
+
+  // Attack N (Opus P0 #5): Command Judge child-process isolation blocks `--result` forgery
+  const sci = loadMission("verified-science-kernels");
+  const fakeArtifact = path.join(tmp, "ForgeResult.mjs");
+  fs.writeFileSync(
+    fakeArtifact,
+    `import fs from "node:fs";
+const idx = process.argv.indexOf("--result");
+if (idx !== -1 && process.argv[idx + 1]) {
+  fs.writeFileSync(process.argv[idx + 1], JSON.stringify({ ok: true, reason: "FORGED" }));
+  process.exit(0);
+}
+export function compensatedSum() { return 0; }
+`
+  );
+  const resN = checkCommandArtifact(fakeArtifact, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(!resN.ok && resN.reason.includes("Precision failure"), "Attack N (Opus P0 #5: Command Judge --result forgery) defeated by child isolation", JSON.stringify(resN));
+
+  // Positive control for Command Judge: legitimate S_num_001.mjs passes isolated child harness!
+  const resSciOk = checkCommandArtifact("missions/verified-science-kernels/artifacts/S_num_001.mjs", "kahan_compensated_sum", { judgeConfig: sci.judge });
+  assert(resSciOk.ok && resSciOk.lean_version.includes("isolated child"), "Positive control: S_num_001 passes isolated child Command Judge", JSON.stringify(resSciOk));
+
+  // Positive control for Lean 4 Judge: L_lib_000.lean passes with full signature
   const resOk = checkLeanProof("lean/PnP/Lemmas/L_lib_000.lean", "PnP.Lemmas.L_lib_000.flipBit_involutive");
-  assert(
-    resOk.ok && resOk.signature.includes("flipBit (PnP.flipBit x i) i = x"),
-    "Legitimate theorem L_lib_000 passes with FULL untruncated signature",
-    JSON.stringify(resOk)
-  );
+  assert(resOk.ok && resOk.signature.includes("flipBit (PnP.flipBit x i) i = x"), "Positive control: L_lib_000 passes with FULL untruncated signature", JSON.stringify(resOk));
 
-  // Frozen-statement kernel type-matching tests on erdos-combinatorics
+  // Frozen-statement kernel type-matching tests (unique salted filenames)
   const erdos = loadMission("erdos-combinatorics");
-  const testStmtPath = path.resolve("missions/erdos-combinatorics/lean/Erdos/Statements/_TestFrozen.lean");
-  const testClaimPass = path.resolve("missions/erdos-combinatorics/lean/Erdos/Claims/_TestFrozenPass.lean");
-  const testClaimRefute = path.resolve("missions/erdos-combinatorics/lean/Erdos/Claims/_TestFrozenRefute.lean");
-  const testClaimBait = path.resolve("missions/erdos-combinatorics/lean/Erdos/Claims/_TestFrozenBait.lean");
-  const testClaimShadow = path.resolve("missions/erdos-combinatorics/lean/Erdos/Claims/_TestFrozenShadow.lean");
+  const modStem = `_TestFrozen_${salt}`;
+  const testStmtPath = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Statements/${modStem}.lean`);
+  const testClaimPass = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${modStem}_Pass.lean`);
+  const testClaimRefute = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${modStem}_Refute.lean`);
+  const testClaimBait = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${modStem}_Bait.lean`);
+  const testClaimShadow = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${modStem}_Shadow.lean`);
 
   fs.writeFileSync(
     testStmtPath,
-    `import Erdos.Core\nnamespace Erdos.Statements._TestFrozen\ndef Claim : Prop := 2 + 2 = 4\ndef FalseClaim : Prop := 2 + 2 = 5\nend Erdos.Statements._TestFrozen\n`
+    `import Erdos.Core\nnamespace Erdos.Statements.${modStem}\ndef Claim : Prop := 2 + 2 = 4\ndef FalseClaim : Prop := 2 + 2 = 5\nend Erdos.Statements.${modStem}\n`
   );
   fs.writeFileSync(
     testClaimPass,
-    `import Erdos.Core\nimport Erdos.Statements._TestFrozen\nnamespace Erdos.Claims._TestFrozenPass\ntheorem ok : Erdos.Statements._TestFrozen.Claim := rfl\nend Erdos.Claims._TestFrozenPass\n`
+    `import Erdos.Core\nimport Erdos.Statements.${modStem}\nnamespace Erdos.Claims.${modStem}_Pass\ntheorem ok : Erdos.Statements.${modStem}.Claim := rfl\nend Erdos.Claims.${modStem}_Pass\n`
   );
   fs.writeFileSync(
     testClaimRefute,
-    `import Erdos.Core\nimport Erdos.Statements._TestFrozen\nnamespace Erdos.Claims._TestFrozenRefute\ntheorem ref : ¬ Erdos.Statements._TestFrozen.FalseClaim := by unfold Erdos.Statements._TestFrozen.FalseClaim; decide\nend Erdos.Claims._TestFrozenRefute\n`
+    `import Erdos.Core\nimport Erdos.Statements.${modStem}\nnamespace Erdos.Claims.${modStem}_Refute\ntheorem ref : ¬ Erdos.Statements.${modStem}.FalseClaim := by unfold Erdos.Statements.${modStem}.FalseClaim; decide\nend Erdos.Claims.${modStem}_Refute\n`
   );
   fs.writeFileSync(
     testClaimBait,
-    `import Erdos.Core\nnamespace Erdos.Claims._TestFrozenBait\ntheorem bait : True := trivial\nend Erdos.Claims._TestFrozenBait\n`
+    `import Erdos.Core\nnamespace Erdos.Claims.${modStem}_Bait\ntheorem bait : True := trivial\nend Erdos.Claims.${modStem}_Bait\n`
   );
   fs.writeFileSync(
     testClaimShadow,
-    `import Erdos.Core\nnamespace Erdos.Statements._TestFrozen\ndef Claim : Prop := True\nend Erdos.Statements._TestFrozen\nnamespace Erdos.Claims._TestFrozenShadow\ntheorem shadowed : Erdos.Statements._TestFrozen.Claim := trivial\nend Erdos.Claims._TestFrozenShadow\n`
+    `import Erdos.Core\nnamespace Erdos.Statements.${modStem}\ndef Claim : Prop := True\nend Erdos.Statements.${modStem}\nnamespace Erdos.Claims.${modStem}_Shadow\ntheorem shadowed : Erdos.Statements.${modStem}.Claim := trivial\nend Erdos.Claims.${modStem}_Shadow\n`
   );
 
   try {
-    const resFrozenPass = checkLeanProof(testClaimPass, "Erdos.Claims._TestFrozenPass.ok", {
+    const stmtRel = `missions/erdos-combinatorics/lean/Erdos/Statements/${modStem}.lean`;
+    const resFrozenPass = checkLeanProof(testClaimPass, `Erdos.Claims.${modStem}_Pass.ok`, {
       judgeConfig: erdos.judge,
       kind: "proof",
-      statementFile: "missions/erdos-combinatorics/lean/Erdos/Statements/_TestFrozen.lean",
-      statementDef: "Erdos.Statements._TestFrozen.Claim",
+      statementFile: stmtRel,
+      statementDef: `Erdos.Statements.${modStem}.Claim`,
     });
-    assert(
-      resFrozenPass.ok && resFrozenPass.statement_frozen === true,
-      "Frozen statement PASS: exact match against Erdos.Statements._TestFrozen.Claim",
-      JSON.stringify(resFrozenPass)
-    );
+    assert(resFrozenPass.ok && resFrozenPass.statement_frozen === true, "Frozen statement PASS: exact match", JSON.stringify(resFrozenPass));
 
-    const resFrozenRefute = checkLeanProof(testClaimRefute, "Erdos.Claims._TestFrozenRefute.ref", {
+    const resFrozenRefute = checkLeanProof(testClaimRefute, `Erdos.Claims.${modStem}_Refute.ref`, {
       judgeConfig: erdos.judge,
       kind: "refutation",
-      statementFile: "missions/erdos-combinatorics/lean/Erdos/Statements/_TestFrozen.lean",
-      statementDef: "Erdos.Statements._TestFrozen.FalseClaim",
+      statementFile: stmtRel,
+      statementDef: `Erdos.Statements.${modStem}.FalseClaim`,
     });
-    assert(
-      resFrozenRefute.ok && resFrozenRefute.statement_frozen === true,
-      "Frozen statement REFUTATION PASS: exact match against ¬ Erdos.Statements._TestFrozen.FalseClaim",
-      JSON.stringify(resFrozenRefute)
-    );
+    assert(resFrozenRefute.ok && resFrozenRefute.statement_frozen === true, "Frozen statement REFUTATION PASS: exact ¬ Claim match", JSON.stringify(resFrozenRefute));
 
-    const resFrozenBait = checkLeanProof(testClaimBait, "Erdos.Claims._TestFrozenBait.bait", {
+    const resFrozenBait = checkLeanProof(testClaimBait, `Erdos.Claims.${modStem}_Bait.bait`, {
       judgeConfig: erdos.judge,
       kind: "proof",
-      statementFile: "missions/erdos-combinatorics/lean/Erdos/Statements/_TestFrozen.lean",
-      statementDef: "Erdos.Statements._TestFrozen.Claim",
+      statementFile: stmtRel,
+      statementDef: `Erdos.Statements.${modStem}.Claim`,
     });
-    assert(
-      !resFrozenBait.ok && resFrozenBait.reason.includes("frozen-statement gate"),
-      "Frozen statement REJECT: bait-and-switch theorem (True) blocked by kernel",
-      JSON.stringify(resFrozenBait)
-    );
+    assert(!resFrozenBait.ok && resFrozenBait.reason.includes("frozen-statement gate"), "Frozen statement REJECT: bait theorem (True) blocked", JSON.stringify(resFrozenBait));
 
-    const resFrozenShadow = checkLeanProof(testClaimShadow, "Erdos.Claims._TestFrozenShadow.shadowed", {
+    const resFrozenShadow = checkLeanProof(testClaimShadow, `Erdos.Claims.${modStem}_Shadow.shadowed`, {
       judgeConfig: erdos.judge,
       kind: "proof",
-      statementFile: "missions/erdos-combinatorics/lean/Erdos/Statements/_TestFrozen.lean",
-      statementDef: "Erdos.Statements._TestFrozen.Claim",
+      statementFile: stmtRel,
+      statementDef: `Erdos.Statements.${modStem}.Claim`,
     });
-    assert(
-      !resFrozenShadow.ok,
-      "Frozen statement REJECT: shadowed `Claim := True` blocked by dual-import collision",
-      JSON.stringify(resFrozenShadow)
-    );
+    assert(!resFrozenShadow.ok && resFrozenShadow.reason.includes("duplicate/shadowed"), "Frozen statement REJECT: shadowed Claim := True blocked", JSON.stringify(resFrozenShadow));
   } finally {
     for (const f of [testStmtPath, testClaimPass, testClaimRefute, testClaimBait, testClaimShadow]) {
       try { fs.unlinkSync(f); } catch {}
@@ -181,7 +212,7 @@ try {
 }
 
 if (failed > 0) {
-  console.error(`\n${failed} test(s) failed!`);
+  console.error(`\n${failed} Judge test(s) failed!`);
   process.exit(1);
 }
-console.log("\nALL 12 ADVERSARIAL, REGRESSION & FROZEN-STATEMENT TESTS PASSED!");
+console.log("\nALL 20 ADVERSARIAL, ISOLATION & FROZEN-STATEMENT JUDGE TESTS PASSED!");

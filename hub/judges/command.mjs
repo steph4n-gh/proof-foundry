@@ -52,6 +52,22 @@ export function checkCommandArtifact(relOrAbsFile, targetName, opts = {}) {
     };
   }
 
+  if (fs.lstatSync(absFile).isSymbolicLink()) {
+    return {
+      ok: false,
+      judge: "command",
+      reason: `Rejected by path gate: symlinks are forbidden (${relOrAbsFile})`,
+      file: relOrAbsFile,
+      theorem: targetName,
+      axioms: [],
+      duration_ms: Date.now() - started,
+      lean_version: judgeLabel,
+      file_hash: null,
+      core_hash: coreHash,
+      output: "",
+    };
+  }
+
   const realFile = fs.realpathSync(absFile);
   const relFile = path.relative(ROOT, realFile);
   if (!opts.allowTempForTests && allowedDirs.length > 0) {
@@ -113,9 +129,14 @@ export function checkCommandArtifact(relOrAbsFile, targetName, opts = {}) {
       encoding: "utf8",
       cwd: ROOT,
       timeout: Number(cfg.timeout_ms || 60000),
+      env: {
+        PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
+        HOME: process.env.HOME || os.homedir(),
+        TMPDIR: os.tmpdir(),
+      },
     });
 
-    if (run.status !== 0 || !fs.existsSync(resultJsonPath)) {
+    if (!fs.existsSync(resultJsonPath)) {
       return {
         ok: false,
         judge: "command",
@@ -132,10 +153,11 @@ export function checkCommandArtifact(relOrAbsFile, targetName, opts = {}) {
     }
 
     const parsed = JSON.parse(fs.readFileSync(resultJsonPath, "utf8"));
+    const finalOk = run.status === 0 && Boolean(parsed.ok);
     return {
-      ok: Boolean(parsed.ok),
+      ok: finalOk,
       judge: "command",
-      reason: parsed.reason || (parsed.ok ? `Verified by ${judgeLabel}` : `Rejected by ${judgeLabel}`),
+      reason: parsed.reason || (finalOk ? `Verified by ${judgeLabel}` : `Rejected by ${judgeLabel} (exit=${run.status})`),
       file: relFile,
       theorem: targetName,
       signature: parsed.signature || `${targetName} (${judgeLabel})`,
