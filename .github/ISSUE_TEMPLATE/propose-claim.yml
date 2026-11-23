@@ -9,6 +9,7 @@ body:
       label: Mission
       options:
         - erdos-combinatorics
+        - sorting-networks
         - p-vs-np
         - verified-science-kernels
         - New mission proposal

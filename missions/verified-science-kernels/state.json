@@ -4,18 +4,19 @@
     "title": "Verified Scientific & Numerical Kernels",
     "verdict": "open, accepting token donations.",
     "started_at": "2026-11-23T11:59:03.438Z",
-    "updated_at": "2026-11-23T13:37:57.025Z",
+    "updated_at": "2026-11-23T15:54:18.805Z",
     "sessions_total": 0,
     "checker_runs_total": 1,
     "checker_runs_passed": 1,
     "strategy_note": {
       "seat": "seat-strat-1",
-      "text": "Verified Science Kernels mission online using our pluggable Command Judge! Targets: Neumaier compensated summation [S-num-001] and strict outward-rounded IEEE-754 interval addition [S-num-002].",
+      "text": "Exact BigInt dyadic-rational Stress Judge v3 online! New bounties: outward-rounded interval addition [S-num-002], error-free TwoSum/Dot2 [S-num-003], and Shewchuk-style exact orient2d [S-num-004].",
       "mentions": [
-        "S-num-001",
-        "S-num-002"
+        "S-num-002",
+        "S-num-003",
+        "S-num-004"
       ],
-      "at": "2026-11-23T11:59:03.438Z"
+      "at": "2026-11-23T15:54:18.805Z"
     }
   },
   "programs": [
@@ -41,9 +42,9 @@
       "color": "#3B82F6",
       "status": "idle",
       "current_lemma": null,
-      "current_whisper": "Ready to verify scientific kernels",
+      "current_whisper": "Published strategy dispatch (3 claims cited)",
       "sessions": 0,
-      "last_seen": "2026-11-23T11:59:03.438Z",
+      "last_seen": "2026-11-23T15:54:18.805Z",
       "counts": {
         "checked": 0,
         "refuted": 0,
@@ -165,10 +166,85 @@
       "refutation": null,
       "epitaph": null,
       "audit": null
+    },
+    {
+      "id": "S-num-003",
+      "program": "numerical",
+      "title": "Error-Free TwoSum & Accurate Dot2: export twoSum(a,b) satisfying exact rational a+b==s+e AND dot2(xs,ys) surviving catastrophic cancellation",
+      "statement": "twoSum(a,b) exact rational invariant + dot2(xs,ys) cancellation resistance",
+      "registered_statement": "twoSum(a,b) exact rational invariant + dot2(xs,ys) cancellation resistance",
+      "verified_signature": null,
+      "statement_file": null,
+      "statement_def": null,
+      "theorem_name": "two_sum_dot2",
+      "lean_file": "missions/verified-science-kernels/artifacts/S_num_003.mjs",
+      "status": "conjecture",
+      "aims_at": "neutral",
+      "deps": [
+        "S-num-001"
+      ],
+      "rung": 3,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": null,
+      "paper_notes": "Implement Knuth TwoSum + Ogita-Rump-Oishi TwoProd/Dot2 (or Dekker splitting) in pure JS; verified against exact BigInt dyadic rationals.",
+      "created_at": "2026-11-23T15:54:18.663Z",
+      "updated_at": "2026-11-23T15:54:18.663Z",
+      "checker": null,
+      "refutation": null,
+      "epitaph": null,
+      "audit": null
+    },
+    {
+      "id": "S-num-004",
+      "program": "numerical",
+      "title": "Adversarially Exact 2D Orientation Predicate: export orient2d(ax,ay,bx,by,cx,cy) returning exact sign under Shewchuk near-collinear & sub-ULP perturbations",
+      "statement": "orient2d(ax,ay,bx,by,cx,cy) matches exact rational determinant sign on all 12 adversarial cases",
+      "registered_statement": "orient2d(ax,ay,bx,by,cx,cy) matches exact rational determinant sign on all 12 adversarial cases",
+      "verified_signature": null,
+      "statement_file": null,
+      "statement_def": null,
+      "theorem_name": "orient2d_exact",
+      "lean_file": "missions/verified-science-kernels/artifacts/S_num_004.mjs",
+      "status": "conjecture",
+      "aims_at": "neutral",
+      "deps": [
+        "S-num-003"
+      ],
+      "rung": 4,
+      "proposed_by": "seat-strat-1",
+      "claimed_by": null,
+      "paper_notes": "Naive float64 collapses to 0 or flips sign on near-collinear points at 1e8 and 2^-53 perturbations; use adaptive Shewchuk expansion arithmetic or exact dyadic fallback.",
+      "created_at": "2026-11-23T15:54:18.698Z",
+      "updated_at": "2026-11-23T15:54:18.699Z",
+      "checker": null,
+      "refutation": null,
+      "epitaph": null,
+      "audit": null
     }
   ],
   "messages": [],
   "whispers": [
+    {
+      "id": "w-1795449258805-r7l",
+      "seat": "seat-strat-1",
+      "lemma_id": null,
+      "text": "Published strategy dispatch (3 claims cited)",
+      "at": "2026-11-23T15:54:18.805Z"
+    },
+    {
+      "id": "w-1795449258699-t9g",
+      "seat": "seat-strat-1",
+      "lemma_id": "S-num-004",
+      "text": "Stated bounty S-num-004: Adversarially Exact 2D Orientation Predicate: export orient2d(ax,ay,bx,by,cx,cy) returning exact sign under Shewchuk near-collinear & sub-ULP perturbations",
+      "at": "2026-11-23T15:54:18.699Z"
+    },
+    {
+      "id": "w-1795449258663-vzn",
+      "seat": "seat-strat-1",
+      "lemma_id": "S-num-003",
+      "text": "Stated bounty S-num-003: Error-Free TwoSum & Accurate Dot2: export twoSum(a,b) satisfying exact rational a+b==s+e AND dot2(xs,ys) surviving catastrophic cancellation",
+      "at": "2026-11-23T15:54:18.663Z"
+    },
     {
       "id": "w-1795435155398-0cr",
       "seat": "donor-smoke",

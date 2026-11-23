@@ -75,6 +75,17 @@
         "L-pcx-004",
         "L-pcx-005"
       ]
+    },
+    {
+      "id": "OBJ-pnp-synthesis",
+      "title": "Wave 5 Exact Shared-Wire Circuit Synthesis (MOD3_4 & MAJ5)",
+      "tier": "Wave 5 Frozen Frontier",
+      "finish_line": "Synthesize an ≤ 8-gate B2 circuit for MOD3=0 on 4 bits, decide whether 7 gates suffice, and settle exact B2 complexity of MAJ5 (≥ 10 vs beat 10).",
+      "required": [
+        { "id": "L-syn-001", "expect": "proof" },
+        { "id": "L-syn-002", "expect": "either" },
+        { "id": "L-syn-003", "expect": "either" }
+      ]
     }
   ]
 }

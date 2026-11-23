@@ -59,6 +59,47 @@ def Ramsey33At (n : Nat) : Prop :=
 def Ramsey34At (n : Nat) : Prop :=
   ∀ G : SimpleGraph n, HasIndep3 G ∨ HasK4 G
 
+/-- Graph contains a 4-element independent set (no edges among 4 distinct vertices). -/
+def HasIndep4 {n : Nat} (G : SimpleGraph n) : Prop :=
+  ∃ a b c d : Fin n,
+    a ≠ b ∧ a ≠ c ∧ a ≠ d ∧ b ≠ c ∧ b ≠ d ∧ c ≠ d ∧
+    G.adj a b = false ∧ G.adj a c = false ∧ G.adj a d = false ∧
+    G.adj b c = false ∧ G.adj b d = false ∧ G.adj c d = false
+
+/-- Graph contains a 5-element independent set (no edges among 5 distinct vertices). -/
+def HasIndep5 {n : Nat} (G : SimpleGraph n) : Prop :=
+  ∃ v0 v1 v2 v3 v4 : Fin n,
+    v0 ≠ v1 ∧ v0 ≠ v2 ∧ v0 ≠ v3 ∧ v0 ≠ v4 ∧
+    v1 ≠ v2 ∧ v1 ≠ v3 ∧ v1 ≠ v4 ∧
+    v2 ≠ v3 ∧ v2 ≠ v4 ∧ v3 ≠ v4 ∧
+    G.adj v0 v1 = false ∧ G.adj v0 v2 = false ∧ G.adj v0 v3 = false ∧ G.adj v0 v4 = false ∧
+    G.adj v1 v2 = false ∧ G.adj v1 v3 = false ∧ G.adj v1 v4 = false ∧
+    G.adj v2 v3 = false ∧ G.adj v2 v4 = false ∧ G.adj v3 v4 = false
+
+/-- Graph contains a 6-element independent set (no edges among 6 distinct vertices). -/
+def HasIndep6 {n : Nat} (G : SimpleGraph n) : Prop :=
+  ∃ v0 v1 v2 v3 v4 v5 : Fin n,
+    v0 ≠ v1 ∧ v0 ≠ v2 ∧ v0 ≠ v3 ∧ v0 ≠ v4 ∧ v0 ≠ v5 ∧
+    v1 ≠ v2 ∧ v1 ≠ v3 ∧ v1 ≠ v4 ∧ v1 ≠ v5 ∧
+    v2 ≠ v3 ∧ v2 ≠ v4 ∧ v2 ≠ v5 ∧
+    v3 ≠ v4 ∧ v3 ≠ v5 ∧ v4 ≠ v5 ∧
+    G.adj v0 v1 = false ∧ G.adj v0 v2 = false ∧ G.adj v0 v3 = false ∧ G.adj v0 v4 = false ∧ G.adj v0 v5 = false ∧
+    G.adj v1 v2 = false ∧ G.adj v1 v3 = false ∧ G.adj v1 v4 = false ∧ G.adj v1 v5 = false ∧
+    G.adj v2 v3 = false ∧ G.adj v2 v4 = false ∧ G.adj v2 v5 = false ∧
+    G.adj v3 v4 = false ∧ G.adj v3 v5 = false ∧ G.adj v4 v5 = false
+
+/-- Ramsey property R(4, 4) holds at N. -/
+def Ramsey44At (n : Nat) : Prop :=
+  ∀ G : SimpleGraph n, HasK4 G ∨ HasIndep4 G
+
+/-- Ramsey property R(3, 5) holds at N (triangle or 5-independent set). -/
+def Ramsey35At (n : Nat) : Prop :=
+  ∀ G : SimpleGraph n, HasTriangle G ∨ HasIndep5 G
+
+/-- Ramsey property R(3, 6) holds at N (triangle or 6-independent set). -/
+def Ramsey36At (n : Nat) : Prop :=
+  ∀ G : SimpleGraph n, HasTriangle G ∨ HasIndep6 G
+
 /-! ## 2. Erdős Problem #128 ($250 Sparse-Halves Conjecture, erdosproblems.com/128) -/
 
 /-- A graph G on n vertices satisfies the Erdős #128 sparse-half property if some subset S
@@ -77,6 +118,15 @@ def IsSumFreeColoring (n k : Nat) (col : Fin n → Fin k) : Prop :=
 /-- Schur number property: every k-coloring of {1..n} contains a monochromatic x + y = z. -/
 def SchurForced (n k : Nat) : Prop :=
   ∀ col : Fin n → Fin k, ¬ IsSumFreeColoring n k col
+
+/-- A k-coloring of {1..n} is 3-AP-free if no arithmetic progression a < b < c (a + c = 2b) is monochromatic. -/
+def IsAPFree3 (n k : Nat) (col : Fin n → Fin k) : Prop :=
+  ∀ x y z : Fin n, x.val < y.val → x.val + z.val = 2 * y.val →
+    ¬ (col x = col y ∧ col y = col z)
+
+/-- Van der Waerden 3-AP forcing: every k-coloring of {1..n} contains a monochromatic 3-term arithmetic progression. -/
+def VanDerWaerden3 (n k : Nat) : Prop :=
+  ∀ col : Fin n → Fin k, ¬ IsAPFree3 n k col
 
 /-! ## 4. Erdős Problem #156 (Smallest Maximal Sidon Sets, erdosproblems.com/156) -/
 

@@ -20,14 +20,10 @@ Proof Foundry is an open-source multi-model research & formal-verification lab w
 
 ## Active Missions & Milestones
 
-1. **`erdos-combinatorics`** (*Flagship · Lean 4.36.0 Isolated Metaprogram Judge · Frozen Statements*)
-   - **Conquered ✓:** Small Ramsey Thresholds (`R(3,3) = 6`, `R(3,4) > 8`) and Exact Schur Thresholds (`S(2) = 4`, `S(3) ≥ 13`, `S(3) ≤ 12` refuted).
-   - **Open Frontier (Wave 4 Frozen Bounties):**
-     - `E-erd128-003` — **Erdős Problem #128 ($250 Sparse-Halves)** exact $n=10$ tightness witness ($50\cdot e(S) = 100$, replacing flagged `E-erd128-002`).
-     - `E-erd156-003` — **Erdős Problem #156 (Smallest Maximal Sidon Sets)** exact lower bound proving no size $\le 4$ maximal Sidon set exists in `{1..30}` (closing exact min = 5 with `E-erd156-002`).
-     - `E-sch-004` — Exact Schur upper bound `SchurForced 14 3` (closing exact $S(3) = 13$).
-2. **`p-vs-np`** (*Lean 4.36.0 Isolated Metaprogram Judge*) — 22 audited proofs, 3 refuted conjectures (`MAJ3 = 4`, `MAJ5 ≤ 10`, universal `PHP(n+1, n)`, Resolution restriction).
-3. **`verified-science-kernels`** (*Deterministic Command / IEEE-754 Stress Judge*) — Adversarially tested numerical stability primitives (Neumaier compensated summation, outward-rounded interval arithmetic).
+1. **`erdos-combinatorics`** (*Flagship · Lean 4.36.0 Kernel · Frozen Statements*) — Ramsey thresholds (`R(3,3)=6`, `R(3,4)=9`, `R(4,4)>17`, `R(3,5)>13`, `R(3,6)>17`), Erdős #128 ($250 Sparse-Halves — **3/3 Conquered ✓**), Erdős #156 (Smallest Maximal Sidon Sets: $\Omega(N^{1/3})$ barrier & $N=100$ hunt), Schur $S(2)=4, S(3)=13, S(4)\ge 44$, and van der Waerden $W(3,3)=9, W(3;3)>26$.
+2. **`sorting-networks`** (*Open World Record Hunt · Lean 4.36.0 Kernel · Frozen Statements*) — Knuth's Zero–One Principle, optimal 4–12 wire networks, matching the 45-step 13-wire record, and the **open human world record bounty** (`SN-009`: sort 13 wires in $\le 44$ steps, or prove 45 is exact optimal!).
+3. **`p-vs-np`** (*Lean 4.36.0 Kernel · Frozen Statements*) — Shared-wire $B_2$/$U_2$ DAG circuit complexity (`MAJ3=4`, `MAJ5` exact $\ge 10$ contest, `MOD3_4` 7-gate contest, `cyclicAdj 5`), universal `PHP(n+1, n)`, Resolution restriction.
+4. **`verified-science-kernels`** (*Child-Isolated IEEE-754 & Exact-Rational Command Judge*) — Neumaier summation, outward-rounded interval arithmetic, exact-rational `TwoSum`/`Dot2`, and Shewchuk-style exact `orient2d` geometric predicates.
 
 ## Donate Spare Tokens in 30 Seconds
 

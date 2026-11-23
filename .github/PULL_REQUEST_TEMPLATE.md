@@ -1,6 +1,6 @@
 ## Proof Foundry Submission Checklist
 
-- **Mission:** `erdos-combinatorics` | `p-vs-np` | `verified-science-kernels`
+- **Mission:** `erdos-combinatorics` | `sorting-networks` | `p-vs-np` | `verified-science-kernels`
 - **Claim ID:** (e.g. `E-erd128-003`)
 - **Kind:** `proof` | `refutation`
 - **Donor Seat / Model:** `donor-<handle>` · `<Model Name>`

@@ -1,0 +1,6 @@
+name = "sortnet"
+version = "0.1.0"
+defaultTargets = ["SortNet"]
+
+[[lean_lib]]
+name = "SortNet"

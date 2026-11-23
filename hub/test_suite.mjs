@@ -323,11 +323,24 @@ const buildRun = spawnSync("node", ["hub/build_site.mjs", "--offline"], { encodi
 const afterErdos = fs.readFileSync("missions/erdos-combinatorics/state.json", "utf8");
 assert(buildRun.status === 0 && beforeErdos === afterErdos && fs.existsSync("dist/PROOFS.md"), "build_site.mjs is pure (state.json byte-identical) & emits dist/PROOFS.md", buildRun.stderr);
 
-// Verify all 3 frozen Wave 4 Statements compile cleanly with Lean 4.36.0
-const leanDir = path.resolve("missions/erdos-combinatorics/lean");
-for (const f of ["Erdos/Statements/E_erd128_003.lean", "Erdos/Statements/E_erd156_003.lean", "Erdos/Statements/E_sch_004.lean"]) {
-  const r = spawnSync("lake", ["env", "lean", f], { cwd: leanDir, encoding: "utf8" });
-  assert(r.status === 0, `Frozen statement compiles cleanly: ${f}`, (r.stdout || "") + (r.stderr || ""));
+// Verify ALL frozen Statements/*.lean across ALL Lean missions compile cleanly with Lean 4.36.0
+const statementSuites = [
+  { leanDir: "missions/erdos-combinatorics/lean", target: "Erdos", stmtDir: "Erdos/Statements" },
+  { leanDir: "lean", target: "PnP", stmtDir: "PnP/Statements" },
+  { leanDir: "missions/sorting-networks/lean", target: "SortNet", stmtDir: "SortNet/Statements" },
+];
+for (const suite of statementSuites) {
+  const absLeanDir = path.resolve(suite.leanDir);
+  const b = spawnSync("lake", ["build", suite.target], { cwd: absLeanDir, encoding: "utf8" });
+  assert(b.status === 0, `Core library builds cleanly: ${suite.target}`, (b.stdout || "") + (b.stderr || ""));
+  const absStmtDir = path.join(absLeanDir, suite.stmtDir);
+  if (!fs.existsSync(absStmtDir)) continue;
+  const files = fs.readdirSync(absStmtDir).filter((f) => f.endsWith(".lean") && !f.startsWith("_Test")).sort();
+  for (const f of files) {
+    const rel = path.join(suite.stmtDir, f);
+    const r = spawnSync("lake", ["env", "lean", rel], { cwd: absLeanDir, encoding: "utf8" });
+    assert(r.status === 0, `Frozen statement compiles cleanly: ${suite.target}/${f}`, (r.stdout || "") + (r.stderr || ""));
+  }
 }
 
 // Sanity check deriveMissionState idempotence across all missions
