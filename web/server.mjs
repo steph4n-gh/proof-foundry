@@ -185,8 +185,10 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ error: "Claim not found" }));
       return;
     }
-    const leanSource = readAllowedArtifactFile(mission, lemma.lean_file);
-    const refutationSource = readAllowedArtifactFile(mission, lemma.refutation?.counterexample_file);
+    const activeFile = lemma.kind === "record" ? lemma.record_state?.best?.file : lemma.lean_file;
+    const boundFile = lemma.kind === "record" ? lemma.record_state?.refuted?.file : lemma.refutation?.counterexample_file;
+    const leanSource = readAllowedArtifactFile(mission, activeFile);
+    const refutationSource = readAllowedArtifactFile(mission, boundFile);
     const statementSource = lemma.statement_file ? readAllowedArtifactFile(mission, lemma.statement_file) : null;
     const relatedMessages = (snap.messages || []).filter((m) => m.lemma_id === id);
     const relatedRuns = (snap.checker_runs || []).filter((r) => r.lemma_id === id);

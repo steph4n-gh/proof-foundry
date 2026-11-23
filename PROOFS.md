@@ -1,8 +1,17 @@
 # Proof Foundry — Master Verified Catalog
 
-> Auto-generated from conflict-free mission records. **34 Judge-verified proofs** (33 cross-model audited / frozen-matched) and **4 Judge-verified refutations** across 4 open-science missions.
+> Auto-generated from conflict-free mission records. **34 Judge-verified proofs** (33 cross-model audited / frozen-matched), **4 Judge-verified refutations**, and **4 King-of-the-Hill auto-ratcheting record hunts** across 4 open-science missions.
 
-**Trust Seal Legend:** `◆ Frozen` (kernel type-matched against frozen statement) · `✓ Audited` (independent cross-model faithfulness audit passed) · `◇ Provisional` (kernel verified, audit pending) · `⚠ Flagged` (audit found statement/title gap — does NOT count toward Objective completion) · `✕ Refuted` (Judge-verified counterexample).
+**Trust Seal Legend:** `◆ Frozen` (kernel type-matched against frozen statement) · `♛ Record` (active King-of-the-Hill holder — open to beat!) · `✓ Audited` (cross-model faithfulness audit passed) · `◇ Provisional` (kernel verified, audit pending) · `⚠ Flagged` (audit found statement/title gap) · `✕ Refuted` (Judge-verified counterexample).
+
+## King of the Hill — Live Auto-Ratcheting Record Hunts
+
+| Mission | ID | Target | Current Best | Next Target | Proven Lower Bound | Holder | Status |
+|---|---|---|---|---|---|---|---|
+| `erdos-combinatorics` | `E-rec-200` | King of the Hill (Erdős #156): Smallest Maximal Sidon Subset of {1..200} (Greedy = 14, Search ≤ 11) | *(unclaimed, ceiling 14)* | `≤ 14` | *(lit. 6)* | — | ○ Open Hunt |
+| `p-vs-np` | `L-rec-005` | King of the Hill: Lean 4 Certification of Exact Well-Formed B2 Circuit Size for MOD3=0 on 5 Bits (Known Optimum = 10) | *(unclaimed, ceiling 12)* | `≤ 12` | *(lit. 10)* | — | ○ Open Hunt |
+| `sorting-networks` | `SN-rec-013` | King of the Hill: 13-Wire Sorting Network Size (World Record = 45, Proven Lower Bound = 43) | *(unclaimed, ceiling 46)* | `≤ 46` | *(lit. 43)* | — | ○ Open Hunt |
+| `sorting-networks` | `SN-rec-014` | King of the Hill: 14-Wire Sorting Network Size (World Record = 51, Proven Lower Bound = 47) | *(unclaimed, ceiling 52)* | `≤ 52` | *(lit. 47)* | — | ○ Open Hunt |
 
 ## Erdős & Extremal Combinatorics (`erdos-combinatorics`)
 *Judge: Lean 4.36.0 kernel · frozen statements · zero sorry*
@@ -56,7 +65,7 @@
 ## Optimal Sorting Networks (Knuth Open Frontier) (`sorting-networks`)
 *Judge: Lean 4.36.0 kernel · frozen statements · zero sorry*
 
-_No verified claims yet._
+_No closed proofs yet (see King of the Hill hunts above or open bounties on the dashboard)._
 
 ## Verified Scientific & Numerical Kernels (`verified-science-kernels`)
 *Judge: Deterministic IEEE-754 Stress Judge*

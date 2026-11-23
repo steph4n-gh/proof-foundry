@@ -21,6 +21,8 @@
   --cyan-dim: rgba(34, 211, 238, 0.15);
   --amber: #f59e0b;
   --amber-dim: rgba(245, 158, 11, 0.14);
+  --crown: #c084fc;
+  --crown-dim: rgba(192, 132, 252, 0.16);
   --coral: #f43f5e;
   --coral-dim: rgba(244, 63, 94, 0.14);
   --slate-dead: #94a3b8;
@@ -53,6 +55,8 @@
   --cyan-dim: rgba(8, 145, 178, 0.11);
   --amber: #d97706;
   --amber-dim: rgba(217, 119, 6, 0.1);
+  --crown: #7e22ce;
+  --crown-dim: rgba(126, 34, 206, 0.11);
   --coral: #e11d48;
   --coral-dim: rgba(225, 29, 72, 0.1);
   --slate-dead: #64748b;
@@ -180,6 +184,7 @@ code, pre, .mono { font-family: var(--font-mono); }
 /* TRUST SEALS (STATUS OWNS COLOR) */
 .seal { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; white-space: nowrap; border: 1px solid transparent; }
 .seal-frozen { background: var(--cyan-dim); color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 35%, transparent); }
+.seal-record { background: var(--crown-dim); color: var(--crown); border-color: color-mix(in srgb, var(--crown) 38%, transparent); }
 .seal-audited { background: var(--emerald-dim); color: var(--emerald); border-color: color-mix(in srgb, var(--emerald) 35%, transparent); }
 .seal-provisional { background: transparent; color: var(--ink-soft); border-color: var(--border-strong); }
 .seal-flagged { background: var(--amber-dim); color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
@@ -284,6 +289,7 @@ code, pre, .mono { font-family: var(--font-mono); }
 .map-legend li { display: inline-flex; align-items: center; gap: 5px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot-audited { background: var(--emerald); }
+.dot-record { background: var(--crown); }
 .dot-provisional { background: var(--ink-soft); }
 .dot-flagged { background: var(--amber); }
 .dot-open { background: var(--sky); }
@@ -334,6 +340,11 @@ code, pre, .mono { font-family: var(--font-mono); }
 .harness-tabs button.active { background: var(--sky-dim); color: var(--sky); }
 .handle-field { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .handle-field input { background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px; font-family: var(--font-mono); font-size: 12px; width: 185px; }
+.handle-field input.score-input { width: 96px; }
+.rec-controls { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px; background: var(--crown-dim); border: 1px solid color-mix(in srgb, var(--crown) 35%, transparent); border-radius: 9px; }
+.rec-banner { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-family: var(--font-mono); font-size: 11.5px; padding: 7px 10px; border-radius: 7px; background: var(--crown-dim); border: 1px solid color-mix(in srgb, var(--crown) 30%, transparent); color: var(--ink); }
+.rec-history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.rec-hist-item { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
 .prompt-textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 12px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; resize: vertical; color: var(--ink); }
 .donate-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .donate-pipeline { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); padding-top: 8px; border-top: 1px solid var(--border); }

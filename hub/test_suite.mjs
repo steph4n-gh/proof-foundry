@@ -11,8 +11,8 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { applySubmissionsPure, computeTrustSeal, deriveMissionState } from "./missions.mjs";
-import { parseGitRawZ, classifyEntries, verifyPrEntries } from "./pr_gate.mjs";
+import { applySubmissionsPure, computeTrustSeal, deriveMissionState, computeRecordTargets, isRungConquered } from "./missions.mjs";
+import { parseGitRawZ, classifyEntries, verifyPrEntries, validateRecordImprovement } from "./pr_gate.mjs";
 import { readEvents } from "./build_site.mjs";
 
 let failed = 0;
@@ -348,8 +348,365 @@ const d1 = deriveMissionState("erdos-combinatorics").state;
 const d2 = deriveMissionState("erdos-combinatorics").state;
 assert(JSON.stringify(d1) === JSON.stringify(d2), "deriveMissionState is deterministic & byte-identical across runs");
 
+// ---------------------------------------------------------------------------
+// 4. KING OF THE HILL: MONOTONICITY, PURE STATE MACHINE & PR GATE MATRIX
+// ---------------------------------------------------------------------------
+
+// 4a. Verify EVERY registered King-of-the-Hill frozen statement exports exact `Record_mono` in Lean 4.36!
+const kothMonoChecks = [
+  { leanDir: "missions/sorting-networks/lean", file: "SortNet/Statements/SN_rec_013.lean", mod: "SortNet.Statements.SN_rec_013" },
+  { leanDir: "missions/sorting-networks/lean", file: "SortNet/Statements/SN_rec_014.lean", mod: "SortNet.Statements.SN_rec_014" },
+  { leanDir: "missions/erdos-combinatorics/lean", file: "Erdos/Statements/E_rec_200.lean", mod: "Erdos.Statements.E_rec_200" },
+  { leanDir: "lean", file: "PnP/Statements/L_rec_005.lean", mod: "PnP.Statements.L_rec_005" },
+];
+for (const mc of kothMonoChecks) {
+  const src = fs.readFileSync(path.resolve(mc.leanDir, mc.file), "utf8");
+  const code = `${src}\nexample : ∀ {a b : Nat}, a ≤ b → ${mc.mod}.Record a → ${mc.mod}.Record b := @${mc.mod}.Record_mono\n`;
+  const r = spawnSync("lake", ["env", "lean", "--stdin"], { cwd: path.resolve(mc.leanDir), input: code, encoding: "utf8" });
+  assert(r.status === 0, `KotH Record_mono exact monotonicity verified in Lean 4: ${mc.mod}`, (r.stdout || "") + (r.stderr || ""));
+}
+
+// 4b. Pure KotH derivation: ratchet, delta anti-farming points, non-improving ignored, closure, zero-closure, contradiction, stale hash, git order, replay idempotence
+const recSeed = {
+  meta: { mission: "sorting-networks", updated_at: "2026-01-01T00:00:00Z" },
+  programs: [{ id: "record_hunt", key: "rec", title: "Record Hunt" }],
+  seats: [],
+  lemmas: [
+    {
+      id: "SN-rec-013",
+      kind: "record",
+      program: "record_hunt",
+      title: "13-Wire Hunt",
+      statement_file: "missions/sorting-networks/lean/SortNet/Statements/SN_rec_013.lean",
+      statement_def: "SortNet.Statements.SN_rec_013.Record",
+      record: {
+        direction: "min",
+        unit: "comparators",
+        start_target: 46,
+        literature_best: 45,
+        literature_lower_bound: 43,
+        bound_floor: 41,
+        score_max: 1000,
+        file_stem: "SN_rec_013",
+        claims_dir: "missions/sorting-networks/lean/SortNet/Claims",
+        theorem_template: "SortNet.Claims.SN_rec_013_{tag}.record",
+      },
+      status: "conjecture",
+      deps: [],
+    },
+  ],
+  messages: [],
+  whispers: [],
+  checker_runs: [],
+};
+
+function mkRecSub(kind, score, seat, { stmtHash = "stmt_ok", at = "2026-02-01T00:00:00Z" } = {}) {
+  const t = computeRecordTargets("sorting-networks", recSeed.lemmas[0], kind, score);
+  return {
+    _sub_file: t.submissionBasename,
+    schema: "pf.record.v1",
+    mission: "sorting-networks",
+    lemma_id: "SN-rec-013",
+    kind,
+    score,
+    file: t.artifactFile,
+    theorem: t.theoremName,
+    at,
+    checker: { ok: true, by_seat: seat, file_hash: `fh_${kind}_${score}`, statement_hash: stmtHash, core_hash: "core_ok", axioms: ["propext"] },
+  };
+}
+
+const curHashes = {
+  coreHash: "core_ok",
+  statementHashes: { "missions/sorting-networks/lean/SortNet/Statements/SN_rec_013.lean": "stmt_ok" },
+};
+const r46 = mkRecSub("record", 46, "donor-a", { at: "2026-02-01T00:00:00Z" });
+const r44 = mkRecSub("record", 44, "donor-b", { at: "2026-02-02T00:00:00Z" });
+const r45Late = mkRecSub("record", 45, "donor-late", { at: "1999-01-01T00:00:00Z" }); // backdated sub.at!
+const rStale = mkRecSub("record", 43, "donor-stale", { stmtHash: "stmt_OLD" });
+const b42 = mkRecSub("record_bound", 42, "donor-c");
+const b43 = mkRecSub("record_bound", 43, "donor-d");
+const recGitTs = new Map([
+  [r46._sub_file, 1000],
+  [r44._sub_file, 2000],
+  [r45Late._sub_file, 3000],
+  [rStale._sub_file, 3500],
+  [b42._sub_file, 4000],
+  [b43._sub_file, 5000],
+]);
+
+// Before closing (46 -> 44 -> 45 ignored -> stale ignored -> bound 42)
+const midState = applySubmissionsPure(recSeed, [r45Late, r44, r46, rStale, b42], {
+  missionSlug: "sorting-networks",
+  gitAddedTs: recGitTs,
+  currentHashes: curHashes,
+}).state;
+const midL = midState.lemmas[0];
+assert(
+  midL.record_state.best?.score === 44 &&
+    midL.record_state.best?.seat === "donor-b" &&
+    midL.record_state.next_target === 43 &&
+    midL.record_state.refuted?.score === 42 &&
+    midL.record_state.refuted?.inclusive_bound === 43 &&
+    !midL.record_state.closed &&
+    computeTrustSeal(midL) === "record" &&
+    midL.record_state.points_by_seat["donor-a"] === 1 &&
+    midL.record_state.points_by_seat["donor-b"] === 2 &&
+    !midL.record_state.points_by_seat["donor-late"] &&
+    !midL.record_state.points_by_seat["donor-stale"] &&
+    midL.record_state.history.find((h) => h.score === 45)?.state === "ignored_non_improving" &&
+    midL.record_state.history.find((h) => h.score === 43)?.state === "stale_statement" &&
+    isRungConquered(midL, { record_at_most: 45 }) === true &&
+    isRungConquered(midL, { record_at_most: 43 }) === false,
+  "KotH pure derivation: ratchet, git-order defeats backdated sub.at, delta points, stale hash & objective rung",
+  JSON.stringify(midL.record_state)
+);
+
+// Closing at refuted + 1 == best (bound 43 closes against best 44 -> seal === frozen!)
+const closedState = applySubmissionsPure(recSeed, [r46, r44, b42, b43], {
+  missionSlug: "sorting-networks",
+  gitAddedTs: recGitTs,
+  currentHashes: curHashes,
+}).state;
+const closedL = closedState.lemmas[0];
+assert(
+  closedL.record_state.closed === true &&
+    closedL.record_state.next_target === null &&
+    computeTrustSeal(closedL) === "frozen" &&
+    closedL.record_state.points_by_seat["donor-d"] === 1,
+  "KotH exact closure when refuted + 1 == best (seal -> frozen, next_target -> null)",
+  JSON.stringify(closedL.record_state)
+);
+
+// Replay idempotence: feeding derived state back into applySubmissionsPure NEVER duplicates history or points!
+const replayed = applySubmissionsPure(closedState, [r46, r44, b42, b43], {
+  missionSlug: "sorting-networks",
+  gitAddedTs: recGitTs,
+  currentHashes: curHashes,
+}).state;
+assert(
+  JSON.stringify(replayed.lemmas[0].record_state) === JSON.stringify(closedL.record_state),
+  "KotH replay idempotence: zero history duplication or double points",
+  JSON.stringify(replayed.lemmas[0].record_state)
+);
+
+// Best == 0 closes immediately without needing a lower bound
+const r0 = mkRecSub("record", 0, "donor-zero");
+const zeroState = applySubmissionsPure(recSeed, [r0], { missionSlug: "sorting-networks", currentHashes: curHashes }).state;
+assert(
+  zeroState.lemmas[0].record_state.closed === true && zeroState.lemmas[0].record_state.next_target === null,
+  "KotH closes automatically when best score reaches 0",
+  JSON.stringify(zeroState.lemmas[0].record_state)
+);
+
+// record_bound before any record is valid and does not close
+const boundOnly = applySubmissionsPure(recSeed, [b42], { missionSlug: "sorting-networks", currentHashes: curHashes }).state;
+assert(
+  boundOnly.lemmas[0].record_state.best === null &&
+    boundOnly.lemmas[0].record_state.refuted?.inclusive_bound === 43 &&
+    boundOnly.lemmas[0].record_state.closed === false &&
+    boundOnly.lemmas[0].record_state.next_target === 46,
+  "KotH accepts record_bound before first incumbent cleanly",
+  JSON.stringify(boundOnly.lemmas[0].record_state)
+);
+
+// Sticky contradiction in BOTH orders (record 44 + record_bound 44), AND out-of-range contradiction (47 + ¬47), zero points!
+const b44Conflict = mkRecSub("record_bound", 44, "donor-conflict");
+const con1 = applySubmissionsPure(recSeed, [r44, b44Conflict], {
+  missionSlug: "sorting-networks",
+  gitAddedTs: new Map([[r44._sub_file, 100], [b44Conflict._sub_file, 200]]),
+  currentHashes: curHashes,
+}).state;
+const con2 = applySubmissionsPure(recSeed, [b44Conflict, r44], {
+  missionSlug: "sorting-networks",
+  gitAddedTs: new Map([[b44Conflict._sub_file, 100], [r44._sub_file, 200]]),
+  currentHashes: curHashes,
+}).state;
+const r47Out = mkRecSub("record", 47, "donor-out1");
+const b47Out = mkRecSub("record_bound", 47, "donor-out2");
+const con3 = applySubmissionsPure(recSeed, [r47Out, b47Out], {
+  missionSlug: "sorting-networks",
+  gitAddedTs: new Map([[r47Out._sub_file, 100], [b47Out._sub_file, 200]]),
+  currentHashes: curHashes,
+}).state;
+assert(
+  con1.lemmas[0].record_state.contradiction === true &&
+    !con1.lemmas[0].record_state.closed &&
+    computeTrustSeal(con1.lemmas[0]) === "contradiction" &&
+    Object.keys(con1.lemmas[0].record_state.points_by_seat).length === 0 &&
+    con1.seats.every((s) => (s.counts?.record_points || 0) === 0) &&
+    con2.lemmas[0].record_state.contradiction === true &&
+    !con2.lemmas[0].record_state.closed &&
+    computeTrustSeal(con2.lemmas[0]) === "contradiction" &&
+    con3.lemmas[0].record_state.contradiction === true &&
+    Object.keys(con3.lemmas[0].record_state.points_by_seat).length === 0,
+  "KotH sticky contradiction detected in both orders + out-of-range scores, with consistent zero points",
+  JSON.stringify({ con1: con1.lemmas[0].record_state, con3: con3.lemmas[0].record_state })
+);
+
+// Missing statement/core hashes mark receipts stale (NEVER awarded as matching!), while additive Core edits preserve history!
+const noStmtHashRes = applySubmissionsPure(recSeed, [r44], {
+  missionSlug: "sorting-networks",
+  currentHashes: { coreHash: "core_ok", statementHashes: {} },
+}).state.lemmas[0];
+const noCoreHashRes = applySubmissionsPure(recSeed, [r44], {
+  missionSlug: "sorting-networks",
+  currentHashes: { coreHash: null, statementHashes: curHashes.statementHashes },
+}).state.lemmas[0];
+const additiveCoreRes = applySubmissionsPure(recSeed, [r44], {
+  missionSlug: "sorting-networks",
+  currentHashes: { coreHash: "core_WAVE6_ADDITIVE", statementHashes: curHashes.statementHashes },
+}).state.lemmas[0];
+assert(
+  noStmtHashRes.record_state.best === null &&
+    noStmtHashRes.record_state.history[0]?.state === "stale_statement" &&
+    noCoreHashRes.record_state.best === null &&
+    noCoreHashRes.record_state.history[0]?.state === "stale_statement" &&
+    additiveCoreRes.record_state.best?.score === 44,
+  "KotH rejects missing statement/core hashes as stale while additive Core.lean updates preserve history",
+  JSON.stringify({ noStmt: noStmtHashRes.record_state, noCore: noCoreHashRes.record_state, addCore: additiveCoreRes.record_state })
+);
+
+// Missing git timestamps fallback sorts in improving score order (45 before 44 -> points split 2 + 1!)
+const r45Fresh = mkRecSub("record", 45, "donor-45");
+const fallbackOrder = applySubmissionsPure(recSeed, [r44, r45Fresh], {
+  missionSlug: "sorting-networks",
+  gitAddedTs: new Map(),
+  currentHashes: curHashes,
+}).state.lemmas[0];
+assert(
+  fallbackOrder.record_state.best?.score === 44 &&
+    fallbackOrder.record_state.points_by_seat["donor-45"] === 2 &&
+    fallbackOrder.record_state.points_by_seat["donor-b"] === 1,
+  "KotH missing-git fallback replays improving scores deterministically (45 -> 44 splits points 2 + 1)",
+  JSON.stringify(fallbackOrder.record_state.points_by_seat)
+);
+
+// 4c. Breakthrough literature guard in validateRecordImprovement
+const brk = validateRecordImprovement(recSeed.lemmas[0], "record", 44);
+assert(brk.ok && brk.requiresMaintainer === true, "KotH breakthrough past literature_best (44 < 45) sets requiresMaintainer=true", JSON.stringify(brk));
+const nonBrk = validateRecordImprovement(recSeed.lemmas[0], "record", 45);
+assert(nonBrk.ok && nonBrk.requiresMaintainer === false, "KotH matching literature_best (45 == 45) stays auto-mergeable", JSON.stringify(nonBrk));
+const badScoreImp = validateRecordImprovement(recSeed.lemmas[0], "record", 47);
+assert(!badScoreImp.ok, "KotH rejects score worse than start_target (47 > 46)", JSON.stringify(badScoreImp));
+
+// 4d. PR Gate KotH matrix (SAFE non-colliding high scores 998/999 + non-overwrite guard so donor work is NEVER touched!)
+const tmpKoth = [];
+const kothSalt = `${process.pid}_${Date.now()}`;
+function safeWriteTmpKoth(relPath, content) {
+  const abs = path.resolve(relPath);
+  if (fs.existsSync(abs)) {
+    throw new Error(`Refusing to overwrite existing workspace file in test fixture: ${relPath}`);
+  }
+  fs.writeFileSync(abs, content);
+  tmpKoth.push(abs);
+  return relPath;
+}
+try {
+  // Cross-kind rejection: `proof` on record hunt SN-rec-013
+  const kProofArt = safeWriteTmpKoth(`missions/sorting-networks/lean/SortNet/Claims/SN_rec_013_test_${kothSalt}.lean`, "import SortNet.Core\n");
+  const kProofSub = safeWriteTmpKoth(
+    `missions/sorting-networks/submissions/SN-rec-013.proof.test${kothSalt}.json`,
+    JSON.stringify({
+      schema: "fleet-submission/2",
+      mission: "sorting-networks",
+      lemma_id: "SN-rec-013",
+      kind: "proof",
+      file: kProofArt,
+      theorem: `SortNet.Claims.SN_rec_013_test_${kothSalt}.record`,
+      checker: { ok: true, judge: "lean4", file_hash: "00", by_seat: "donor-x" },
+    })
+  );
+  const rCross1 = verifyPrEntries(parseGitRawZ(rawEntry("100644", "A", kProofArt) + rawEntry("100644", "A", kProofSub)));
+  assert(!rCross1.ok && rCross1.reports[0]?.reason?.includes("King-of-the-Hill"), "PR Gate KotH: rejects `proof` on record hunt", JSON.stringify(rCross1));
+
+  // Cross-kind rejection: `record` on normal claim E-ram-001
+  const kRecOnNormArt = safeWriteTmpKoth(`missions/erdos-combinatorics/lean/Erdos/Claims/E_ram_001_s999_${kothSalt}.lean`, "import Erdos.Core\n");
+  const kRecOnNormSub = safeWriteTmpKoth(
+    `missions/erdos-combinatorics/submissions/E-ram-001.record.s999_${kothSalt}.json`,
+    JSON.stringify({
+      schema: "pf.record.v1",
+      mission: "erdos-combinatorics",
+      lemma_id: "E-ram-001",
+      kind: "record",
+      score: 999,
+      file: kRecOnNormArt,
+      theorem: `Erdos.Claims.E_ram_001_s999_${kothSalt}.record`,
+      checker: { ok: true, judge: "lean4", file_hash: "00", by_seat: "donor-x" },
+    })
+  );
+  const rCross2 = verifyPrEntries(parseGitRawZ(rawEntry("100644", "A", kRecOnNormArt) + rawEntry("100644", "A", kRecOnNormSub)));
+  assert(!rCross2.ok && rCross2.reports[0]?.reason?.includes("not a King-of-the-Hill"), "PR Gate KotH: rejects `record` on normal claim", JSON.stringify(rCross2));
+
+  // Status M edit on record artifact blocked (uses safe non-real score 999 <= score_max 1000!)
+  const k999Art = safeWriteTmpKoth("missions/sorting-networks/lean/SortNet/Claims/SN_rec_013_s999.lean", "import SortNet.Core\n");
+  const k999Sub = safeWriteTmpKoth(
+    "missions/sorting-networks/submissions/SN-rec-013.record.s999.json",
+    JSON.stringify({
+      schema: "pf.record.v1",
+      mission: "sorting-networks",
+      lemma_id: "SN-rec-013",
+      kind: "record",
+      score: 999,
+      file: k999Art,
+      theorem: "SortNet.Claims.SN_rec_013_s999.record",
+      checker: { ok: true, judge: "lean4", file_hash: "00", statement_hash: "00", core_hash: "00", by_seat: "donor-x" },
+    })
+  );
+  const rMod = verifyPrEntries(parseGitRawZ(rawEntry("100644", "M", k999Art) + rawEntry("100644", "A", k999Sub)));
+  assert(!rMod.ok && rMod.reports[0]?.reason?.includes("newly added"), "PR Gate KotH: rejects status M edit to record artifact", JSON.stringify(rMod));
+
+  // Non-improving score (998 > 46) rejected before Judge
+  const k998Art = safeWriteTmpKoth("missions/sorting-networks/lean/SortNet/Claims/SN_rec_013_s998.lean", "import SortNet.Core\n");
+  const k998Sub = safeWriteTmpKoth(
+    "missions/sorting-networks/submissions/SN-rec-013.record.s998.json",
+    JSON.stringify({
+      schema: "pf.record.v1",
+      mission: "sorting-networks",
+      lemma_id: "SN-rec-013",
+      kind: "record",
+      score: 998,
+      file: k998Art,
+      theorem: "SortNet.Claims.SN_rec_013_s998.record",
+      checker: { ok: true, judge: "lean4", file_hash: "00", statement_hash: "00", core_hash: "00", by_seat: "donor-x" },
+    })
+  );
+  const rNonImp = verifyPrEntries(parseGitRawZ(rawEntry("100644", "A", k998Art) + rawEntry("100644", "A", k998Sub)));
+  assert(!rNonImp.ok && rNonImp.reports[0]?.reason?.includes("does not improve"), "PR Gate KotH: rejects non-improving score 998 > 46", JSON.stringify(rNonImp));
+
+  // 2 record submissions in one PR rejected (BOTH on donor lane AND under --allow-meta!)
+  const twoEntries = parseGitRawZ(
+    rawEntry("100644", "A", k999Art) +
+      rawEntry("100644", "A", k999Sub) +
+      rawEntry("100644", "A", k998Art) +
+      rawEntry("100644", "A", k998Sub)
+  );
+  const rTwo = verifyPrEntries(twoEntries);
+  const rTwoMeta = verifyPrEntries(twoEntries, { allowInfra: true, allowMeta: true });
+  assert(
+    !rTwo.ok &&
+      rTwo.reason.includes("exactly 1 claim and 1 submission") &&
+      !rTwoMeta.ok &&
+      rTwoMeta.reports.some((r) => r.reason?.includes("Duplicate or conflicting record submission")),
+    "PR Gate KotH: rejects 2 record submissions in one PR (donor AND --allow-meta)",
+    JSON.stringify({ rTwo, rTwoMeta })
+  );
+
+  // Frozen Statements/SN_rec_013.lean mutation blocked once record history > 0!
+  const stmtMut = classifyEntries(parseGitRawZ(rawEntry("100644", "M", "missions/sorting-networks/lean/SortNet/Statements/SN_rec_013.lean")));
+  assert(
+    stmtMut.frozenStatementMutations.length === 1 && stmtMut.frozenStatementMutations[0].lemma_id === "SN-rec-013",
+    "PR Gate KotH: freezes Statements/SN_rec_013.lean once record history > 0",
+    JSON.stringify(stmtMut)
+  );
+} finally {
+  for (const f of tmpKoth) {
+    try { fs.unlinkSync(f); } catch {}
+  }
+}
+
 if (failed > 0) {
   console.error(`\n${failed} suite test(s) failed!`);
   process.exit(1);
 }
-console.log("\nALL REGRESSION, SECURITY-MATRIX & BUILD TESTS PASSED!");
+console.log("\nALL REGRESSION, SECURITY-MATRIX, KING-OF-THE-HILL & BUILD TESTS PASSED!");

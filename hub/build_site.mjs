@@ -1,13 +1,6 @@
 #!/usr/bin/env node
 /**
- * hub/build_site.mjs — Pure static site & PROOFS.md builder (v3).
- *
- * Hardened per Opus 5.5 + Astra 6.2 reviews:
- * - Pure derivation (`deriveMissionState`): NEVER mutates tracked `state.json` on disk!
- * - Always publishes fresh `dist/PROOFS.md` directly on GitHub Pages; only writes repo-root
- *   `PROOFS.md` when invoked with `--sync-root-proofs`.
- * - Per-line resilient NDJSON event reader (one corrupt line never wipes event history).
- * - Mission-scoped PR map (`by_mission_claim` + `by_claim`) paginating up to 200 open PRs.
+ * hub/build_site.mjs — Pure static site & PROOFS.md builder (v4 — with King of the Hill Scoreboards).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -44,9 +37,7 @@ export function readEvents(eventsPath, limit = 160) {
     for (let i = Math.max(0, lines.length - limit); i < lines.length; i++) {
       try {
         parsed.push(JSON.parse(lines[i]));
-      } catch {
-        // Skip malformed event line without losing the rest of the audit log
-      }
+      } catch {}
     }
     return parsed.reverse();
   } catch {
@@ -55,8 +46,8 @@ export function readEvents(eventsPath, limit = 160) {
 }
 
 /**
- * Fetch up to 200 open PRs from GitHub (non-fatal offline fallback) keyed by BOTH
- * `mission/claimId` (from changed submission paths) and bare `claimId` (from title fallback).
+ * Fetch up to 200 open PRs keyed by `mission/claimId` and bare `claimId`
+ * (supports E-ram-001, SN-001, SN-rec-013, E-rec-200, L-rec-005, S-num-003!).
  */
 export function fetchOpenPRs(repo = "steph4n-gh/proof-foundry") {
   const fetchedAt = new Date().toISOString();
@@ -84,20 +75,16 @@ export function fetchOpenPRs(repo = "steph4n-gh/proof-foundry") {
       const bareIds = new Set();
 
       for (const f of pr.files || []) {
-        const m = String(f.path || "").match(/^missions\/([a-z0-9-_]+)\/submissions\/([A-Z]-[a-z0-9]+-\d+)\./);
+        const m = String(f.path || "").match(/^missions\/([a-z0-9-_]+)\/submissions\/([A-Za-z0-9-]+)\./);
         if (m) scopedKeys.add(`${m[1]}/${m[2]}`);
       }
       if (scopedKeys.size === 0) {
-        const titleMatches = String(pr.title || "").matchAll(/\b([A-Z]-[a-z0-9]+-\d+)\b/g);
+        const titleMatches = String(pr.title || "").matchAll(/\b([A-Z]{1,3}-(?:[a-zA-Z0-9]+-)?\d+)\b/g);
         for (const m of titleMatches) bareIds.add(m[1]);
       }
 
-      for (const key of scopedKeys) {
-        (byMissionClaim[key] = byMissionClaim[key] || []).push(info);
-      }
-      for (const id of bareIds) {
-        (byClaim[id] = byClaim[id] || []).push(info);
-      }
+      for (const key of scopedKeys) (byMissionClaim[key] = byMissionClaim[key] || []).push(info);
+      for (const id of bareIds) (byClaim[id] = byClaim[id] || []).push(info);
     }
     return { ok: true, fetched_at: fetchedAt, by_mission_claim: byMissionClaim, by_claim: byClaim };
   } catch {
@@ -119,6 +106,8 @@ export function buildMissionSnapshot(mission, prSnap = null) {
     trusted: 0,
     audited_faithful: 0,
     frozen_matched: 0,
+    records_active: 0,
+    records_closed: 0,
     flagged: 0,
     contradiction: 0,
     in_work: 0,
@@ -143,6 +132,25 @@ export function buildMissionSnapshot(mission, prSnap = null) {
       seenPrNums.add(p.number);
       return true;
     });
+
+    if (l.kind === "record") {
+      if (l.record_state?.contradiction) counts.contradiction++;
+      else if (l.record_state?.closed) {
+        counts.records_closed++;
+        counts.checked++;
+        counts.frozen_matched++;
+        counts.trusted++;
+      } else {
+        counts.records_active++;
+        counts.conjecture++;
+      }
+      if (l.record_state?.best && !l.record_state?.contradiction) {
+        if (l.aims_at === leftKey) counts.aims_left_checked++;
+        else if (l.aims_at === rightKey) counts.aims_right_checked++;
+        else counts.aims_neutral_checked++;
+      }
+      return { ...l, seal, open_prs };
+    }
 
     counts[l.status] = (counts[l.status] || 0) + 1;
     if (seal === "audited") counts.audited_faithful++;
@@ -186,9 +194,12 @@ export function buildMissionSnapshot(mission, prSnap = null) {
       return {
         id: r.id,
         expect: r.expect,
+        kind: l?.kind || "claim",
         title: l?.title || r.id,
         status: l?.status || "conjecture",
         seal: l?.seal || "open",
+        record_state: l?.record_state || null,
+        record: l?.record || null,
         open_prs: l?.open_prs || [],
         done,
       };
@@ -233,6 +244,7 @@ export function buildMissionSnapshot(mission, prSnap = null) {
 export function renderMasterProofsMarkdown(snapshots) {
   const sealIcons = {
     frozen: "◆ Frozen",
+    record: "♛ Record",
     audited: "✓ Audited",
     provisional: "◇ Provisional",
     flagged: "⚠ Flagged",
@@ -243,27 +255,56 @@ export function renderMasterProofsMarkdown(snapshots) {
   let totalChecked = 0;
   let totalRefuted = 0;
   let totalAudited = 0;
+  const allRecords = [];
+
   for (const s of snapshots) {
     totalChecked += s.counts.checked;
     totalRefuted += s.counts.refuted;
     totalAudited += s.counts.trusted;
+    for (const l of s.lemmas) {
+      if (l.kind === "record") allRecords.push({ mission: s.mission, lemma: l });
+    }
   }
 
   const lines = [
     "# Proof Foundry — Master Verified Catalog",
     "",
-    `> Auto-generated from conflict-free mission records. **${totalChecked} Judge-verified proofs** (${totalAudited} cross-model audited / frozen-matched) and **${totalRefuted} Judge-verified refutations** across ${snapshots.length} open-science missions.`,
+    `> Auto-generated from conflict-free mission records. **${totalChecked} Judge-verified proofs** (${totalAudited} cross-model audited / frozen-matched), **${totalRefuted} Judge-verified refutations**, and **${allRecords.length} King-of-the-Hill auto-ratcheting record hunts** across ${snapshots.length} open-science missions.`,
     "",
-    "**Trust Seal Legend:** `◆ Frozen` (kernel type-matched against frozen statement) · `✓ Audited` (independent cross-model faithfulness audit passed) · `◇ Provisional` (kernel verified, audit pending) · `⚠ Flagged` (audit found statement/title gap — does NOT count toward Objective completion) · `✕ Refuted` (Judge-verified counterexample).",
+    "**Trust Seal Legend:** `◆ Frozen` (kernel type-matched against frozen statement) · `♛ Record` (active King-of-the-Hill holder — open to beat!) · `✓ Audited` (cross-model faithfulness audit passed) · `◇ Provisional` (kernel verified, audit pending) · `⚠ Flagged` (audit found statement/title gap) · `✕ Refuted` (Judge-verified counterexample).",
     "",
   ];
+
+  if (allRecords.length) {
+    lines.push("## King of the Hill — Live Auto-Ratcheting Record Hunts");
+    lines.push("");
+    lines.push("| Mission | ID | Target | Current Best | Next Target | Proven Lower Bound | Holder | Status |");
+    lines.push("|---|---|---|---|---|---|---|---|");
+    for (const { mission, lemma: l } of allRecords) {
+      const rs = l.record_state || {};
+      const cfg = l.record || {};
+      const unit = cfg.unit || "";
+      const bestTxt = rs.best ? `**${rs.best.score}** ${unit}` : `*(unclaimed, ceiling ${cfg.start_target})*`;
+      const nextTxt = rs.contradiction
+        ? "Halted (Contradiction)"
+        : rs.closed
+        ? "Exact Optimal ✓"
+        : `\`≤ ${rs.next_target ?? cfg.start_target}\``;
+      const lbTxt = rs.refuted ? `≥ ${rs.refuted.inclusive_bound}` : cfg.literature_lower_bound ? `*(lit. ${cfg.literature_lower_bound})*` : "—";
+      const holder = rs.best ? `\`${rs.best.seat}\`` : "—";
+      const status = rs.contradiction ? "⛔ Contradiction" : rs.closed ? "◆ Closed Optimal" : rs.best ? "♛ Active Hunt" : "○ Open Hunt";
+      const safeTitle = String(l.title || "").replace(/\|/g, "\\|");
+      lines.push(`| \`${mission.slug}\` | \`${l.id}\` | ${safeTitle} | ${bestTxt} | ${nextTxt} | ${lbTxt} | ${holder} | ${status} |`);
+    }
+    lines.push("");
+  }
 
   for (const snap of snapshots) {
     lines.push(`## ${snap.mission.title} (\`${snap.mission.slug}\`)`);
     lines.push(`*Judge: ${snap.mission.judge?.label}*\n`);
-    const verified = snap.lemmas.filter((l) => l.status === "checked" || l.status === "refuted" || l.status === "contradiction");
+    const verified = snap.lemmas.filter((l) => l.kind !== "record" && (l.status === "checked" || l.status === "refuted" || l.status === "contradiction"));
     if (!verified.length) {
-      lines.push("_No verified claims yet._\n");
+      lines.push("_No closed proofs yet (see King of the Hill hunts above or open bounties on the dashboard)._\n");
       continue;
     }
     lines.push("| ID | Seal | Plain Statement | Artifact | Axioms / Checks | SHA-256 |");
@@ -308,10 +349,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     fs.writeFileSync(path.join(mDir, "state.json"), JSON.stringify(snap), "utf8");
 
     for (const l of snap.lemmas) {
+      const activeFile = l.kind === "record" ? l.record_state?.best?.file : l.lean_file;
       const dossier = {
         lemma: l,
-        leanSource: readAllowedArtifactFile(mission, l.lean_file),
-        refutationSource: readAllowedArtifactFile(mission, l.refutation?.counterexample_file),
+        leanSource: readAllowedArtifactFile(mission, activeFile),
+        refutationSource: readAllowedArtifactFile(mission, l.kind === "record" ? l.record_state?.refuted?.file : l.refutation?.counterexample_file),
         statementSource: l.statement_file ? readAllowedArtifactFile(mission, l.statement_file) : null,
         relatedMessages: (snap.messages || []).filter((m) => m.lemma_id === l.id),
         relatedRuns: (snap.checker_runs || []).filter((r) => r.lemma_id === l.id),

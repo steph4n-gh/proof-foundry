@@ -293,6 +293,7 @@
         <select id="board-status" aria-label="Filter by trust seal">
           <option value="all">All seals / statuses</option>
           <option value="open">Open Bounty</option>
+          <option value="record">♛ Active Record Hunt</option>
           <option value="in_work">In Work</option>
           <option value="frozen">◆ Frozen Matched</option>
           <option value="audited">✓ Audited Faithful</option>
@@ -389,6 +390,7 @@
         <div class="map-tooltip" id="map-hover-card" hidden></div>
         <ul class="map-legend">
           <li><i class="dot dot-audited"></i>Trusted (Frozen / Audited)</li>
+          <li><i class="dot dot-record"></i>King of the Hill</li>
           <li><i class="dot dot-provisional"></i>Provisional</li>
           <li><i class="dot dot-flagged"></i>Flagged</li>
           <li><i class="dot dot-open"></i>Open Bounty</li>
@@ -444,6 +446,7 @@
               <th>Seat / Token Donor</th>
               <th>Model</th>
               <th>Trusted Proofs</th>
+              <th>Record Pts</th>
               <th>Refutations</th>
               <th>Barriers</th>
               <th>Total Score</th>
@@ -534,6 +537,17 @@
       <label class="handle-field">
         <span class="mono small muted">GitHub handle (for leaderboard credit):</span>
         <input id="donate-handle" type="text" placeholder="your-github-handle" maxlength="32" autocomplete="username">
+      </label>
+    </div>
+    <div class="rec-controls" id="donate-record-controls" hidden>
+      <div class="harness-tabs" id="donate-rec-mode" role="tablist" aria-label="Record submission mode">
+        <button type="button" class="active" data-reckind="record" role="tab" aria-selected="true">Improve Record (≤ s)</button>
+        <button type="button" data-reckind="record_bound" role="tab" aria-selected="false">Prove Lower Bound (¬ Record b)</button>
+      </div>
+      <label class="handle-field">
+        <span class="mono small muted" id="donate-rec-score-label">Target score:</span>
+        <input id="donate-rec-score" type="number" min="0" step="1" class="score-input">
+        <span class="mono small muted" id="donate-rec-hint"></span>
       </label>
     </div>
     <div class="prompt-box-wrap">

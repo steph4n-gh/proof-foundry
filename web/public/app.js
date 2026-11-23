@@ -26,6 +26,8 @@
   let DONATE_LEMMA = null;
   let DONATE_HARNESS = localStorage.getItem("pf-harness") || "claude";
   let DONATE_HANDLE = localStorage.getItem("pf-handle") || "";
+  let DONATE_REC_KIND = "record";
+  let DONATE_REC_SCORE = null;
 
   // Command palette state
   let CMD_ITEMS = [];
@@ -80,7 +82,12 @@
   function sealOf(lemma) {
     if (!lemma) return "open";
     if (lemma.seal) return lemma.seal;
-    if (lemma.status === "contradiction") return "contradiction";
+    if (lemma.status === "contradiction" || lemma.record_state?.contradiction) return "contradiction";
+    if (lemma.kind === "record") {
+      if (lemma.record_state?.closed) return "frozen";
+      if (lemma.record_state?.best) return "record";
+      return "open";
+    }
     if (lemma.audit?.status === "flagged") return "flagged";
     if (lemma.status === "checked") {
       if (lemma.checker?.statement_frozen) return "frozen";
@@ -95,6 +102,7 @@
 
   const SEAL_META = {
     frozen: { label: "◆ Frozen", title: "Kernel type-matched against frozen statement" },
+    record: { label: "♛ Record", title: "Active King-of-the-Hill record hunt — open to beat!" },
     audited: { label: "✓ Audited", title: "Kernel-verified + independent cross-model audit passed" },
     provisional: { label: "◇ Provisional", title: "Kernel-verified; awaiting independent cross-model audit" },
     flagged: { label: "⚠ Flagged", title: "Cross-model audit flagged statement/title gap (excluded from objectives)" },
@@ -106,6 +114,20 @@
   };
 
   function sealHTML(lemmaOrSeal) {
+    if (lemmaOrSeal && typeof lemmaOrSeal === "object" && lemmaOrSeal.kind === "record") {
+      const rs = lemmaOrSeal.record_state || {};
+      const cfg = lemmaOrSeal.record || {};
+      if (rs.contradiction) {
+        return `<span class="seal seal-contradiction" title="${esc(SEAL_META.contradiction.title)}">⛔ Contradiction</span>`;
+      }
+      if (rs.closed && rs.best) {
+        return `<span class="seal seal-frozen" title="Exact optimal proven and closed">◆ Optimal (${safeInt(rs.best.score)})</span>`;
+      }
+      if (rs.best) {
+        return `<span class="seal seal-record" title="Current record held by ${esc(rs.best.seat || "donor")} — beat with ≤ ${safeInt(rs.next_target)}">♛ Record ${safeInt(rs.best.score)} · ≤${safeInt(rs.next_target)}</span>`;
+      }
+      return `<span class="seal seal-record" title="Open King-of-the-Hill hunt — launch ceiling ≤ ${safeInt(cfg.start_target)}">♛ Hunt · ≤${safeInt(cfg.start_target)}</span>`;
+    }
     const key = typeof lemmaOrSeal === "string" ? lemmaOrSeal : sealOf(lemmaOrSeal);
     const m = SEAL_META[key] || SEAL_META.open;
     return `<span class="seal seal-${esc(key)}" title="${esc(m.title)}">${esc(m.label)}</span>`;
@@ -133,7 +155,23 @@
   }
 
   function isClaimDonateable(lemma) {
-    return lemma && (lemma.status === "conjecture" || lemma.status === "in_work");
+    if (!lemma) return false;
+    if (lemma.kind === "record") {
+      return !lemma.record_state?.closed && !lemma.record_state?.contradiction;
+    }
+    return lemma.status === "conjecture" || lemma.status === "in_work";
+  }
+
+  function computeRecordTargetsUI(slug, lemma, kind, score) {
+    const rec = lemma?.record || {};
+    const tag = kind === "record_bound" ? `not_s${score}` : `s${score}`;
+    const stem = rec.file_stem || lemma.id.replace(/-/g, "_");
+    const claimsDir = rec.claims_dir || `missions/${slug}/lean/Claims`;
+    const artifactFile = `${claimsDir}/${stem}_${tag}.lean`;
+    const submissionFile = `missions/${slug}/submissions/${lemma.id}.${kind}.s${score}.json`;
+    const tpl = rec.theorem_template || `${stem}_{tag}.record`;
+    const theoremName = tpl.replace(/\{tag\}/g, tag);
+    return { tag, artifactFile, submissionFile, theoremName };
   }
 
   // URL Sync
@@ -342,7 +380,7 @@
     const repo = snap.mission?.github_repo || "steph4n-gh/proof-foundry";
     $("#gh-repo-link").href = `https://github.com/${repo}`;
     $("#hub-proofs-link").href = STATIC_MODE ? "./PROOFS.md" : "/PROOFS.md";
-    const openCount = snap.lemmas.filter((l) => l.status === "conjecture").length;
+    const openCount = snap.lemmas.filter((l) => isClaimDonateable(l) && l.status !== "in_work").length;
     $("#nav-bounty-count").textContent = String(openCount);
 
     const pillDot = $("#sse-pill .pulse-dot");
@@ -463,16 +501,16 @@
     if (!STATE) return null;
     const byId = Object.fromEntries(STATE.lemmas.map((l) => [l.id, l]));
     const open = STATE.lemmas
-      .filter((l) => l.status === "conjecture")
+      .filter((l) => isClaimDonateable(l) && l.status !== "in_work")
       .sort((a, b) => {
-        const aNoPr = (a.open_prs?.length || 0) === 0 ? 1 : 0;
-        const bNoPr = (b.open_prs?.length || 0) === 0 ? 1 : 0;
+        const aNoPr = a.kind === "record" || (a.open_prs?.length || 0) === 0 ? 1 : 0;
+        const bNoPr = b.kind === "record" || (b.open_prs?.length || 0) === 0 ? 1 : 0;
         if (bNoPr !== aNoPr) return bNoPr - aNoPr;
         const aFroz = a.statement_file ? 1 : 0;
         const bFroz = b.statement_file ? 1 : 0;
         if (bFroz !== aFroz) return bFroz - aFroz;
-        const aDepsOk = (a.deps || []).every((d) => !byId[d] || byId[d].status === "checked" || byId[d].status === "refuted") ? 1 : 0;
-        const bDepsOk = (b.deps || []).every((d) => !byId[d] || byId[d].status === "checked" || byId[d].status === "refuted") ? 1 : 0;
+        const aDepsOk = (a.deps || []).every((d) => !byId[d] || byId[d].status === "checked" || byId[d].status === "refuted" || byId[d].record_state?.best) ? 1 : 0;
+        const bDepsOk = (b.deps || []).every((d) => !byId[d] || byId[d].status === "checked" || byId[d].status === "refuted" || byId[d].record_state?.best) ? 1 : 0;
         if (bDepsOk !== aDepsOk) return bDepsOk - aDepsOk;
         return (a.rung || 99) - (b.rung || 99);
       });
@@ -542,7 +580,12 @@
           .map((o) => {
             const rungs = (o.items || [])
               .map((it) => {
-                const expTag = it.expect === "refutation" ? `<span class="prog-tag" title="Refutation required">REFUTE</span>` : "";
+                const expTag =
+                  it.expect === "refutation"
+                    ? `<span class="prog-tag" title="Refutation required">REFUTE</span>`
+                    : it.expect && typeof it.expect === "object" && it.expect.record_at_most != null
+                    ? `<span class="prog-tag" title="Milestone target score">GOAL ≤${safeInt(it.expect.record_at_most)}</span>`
+                    : "";
                 const prTag = (it.open_prs || []).length
                   ? `<span class="pr-pill">◷ PR #${safeInt(it.open_prs[0].number)}</span>`
                   : "";
@@ -553,7 +596,7 @@
                       <span class="rung-title">${esc(it.title)}</span>
                     </span>
                     <span class="rung-meta">
-                      ${expTag}${prTag}${sealHTML(it.seal)}
+                      ${expTag}${prTag}${sealHTML(it)}
                     </span>
                   </button>`;
               })
@@ -575,10 +618,15 @@
           .join("")
       : `<div class="empty-state">No objectives configured for this mission yet.</div>`;
 
-    // Top Open Bounties
+    // Top Open Bounties (prioritize active King-of-the-Hill hunts & frozen targets)
     const openBounties = STATE.lemmas
-      .filter((l) => l.status === "conjecture")
-      .sort((a, b) => (b.statement_file ? 1 : 0) - (a.statement_file ? 1 : 0) || (a.rung || 99) - (b.rung || 99))
+      .filter((l) => isClaimDonateable(l) && l.status !== "in_work")
+      .sort(
+        (a, b) =>
+          (b.kind === "record" ? 1 : 0) - (a.kind === "record" ? 1 : 0) ||
+          (b.statement_file ? 1 : 0) - (a.statement_file ? 1 : 0) ||
+          (a.rung || 99) - (b.rung || 99)
+      )
       .slice(0, 6);
     $("#control-bounties").innerHTML = openBounties.length
       ? openBounties.map(renderBountyCard).join("")
@@ -618,14 +666,31 @@
   }
 
   function renderBountyCard(l) {
-    const frozenChip = l.statement_file
+    const isRec = l.kind === "record";
+    const rs = l.record_state || {};
+    const cfg = l.record || {};
+    const frozenChip = isRec
+      ? `<span class="seal seal-frozen" title="Auto-ratcheting King-of-the-Hill frozen statement">♛ King of the Hill</span>`
+      : l.statement_file
       ? `<span class="seal seal-frozen" title="Frozen formal statement: ${esc(l.statement_file)}">◆ Frozen Target</span>`
       : "";
     const deps = (l.deps || []).length
       ? `<span class="mono small muted">deps: ${(l.deps || []).map(esc).join(", ")}</span>`
       : `<span class="mono small muted">standalone</span>`;
+    let donateLabel = "Donate Tokens";
+    if (isRec) {
+      const nextT = rs.next_target ?? cfg.start_target;
+      donateLabel = rs.best ? `Beat Record (≤ ${safeInt(nextT)})` : `Start Hunt (≤ ${safeInt(nextT)})`;
+    }
     const donateBtn = isClaimDonateable(l)
-      ? `<button class="btn btn-primary btn-sm" type="button" data-donate-claim="${esc(l.id)}">Donate Tokens</button>`
+      ? `<button class="btn btn-primary btn-sm" type="button" data-donate-claim="${esc(l.id)}">${esc(donateLabel)}</button>`
+      : "";
+    const recBanner = isRec
+      ? `<div class="rec-banner">
+           <span>${rs.best ? `Best: <strong>${safeInt(rs.best.score)}</strong> ${esc(cfg.unit || "")} (${esc(rs.best.seat)})` : `Unclaimed · Ceiling ≤ <strong>${safeInt(cfg.start_target)}</strong> ${esc(cfg.unit || "")}`}</span>
+           <span>${rs.closed ? `Exact Optimal ✓` : `Target: <strong>≤ ${safeInt(rs.next_target ?? cfg.start_target)}</strong>`}</span>
+           <span>${rs.refuted ? `Proven LB: <strong>≥ ${safeInt(rs.refuted.inclusive_bound)}</strong>` : cfg.literature_lower_bound ? `Lit. LB: ${safeInt(cfg.literature_lower_bound)}` : ""}</span>
+         </div>`
       : "";
     return `
       <article class="bounty-card">
@@ -641,6 +706,7 @@
           </div>
         </div>
         <p class="bounty-title">${esc(l.title)}</p>
+        ${recBanner}
         <pre class="bounty-stmt">${esc(l.registered_statement || l.statement || l.theorem_name)}</pre>
         <div class="bounty-foot">
           ${deps}
@@ -678,9 +744,13 @@
 
     const filtered = (STATE.lemmas || []).filter((l) => {
       const s = sealOf(l);
-      if (BOUNTY_MODE === "open" && l.status !== "conjecture" && l.status !== "in_work") return false;
+      if (BOUNTY_MODE === "open" && !isClaimDonateable(l)) return false;
       if (prog !== "all" && l.program !== prog) return false;
-      if (sealFilter !== "all" && s !== sealFilter) return false;
+      if (sealFilter === "record") {
+        if (s !== "record" && !(l.kind === "record" && !l.record_state?.closed && !l.record_state?.contradiction)) return false;
+      } else if (sealFilter !== "all" && s !== sealFilter) {
+        return false;
+      }
       if (q) {
         const hay = `${l.id} ${l.title} ${l.statement} ${l.theorem_name} ${l.paper_notes || ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
@@ -691,7 +761,12 @@
     if (BOUNTY_MODE === "open") {
       $("#bounties-open-grid").hidden = false;
       $("#bounties-table-wrap").hidden = true;
-      const sorted = [...filtered].sort((a, b) => (b.statement_file ? 1 : 0) - (a.statement_file ? 1 : 0) || (a.rung || 99) - (b.rung || 99));
+      const sorted = [...filtered].sort(
+        (a, b) =>
+          (b.kind === "record" ? 1 : 0) - (a.kind === "record" ? 1 : 0) ||
+          (b.statement_file ? 1 : 0) - (a.statement_file ? 1 : 0) ||
+          (a.rung || 99) - (b.rung || 99)
+      );
       $("#bounties-open-grid").innerHTML = sorted.length
         ? sorted.map(renderBountyCard).join("")
         : `<div class="empty-state">No open bounties match your filter. Switch to <strong>Full Claim Table</strong> to view all completed &amp; audited proofs.</div>`;
@@ -701,8 +776,14 @@
       $("#board-tbody").innerHTML = filtered.length
         ? filtered
             .map((l) => {
-              const actor = l.checker?.by_seat || l.refutation?.by_seat || l.epitaph?.by_seat || l.claimed_by || "—";
-              const dur = l.checker?.duration_ms || l.refutation?.duration_ms;
+              const actor =
+                l.kind === "record"
+                  ? l.record_state?.best?.seat || "—"
+                  : l.checker?.by_seat || l.refutation?.by_seat || l.epitaph?.by_seat || l.claimed_by || "—";
+              const dur =
+                l.kind === "record"
+                  ? l.record_state?.best?.duration_ms
+                  : l.checker?.duration_ms || l.refutation?.duration_ms;
               return `
                 <tr data-open-claim="${esc(l.id)}">
                   <td class="mono"><button class="table-id-btn" type="button" data-open-claim="${esc(l.id)}">${esc(l.id)}</button></td>
@@ -821,6 +902,7 @@
   function sealColor(seal) {
     const dark = document.documentElement.getAttribute("data-theme") !== "light";
     if (seal === "frozen") return dark ? "#22d3ee" : "#0891b2";
+    if (seal === "record") return dark ? "#c084fc" : "#7e22ce";
     if (seal === "audited") return dark ? "#10b981" : "#059669";
     if (seal === "provisional") return dark ? "#94a3b8" : "#64748b";
     if (seal === "flagged" || seal === "in_work") return dark ? "#f59e0b" : "#d97706";
@@ -1057,31 +1139,43 @@
   // 5. LEADERBOARD
   // =========================================================================
   function renderLeaderboard() {
-    // Credit ONLY trusted non-flagged proofs + verified refutations + barrier rulings
+    // Credit ONLY trusted non-flagged proofs + King-of-the-Hill delta record points + verified refutations + barrier rulings
     const seatStats = new Map();
     const ensure = (id) => {
       if (!seatStats.has(id)) {
         const s = seatById(id);
-        seatStats.set(id, { id, name: s?.name || id, model: s?.model || "Community Donor", trusted: 0, refuted: 0, dead: 0 });
+        seatStats.set(id, { id, name: s?.name || id, model: s?.model || "Community Donor", trusted: 0, recordPts: 0, recordWins: 0, refuted: 0, dead: 0 });
       }
       return seatStats.get(id);
     };
     for (const s of STATE.seats || []) ensure(s.id);
     for (const l of STATE.lemmas || []) {
+      if (l.kind === "record") {
+        const rs = l.record_state;
+        if (rs && !rs.contradiction) {
+          for (const [seatId, pts] of Object.entries(rs.points_by_seat || {})) {
+            ensure(seatId).recordPts += safeInt(pts);
+          }
+          for (const h of rs.history || []) {
+            if (h.state === "accepted" && h.seat) ensure(h.seat).recordWins++;
+          }
+        }
+        continue;
+      }
       const seal = sealOf(l);
       if ((seal === "audited" || seal === "frozen") && l.checker?.by_seat) ensure(l.checker.by_seat).trusted++;
       if (seal === "refuted" && l.refutation?.by_seat) ensure(l.refutation.by_seat).refuted++;
       if (seal === "dead" && l.epitaph?.by_seat) ensure(l.epitaph.by_seat).dead++;
     }
     const rows = [...seatStats.values()]
-      .map((r) => ({ ...r, score: r.trusted * 10 + r.refuted * 10 + r.dead * 4 }))
-      .sort((a, b) => b.score - a.score || b.trusted - a.trusted);
+      .map((r) => ({ ...r, score: r.trusted * 10 + r.recordPts * 5 + r.refuted * 10 + r.dead * 4 }))
+      .sort((a, b) => b.score - a.score || b.trusted - a.trusted || b.recordPts - a.recordPts);
 
     // Group by model family
     const byModel = new Map();
     for (const r of rows) {
       const cur = byModel.get(r.model) || 0;
-      byModel.set(r.model, cur + r.trusted + r.refuted);
+      byModel.set(r.model, cur + r.trusted + r.refuted + r.recordWins);
     }
     const mList = [...byModel.entries()].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
     const maxM = Math.max(1, ...mList.map(([, n]) => n));
@@ -1102,6 +1196,8 @@
       `git clone https://github.com/${STATE.mission?.github_repo || "steph4n-gh/proof-foundry"}.git`,
       `node hub/fleet.mjs next --mission ${slug}`,
       `node hub/fleet.mjs verify --mission ${slug} --lemma <ID> --seat donor-<handle> --file <path> --theorem <name> --export`,
+      `# Or for King of the Hill records:`,
+      `node hub/fleet.mjs record --mission ${slug} --lemma <ID> --score <N> --seat donor-<handle> --export`,
       `# Commit ONLY your artifact + missions/${slug}/submissions/<ID>.*.json and open a PR!`,
     ].join("\n");
 
@@ -1113,6 +1209,7 @@
           <td><strong>${esc(r.name)}</strong><div class="mono small muted">${esc(r.id)}</div></td>
           <td>${esc(r.model)}</td>
           <td class="mono tabular">${r.trusted}</td>
+          <td class="mono tabular">${r.recordPts}</td>
           <td class="mono tabular">${r.refuted}</td>
           <td class="mono tabular">${r.dead}</td>
           <td class="mono tabular"><strong>${r.score}</strong></td>
@@ -1230,7 +1327,9 @@
 
   function renderDossierContent(d) {
     const l = d.lemma;
-    const seal = sealOf(l);
+    const isRec = l.kind === "record";
+    const rs = l.record_state || {};
+    const cfg = l.record || {};
     $("#drawer-id").textContent = l.id;
     $("#drawer-badge").innerHTML = `${sealHTML(l)} ${prBadgesHTML(l)}`;
 
@@ -1240,22 +1339,71 @@
            <span class="mono small"> · ${esc(l.audit.by_model || l.audit.by_seat)} · ${relTime(l.audit.at)}</span>
            <div style="margin-top:5px">${esc(l.audit.notes || "")}</div>
          </div>`
-      : l.status === "checked" && !l.checker?.statement_frozen
+      : !isRec && l.status === "checked" && !l.checker?.statement_frozen
       ? `<div class="audit-box"><strong>Provisional:</strong> Passed the mechanical Judge; awaiting independent cross-model faithfulness audit before counting toward Objectives.</div>`
       : "";
 
-    const chk = l.checker || l.refutation;
-    const receiptHTML = chk
-      ? `<div class="d-section">
-           <h4>Cryptographic Judge Receipt</h4>
+    let recordHTML = "";
+    if (isRec) {
+      const unit = cfg.unit || "";
+      const bestVal = rs.best ? `${safeInt(rs.best.score)} ${unit} (${rs.best.seat})` : `Unclaimed (ceiling ≤ ${safeInt(cfg.start_target)} ${unit})`;
+      const nextVal = rs.contradiction ? "Halted (Contradiction)" : rs.closed ? "Exact Optimal Closed ✓" : `≤ ${safeInt(rs.next_target ?? cfg.start_target)} ${unit}`;
+      const lbVal = rs.refuted ? `≥ ${safeInt(rs.refuted.inclusive_bound)} ${unit} (¬ Record ${safeInt(rs.refuted.score)} by ${rs.refuted.seat})` : "None proven in Lean yet";
+      const litVal = cfg.literature_best != null
+        ? `Best known: ${safeInt(cfg.literature_best)}${cfg.literature_lower_bound != null ? ` · LB: ${safeInt(cfg.literature_lower_bound)}` : ""} ${unit}`
+        : "—";
+      const histItems = [...(rs.history || [])].reverse();
+      const histHTML = histItems.length
+        ? `<ul class="rec-history">
+            ${histItems
+              .map((h) => {
+                const badgeCls =
+                  h.state === "accepted"
+                    ? "seal-audited"
+                    : h.state === "contradiction"
+                    ? "seal-contradiction"
+                    : "seal-provisional";
+                const label = h.kind === "record_bound" ? `¬ Record ${safeInt(h.score)}` : `Record ${safeInt(h.score)}`;
+                return `<li class="rec-hist-item">
+                  <span><strong class="mono">${esc(label)}</strong> · <span class="mono small">${esc(h.seat)}</span></span>
+                  <span><span class="mono small tabular">${h.points > 0 ? `+${safeInt(h.points)} pts` : "0 pts"}</span> <span class="seal ${badgeCls}">${esc(h.state)}</span></span>
+                </li>`;
+              })
+              .join("")}
+          </ul>`
+        : `<div class="empty-state" style="padding:14px">No Lean-verified record entries yet — claim the launch ceiling ≤ ${safeInt(cfg.start_target)} ${esc(unit)}!</div>`;
+      recordHTML = `
+        <div class="d-section">
+          <h4>♛ King of the Hill Scoreboard</h4>
+          <div class="d-kv">
+            <div class="d-kv-item"><span>Current Record Holder</span><strong>${esc(bestVal)}</strong></div>
+            <div class="d-kv-item"><span>Next Auto-Ratchet Target</span><strong class="mono">${esc(nextVal)}</strong></div>
+            <div class="d-kv-item"><span>Proven Lower Bound</span><strong>${esc(lbVal)}</strong></div>
+            <div class="d-kv-item"><span>Literature Reference</span><strong class="mono">${esc(litVal)}</strong></div>
+          </div>
+        </div>
+        <div class="d-section">
+          <h4>Record Progression History (${histItems.length})</h4>
+          ${histHTML}
+        </div>`;
+    }
+
+    function renderReceiptBlock(chkObj, label) {
+      if (!chkObj) return "";
+      return `<div class="d-section">
+           <h4>Cryptographic Judge Receipt${label ? ` (${esc(label)})` : ""}</h4>
            <div class="d-kv">
-             <div class="d-kv-item"><span>Engine / Judge</span><strong>${esc(chk.lean_version || chk.judge || "Lean 4")}</strong></div>
-             <div class="d-kv-item"><span>Duration / Axioms</span><strong class="mono tabular">${safeInt(chk.duration_ms)}ms · ${esc((chk.axioms || []).join(", ") || "none")}</strong></div>
-             <div class="d-kv-item"><span>Artifact SHA-256</span><strong class="mono">${esc((chk.file_hash || "—").slice(0, 18))}…</strong></div>
-             <div class="d-kv-item"><span>Core / Statement Hash</span><strong class="mono">${esc((chk.statement_hash || chk.core_hash || "—").slice(0, 18))}…</strong></div>
+             <div class="d-kv-item"><span>Engine / Judge</span><strong>${esc(chkObj.lean_version || chkObj.judge || "Lean 4")}</strong></div>
+             <div class="d-kv-item"><span>Duration / Axioms</span><strong class="mono tabular">${safeInt(chkObj.duration_ms)}ms · ${esc((chkObj.axioms || []).join(", ") || "none")}</strong></div>
+             <div class="d-kv-item"><span>Artifact SHA-256</span><strong class="mono">${esc((chkObj.file_hash || "—").slice(0, 18))}…</strong></div>
+             <div class="d-kv-item"><span>Core / Statement Hash</span><strong class="mono">${esc((chkObj.statement_hash || chkObj.core_hash || "—").slice(0, 18))}…</strong></div>
            </div>
-         </div>`
-      : "";
+         </div>`;
+    }
+
+    const receiptHTML = isRec
+      ? `${renderReceiptBlock(rs.best, "Current Record")}${renderReceiptBlock(rs.refuted, "Proven Lower Bound")}`
+      : renderReceiptBlock(l.checker || l.refutation, "");
 
     const frozenHTML = d.statementSource
       ? `<div class="d-section">
@@ -1264,14 +1412,23 @@
          </div>`
       : "";
 
-    const srcCode = l.status === "refuted" ? d.refutationSource : d.leanSource;
-    const srcPath = l.status === "refuted" ? l.refutation?.counterexample_file : l.lean_file;
+    const srcCode = isRec ? d.leanSource : l.status === "refuted" ? d.refutationSource : d.leanSource;
+    const srcPath = isRec ? rs.best?.file : l.status === "refuted" ? l.refutation?.counterexample_file : l.lean_file;
     const sourceHTML = srcCode
       ? `<div class="d-section">
-           <h4>Verified Artifact (${esc(srcPath || "")})</h4>
+           <h4>${isRec ? "Current Best Record Artifact" : "Verified Artifact"} (${esc(srcPath || "")})</h4>
            <pre class="source-pre">${esc(srcCode)}</pre>
          </div>`
       : "";
+
+    const boundCode = isRec ? (d.boundSource || d.refutationSource) : null;
+    const boundSourceHTML =
+      isRec && boundCode
+        ? `<div class="d-section">
+             <h4>Best Proven Lower Bound Artifact (${esc(rs.refuted?.file || "")})</h4>
+             <pre class="source-pre">${esc(boundCode)}</pre>
+           </div>`
+        : "";
 
     const depsHTML =
       (l.deps || []).length || (d.dependents || []).length
@@ -1284,9 +1441,14 @@
            </div>`
         : "";
 
+    const donateBtnLabel = isRec
+      ? rs.best
+        ? `Beat ${l.id} Record (Target ≤ ${safeInt(rs.next_target)})`
+        : `Start ${l.id} Hunt (Target ≤ ${safeInt(cfg.start_target)})`
+      : `Donate Spare Tokens to ${l.id}`;
     const actionHTML = isClaimDonateable(l)
       ? `<div class="d-section">
-           <button class="btn btn-primary" type="button" data-donate-claim="${esc(l.id)}">Donate Spare Tokens to ${esc(l.id)}</button>
+           <button class="btn btn-primary" type="button" data-donate-claim="${esc(l.id)}">${esc(donateBtnLabel)}</button>
          </div>`
       : "";
 
@@ -1298,6 +1460,7 @@
       </div>
       ${auditHTML}
       ${actionHTML}
+      ${recordHTML}
       <div class="d-section">
         <h4>Formal Target / Kernel Signature</h4>
         <pre class="bounty-stmt">${esc(l.verified_signature || l.registered_statement || l.statement || "")}</pre>
@@ -1305,6 +1468,7 @@
       ${receiptHTML}
       ${frozenHTML}
       ${sourceHTML}
+      ${boundSourceHTML}
       ${depsHTML}
     `;
   }
@@ -1327,12 +1491,61 @@
   // =========================================================================
   // INTERACTIVE DONATE TOKENS MODAL
   // =========================================================================
+  function defaultRecordScore(lemma, kind) {
+    const rs = lemma?.record_state || {};
+    const cfg = lemma?.record || {};
+    if (kind === "record_bound") {
+      if (rs.refuted) return safeInt(rs.refuted.score) + 1;
+      const floor = safeInt(cfg.bound_floor ?? 0);
+      const lit = cfg.literature_lower_bound != null ? Math.max(0, safeInt(cfg.literature_lower_bound) - 1) : floor;
+      return Math.max(floor, lit);
+    }
+    return safeInt(rs.next_target ?? cfg.start_target ?? 0);
+  }
+
+  function validateDonateRecordScore(lemma, kind, rawVal) {
+    const rs = lemma?.record_state || {};
+    const cfg = lemma?.record || {};
+    const str = String(rawVal ?? "").trim();
+    if (!/^(0|[1-9][0-9]*)$/.test(str)) {
+      return { ok: false, reason: "Enter a non-negative integer score." };
+    }
+    const score = Number(str);
+    const scoreMax = safeInt(cfg.score_max ?? 100000);
+    if (!Number.isSafeInteger(score) || score > scoreMax) {
+      return { ok: false, reason: `Score must be between 0 and ${scoreMax}.` };
+    }
+    if (kind === "record_bound") {
+      const floor = safeInt(cfg.bound_floor ?? 0);
+      if (rs.refuted && score <= rs.refuted.score) {
+        return { ok: false, reason: `Bound must beat current ¬ Record ${rs.refuted.score} (enter > ${rs.refuted.score}).` };
+      }
+      if (!rs.refuted && score < floor) {
+        return { ok: false, reason: `Bound must be at least ${floor} (proves ≥ ${floor + 1}).` };
+      }
+      if (rs.best && score >= rs.best.score) {
+        return { ok: false, reason: `Bound ${score} conflicts with current verified record ${rs.best.score} (enter < ${rs.best.score}).` };
+      }
+      return { ok: true, score };
+    }
+    const ceiling = safeInt(cfg.start_target ?? 0);
+    if (rs.best && score >= rs.best.score) {
+      return { ok: false, reason: `Score must beat current record ${rs.best.score} (enter ≤ ${rs.best.score - 1}).` };
+    }
+    if (!rs.best && score > ceiling) {
+      return { ok: false, reason: `Score must meet or beat launch ceiling ${ceiling} (enter ≤ ${ceiling}).` };
+    }
+    if (rs.refuted && score <= rs.refuted.score) {
+      return { ok: false, reason: `Score ${score} conflicts with proven lower bound ≥ ${rs.refuted.inclusive_bound}.` };
+    }
+    return { ok: true, score };
+  }
+
   function buildDonatePrompt(lemma, harness, handle) {
     const slug = STATE?.mission?.slug || CURRENT_MISSION;
     const repo = STATE?.mission?.github_repo || "steph4n-gh/proof-foundry";
     const cleanHandle = (handle || "my-handle").toLowerCase().replace(/[^a-z0-9-_]/g, "") || "my-handle";
     const seat = `donor-${cleanHandle}`;
-    const branch = `donor/${lemma.id.toLowerCase()}-${cleanHandle}`;
     const preamble = {
       claude: "You are helping me donate spare Claude Code tokens to Proof Foundry.",
       codex: "You are helping me donate spare Codex tokens to Proof Foundry.",
@@ -1340,6 +1553,38 @@
       t3: "Run this end-to-end in an isolated worktree to donate tokens to Proof Foundry.",
     }[harness] || "Donate my spare AI tokens to Proof Foundry.";
 
+    if (lemma.kind === "record") {
+      const kind = DONATE_REC_KIND === "record_bound" ? "record_bound" : "record";
+      const check = validateDonateRecordScore(lemma, kind, DONATE_REC_SCORE);
+      if (!check.ok) {
+        return `# Invalid target score: ${check.reason}\n# Fix the score above to generate a valid Lean 4 & PR Gate prompt.`;
+      }
+      const score = check.score;
+      const t = computeRecordTargetsUI(slug, lemma, kind, score);
+      const cliCmd = kind === "record_bound" ? "record-bound" : "record";
+      const typeStr = kind === "record_bound" ? `¬ ${lemma.statement_def} ${score}` : `${lemma.statement_def} ${score}`;
+      const branch = `donor/${lemma.id.toLowerCase()}-${t.tag}-${cleanHandle}`;
+      const ns = t.theoremName.split(".").slice(0, -1).join(".");
+      const shortThm = t.theoremName.split(".").pop();
+      return [
+        preamble,
+        `Repository: https://github.com/${repo}`,
+        `Mission: ${slug} · King-of-the-Hill Hunt: ${lemma.id} (${kind === "record_bound" ? `Lower Bound ≥ ${score + 1}` : `Record ≤ ${score}`})`,
+        `Goal: ${lemma.title}`,
+        ``,
+        `Instructions:`,
+        `1. Clone/pull \`https://github.com/${repo}\`, create branch \`${branch}\`, and read \`CONTRIBUTING_AGENTS.md\`.`,
+        `2. Read the FROZEN record statement in \`${lemma.statement_file}\` (do NOT modify Core or Statements files).`,
+        `3. Write a NEW score-stamped Lean 4 file at \`${t.artifactFile}\` (no sorry, no admit, no native_decide, no custom axioms) inside \`namespace ${ns}\` proving literally:`,
+        `   \`theorem ${shortThm} : ${typeStr} := ...\``,
+        `   (Use canonical numeral literal \`${score}\`${kind === "record_bound" ? " and literally `¬`, not `→ False`" : ""} — never edit older score files!)`,
+        `4. Verify locally & export the hashless record submission JSON:`,
+        `   node hub/fleet.mjs ${cliCmd} --mission ${slug} --lemma ${lemma.id} --score ${score} --seat ${seat} --file ${t.artifactFile} --export`,
+        `5. Commit ONLY \`${t.artifactFile}\` + \`${t.submissionFile}\` (never touch state.json or older files), push, and open a PR referencing ${lemma.id}.`,
+      ].join("\n");
+    }
+
+    const branch = `donor/${lemma.id.toLowerCase()}-${cleanHandle}`;
     const frozenStep = lemma.statement_file
       ? `2. Read the FROZEN formal statement in \`${lemma.statement_file}\`.\n   Your proof MUST import that module and state your theorem literally as:\n   \`theorem ${lemma.theorem_name.split(".").pop()} : ${lemma.statement_def} := ...\`\n   (Or \`: ¬ ${lemma.statement_def}\` if you find a genuine counterexample!).`
       : `2. Read \`${STATE?.mission?.judge?.core_file || "CONTRIBUTING_AGENTS.md"}\` and state your theorem matching:\n   \`${lemma.theorem_name} : ${lemma.registered_statement || lemma.statement}\`.`;
@@ -1363,6 +1608,33 @@
 
   function refreshDonatePrompt() {
     if (!DONATE_LEMMA) return;
+    const copyBtn = $("#donate-copy-btn");
+    if (DONATE_LEMMA.kind === "record") {
+      const cfg = DONATE_LEMMA.record || {};
+      const rs = DONATE_LEMMA.record_state || {};
+      const check = validateDonateRecordScore(DONATE_LEMMA, DONATE_REC_KIND, DONATE_REC_SCORE);
+      $("#donate-rec-score-label").textContent =
+        DONATE_REC_KIND === "record_bound" ? "Refute score b (proves ≥ b+1):" : `Target score (${cfg.unit || "cost"}):`;
+      const hintEl = $("#donate-rec-hint");
+      if (!check.ok) {
+        hintEl.textContent = `⚠ ${check.reason}`;
+        hintEl.style.color = "var(--coral)";
+        copyBtn.disabled = true;
+      } else {
+        hintEl.style.color = "";
+        hintEl.textContent =
+          DONATE_REC_KIND === "record_bound"
+            ? rs.refuted
+              ? `valid (> ${safeInt(rs.refuted.score)})`
+              : `valid (≥ ${safeInt(cfg.bound_floor ?? 0)})`
+            : rs.best
+            ? `valid (< ${safeInt(rs.best.score)})`
+            : `valid (≤ ${safeInt(cfg.start_target)})`;
+        copyBtn.disabled = false;
+      }
+    } else {
+      copyBtn.disabled = false;
+    }
     $("#donate-prompt-text").value = buildDonatePrompt(DONATE_LEMMA, DONATE_HARNESS, DONATE_HANDLE);
   }
 
@@ -1370,17 +1642,36 @@
     if (!lemma || !isClaimDonateable(lemma)) return;
     pushFocus(triggerEl);
     DONATE_LEMMA = lemma;
-    $("#donate-claim-meta").textContent = `${CURRENT_MISSION} · ${lemma.id}${lemma.statement_file ? " · ◆ Frozen Statement" : ""}`;
+    const isRec = lemma.kind === "record";
+    $("#donate-claim-meta").textContent = `${CURRENT_MISSION} · ${lemma.id}${isRec ? " · ♛ King of the Hill" : lemma.statement_file ? " · ◆ Frozen Statement" : ""}`;
     $("#donate-title").textContent = lemma.title.slice(0, 90);
     $("#donate-handle").value = DONATE_HANDLE;
     const repo = STATE?.mission?.github_repo || "steph4n-gh/proof-foundry";
     $("#donate-open-gh").href = `https://github.com/${repo}/pulls`;
 
+    // Record hunt controls
+    const recBox = $("#donate-record-controls");
+    if (isRec) {
+      DONATE_REC_KIND = "record";
+      DONATE_REC_SCORE = defaultRecordScore(lemma, "record");
+      $("#donate-rec-score").value = String(DONATE_REC_SCORE);
+      $$("#donate-rec-mode button").forEach((b) => {
+        const act = b.dataset.reckind === DONATE_REC_KIND;
+        b.classList.toggle("active", act);
+        b.setAttribute("aria-selected", act ? "true" : "false");
+      });
+      recBox.hidden = false;
+    } else {
+      recBox.hidden = true;
+    }
+
     // PR collision warning
     const prs = lemma.open_prs || [];
     const warn = $("#donate-pr-warn");
     if (prs.length) {
-      warn.innerHTML = `<strong>Heads up:</strong> Active PR ${prs.map((p) => `<a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">#${safeInt(p.number)}</a>`).join(", ")} already targets <code>${esc(lemma.id)}</code>. You may want to pick a different bounty to avoid duplicate work.`;
+      warn.innerHTML = isRec
+        ? `<strong>Active competition:</strong> PR ${prs.map((p) => `<a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">#${safeInt(p.number)}</a>`).join(", ")} also targets <code>${esc(lemma.id)}</code> — you can still submit any strictly better score or lower bound!`
+        : `<strong>Heads up:</strong> Active PR ${prs.map((p) => `<a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">#${safeInt(p.number)}</a>`).join(", ")} already targets <code>${esc(lemma.id)}</code>. You may want to pick a different bounty to avoid duplicate work.`;
       warn.hidden = false;
     } else {
       warn.hidden = true;
@@ -1417,6 +1708,23 @@
       x.classList.toggle("active", act);
       x.setAttribute("aria-selected", act ? "true" : "false");
     });
+    refreshDonatePrompt();
+  });
+  $("#donate-rec-mode").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-reckind]");
+    if (!b || !DONATE_LEMMA) return;
+    DONATE_REC_KIND = b.dataset.reckind;
+    DONATE_REC_SCORE = defaultRecordScore(DONATE_LEMMA, DONATE_REC_KIND);
+    $("#donate-rec-score").value = String(DONATE_REC_SCORE);
+    $$("#donate-rec-mode button").forEach((x) => {
+      const act = x === b;
+      x.classList.toggle("active", act);
+      x.setAttribute("aria-selected", act ? "true" : "false");
+    });
+    refreshDonatePrompt();
+  });
+  $("#donate-rec-score").addEventListener("input", (e) => {
+    DONATE_REC_SCORE = e.target.value;
     refreshDonatePrompt();
   });
   $("#donate-handle").addEventListener("input", (e) => {
