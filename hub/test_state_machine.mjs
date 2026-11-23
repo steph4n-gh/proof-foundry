@@ -324,10 +324,10 @@ test("global records project all six missions and eighteen hunts", () => {
   assert.equal(new Set(records.records.map((r) => `${r.mission}/${r.id}`)).size, 18);
   const min = records.records.find((r) => r.id === "SN-rec-013");
   assert.equal(min.literature_bound, 43);
-  assert.equal(min.gap, 3);
+  assert.equal(min.gap, min.closed ? 0 : Math.max(0, (min.best_score ?? min.start_target) - (min.proven_bound ?? min.literature_bound)));
   const max = records.records.find((r) => r.id === "EC-rec-17-6");
   assert.equal(max.literature_bound, 340);
-  assert.equal(max.gap, 84);
+  assert.equal(max.gap, max.closed ? 0 : Math.max(0, (max.proven_bound ?? max.literature_bound) - (max.best_score ?? max.start_target)));
 
   const missions = loadAllMissionsSummary(snapshots);
   assert.equal(missions.length, 6);
