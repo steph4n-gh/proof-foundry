@@ -1,0 +1,25 @@
+{
+  "schema": "fleet-submission/2",
+  "mission": "fast-matrix-mul",
+  "lemma_id": "MM-002",
+  "kind": "proof",
+  "at": "2026-11-23T23:21:31.203Z",
+  "file": "missions/fast-matrix-mul/lean/MatMul/Claims/MM_002.lean",
+  "theorem": "MatMul.Claims.MM_002.strassen_f2",
+  "signature": "MatMul.Claims.MM_002.strassen_f2 :\n  MatMul.Statements.MM_002.Claim",
+  "checker": {
+    "by_seat": "donor-steph4n-gh",
+    "duration_ms": 1254,
+    "axioms": [
+      "propext"
+    ],
+    "file_hash": "7ce82683fe15df467cb7d370fa309eb93f3c615037d2b0735b13853e71326a3a",
+    "core_hash": "54d4156c9a1c301d7cbea0c26db3bb5346f62c3c43cca4a264cff6698ef886cf",
+    "statement_frozen": true,
+    "statement_hash": "3a56ebdd6b907c888eec8734c9f77bf05068d8b1dc506788be9ad49c47f203c9",
+    "ok": true,
+    "judge": "lean4",
+    "checked_at": "2026-11-23T23:21:31.203Z",
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)"
+  }
+}
