@@ -1,0 +1,24 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "erdos-combinatorics",
+  "lemma_id": "E-rec-gol11",
+  "kind": "record",
+  "score": 72,
+  "file": "missions/erdos-combinatorics/lean/Erdos/Claims/E_rec_gol11_s72.lean",
+  "theorem": "Erdos.Claims.E_rec_gol11_s72.record",
+  "signature": "Erdos.Claims.E_rec_gol11_s72.record :\n  Erdos.Statements.E_rec_gol11.Record 72",
+  "at": "2026-11-23T22:37:59.064Z",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-23T22:37:59.065Z",
+    "duration_ms": 2178,
+    "axioms": [],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "4bc05c5da3bc35e31276d6837c6d6880a17c347ea0467bc48a5b931bb54e303c",
+    "core_hash": "d340c0dbbf11c6f8b34fdffed7b9b6a14a1587a2a516de89911dc5a93235a3d8",
+    "statement_frozen": true,
+    "statement_hash": "519a4a309282caba8a47aa1dee40e3bece33e6c86b9ed5cf33ed2f395705bf52"
+  }
+}

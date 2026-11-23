@@ -1,0 +1,28 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "verified-science-kernels",
+  "lemma_id": "S-rec-exp",
+  "kind": "record",
+  "score": 405,
+  "file": "missions/verified-science-kernels/artifacts/S_rec_exp_s405.mjs",
+  "theorem": "minimax_exp_deg7",
+  "signature": "minimax_exp_deg7 ≤ 405 (×10⁻¹³ max abs error) [measured=405, worst_x=0.245884]",
+  "at": "2026-11-23T22:39:10.459Z",
+  "checker": {
+    "ok": true,
+    "judge": "command",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-23T22:39:10.460Z",
+    "duration_ms": 87,
+    "axioms": [
+      "exact_128bit_bigint_exp",
+      "grid_4097",
+      "horner_float64_horner_full"
+    ],
+    "lean_version": "Deterministic 128-Bit BigInt Minimax Judge v4 (isolated child)",
+    "file_hash": "ced0a9d898fbc329a1bdbaa19cd1950f2891068a65ff1922e084f0f1c3c59408",
+    "core_hash": "844bf277438d25212db480b9aa8a8e9776a75162d07f9dc78e11ad28a28aeac9",
+    "statement_frozen": true,
+    "statement_hash": "8def42f438f6045c0c7e08553b33742afa5e6d7a0decaaf856e5ca9fc0201890"
+  }
+}
