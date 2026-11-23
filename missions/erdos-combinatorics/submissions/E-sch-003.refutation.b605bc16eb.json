@@ -1,0 +1,23 @@
+{
+  "schema": "fleet-submission/1",
+  "mission": "erdos-combinatorics",
+  "lemma_id": "E-sch-003",
+  "kind": "refutation",
+  "at": "2026-11-23T12:53:57.871Z",
+  "file": "missions/erdos-combinatorics/lean/Erdos/Claims/E_sch_003_refute.lean",
+  "theorem": "Erdos.Claims.E_sch_003_refute.counterexample",
+  "refutation": {
+    "by_seat": "seat-redteam-1",
+    "summary": "Explicit 3-color sum-free partition {1,4,10,13} | {2,3,11,12} | {5,6,7,8,9} refutes S(3) ≤ 12",
+    "counterexample_file": "missions/erdos-combinatorics/lean/Erdos/Claims/E_sch_003_refute.lean",
+    "theorem_name": "Erdos.Claims.E_sch_003_refute.counterexample",
+    "signature": "Erdos.Claims.E_sch_003_refute.counterexample :\n  ¬Erdos.SchurForced 13 3",
+    "axioms": [
+      "propext"
+    ],
+    "file_hash": "b605bc16ebcbef869b0f09ba16d4862dbecd33ea83f5b8bea637d51daa1ad6d8",
+    "core_hash": "c66bb11af66a1933de3bc3b60d78b3f6ed195e15da46a6d90cd8dd60e0e44657",
+    "duration_ms": 3936,
+    "at": "2026-11-23T12:53:57.871Z"
+  }
+}
