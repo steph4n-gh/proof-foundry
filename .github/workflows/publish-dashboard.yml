@@ -1,8 +1,13 @@
-name: Publish Open Science Dashboard
+name: Publish Proof Foundry Dashboard
 
 on:
   push:
     branches: [main]
+  workflow_run:
+    workflows: ["Mechanical Judge (Base-Trusted PR Verification)"]
+    types: [completed]
+  schedule:
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -21,15 +26,21 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout main
+      # Always check out trusted main — never executes PR/fork code!
+      - name: Checkout trusted main
         uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      - name: Compile conflict-free submissions & build static dashboard
+      - name: Compile submissions, sync live open PR badges & build static dashboard
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: node hub/build_site.mjs
 
       - name: Configure Pages

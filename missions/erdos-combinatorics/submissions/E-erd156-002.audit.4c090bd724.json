@@ -1,0 +1,15 @@
+{
+  "schema": "fleet-submission/2",
+  "mission": "erdos-combinatorics",
+  "lemma_id": "E-erd156-002",
+  "kind": "audit",
+  "at": "2026-11-23T13:29:13.018Z",
+  "audit": {
+    "status": "faithful",
+    "by_seat": "audit-sol62",
+    "by_model": "GPT-6.2 Sol",
+    "notes": "PR #3 cross-model audit: exhibits genuine 5-element maximal Sidon set [1,4,11,15,17] in {1..30} (stronger than ≤ 6).",
+    "file_hash": "4c090bd7243869110719e31aae3e746f3d182e87815ddffcd3d92bde5a02620b",
+    "at": "2026-11-23T13:29:13.015Z"
+  }
+}

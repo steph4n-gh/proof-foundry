@@ -15,10 +15,20 @@ import {
   loadAllMissionsSummary,
   readAllowedArtifactFile,
 } from "../hub/missions.mjs";
-import { buildMissionSnapshot } from "../hub/build_site.mjs";
+import { buildMissionSnapshot, fetchOpenPRs } from "../hub/build_site.mjs";
 
 const PUBLIC_DIR = path.join(ROOT, "web", "public");
 const PORT = Number(process.env.PORT || 4321);
+let cachedPrSnap = { ok: false, fetched_at: null, by_claim: {} };
+let lastPrFetchMs = 0;
+function getCachedPrSnap(repo) {
+  const now = Date.now();
+  if (now - lastPrFetchMs > 60000) {
+    lastPrFetchMs = now;
+    cachedPrSnap = fetchOpenPRs(repo);
+  }
+  return cachedPrSnap;
+}
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -47,7 +57,7 @@ function safeSlug(raw) {
 function snapshotFor(slug) {
   try {
     const mission = loadMission(safeSlug(slug));
-    return buildMissionSnapshot(mission);
+    return buildMissionSnapshot(mission, getCachedPrSnap(mission.github_repo));
   } catch {
     return { ready: false };
   }
@@ -170,11 +180,12 @@ const server = http.createServer((req, res) => {
     }
     const leanSource = readAllowedArtifactFile(mission, lemma.lean_file);
     const refutationSource = readAllowedArtifactFile(mission, lemma.refutation?.counterexample_file);
+    const statementSource = lemma.statement_file ? readAllowedArtifactFile(mission, lemma.statement_file) : null;
     const relatedMessages = (snap.messages || []).filter((m) => m.lemma_id === id);
     const relatedRuns = (snap.checker_runs || []).filter((r) => r.lemma_id === id);
     const dependents = (snap.lemmas || [])
       .filter((other) => (other.deps || []).includes(id))
-      .map((other) => ({ id: other.id, title: other.title, status: other.status }));
+      .map((other) => ({ id: other.id, title: other.title, status: other.status, seal: other.seal }));
 
     res.writeHead(200, {
       "Content-Type": "application/json; charset=utf-8",
@@ -185,6 +196,7 @@ const server = http.createServer((req, res) => {
         lemma,
         leanSource,
         refutationSource,
+        statementSource,
         relatedMessages,
         relatedRuns,
         dependents,

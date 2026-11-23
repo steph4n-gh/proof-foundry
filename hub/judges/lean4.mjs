@@ -1,14 +1,23 @@
 #!/usr/bin/env node
 /**
- * hub/judges/lean4.mjs — Generalized, Airtight Lean 4 Kernel Metaprogram Judge.
+ * hub/judges/lean4.mjs — Hardened Isolated Lean 4 Kernel Metaprogram Judge (v2).
  *
- * Works for ANY Lean 4 mission (configured via `mission.judge`):
- * - Canonical realpath containment inside mission's `allowed_dirs`
- * - Lean-aware comment/string lexer banning sorry, admit, axiom, unsafe, opaque,
- *   extern, implemented_by, native_decide, #eval, #exit, #print, run_cmd, elab, macro, syntax, initialize
- * - Isolated per-run `.olean` compilation + Judge-owned Lean metaprogram calling
- *   `Environment.find?`, `ConstantInfo.thmInfo`, `getModuleIdxFor?`, and `Lean.collectAxioms`
- * - Writes structured JSON to a Judge-owned file (zero stdout scraping)
+ * Security & Verification Guarantees:
+ * 1. Canonical realpath containment inside mission's `allowed_dirs`.
+ * 2. Lean-aware lexer (handles nested `/- ... -/`, `-- ...`, `"..."` strings, AND `'c'` char literals
+ *    so `'"'` can never desync string scanning!) rejecting meta/escape constructs including:
+ *    sorry, admit, axiom, unsafe, opaque, extern, implemented_by, native_decide, #eval, #exit,
+ *    #print, run_cmd, run_tac, by_elab, elab, command_elab, tactic, macro, syntax, initialize,
+ *    skipKernelTC, modifyEnv.
+ * 3. Isolated per-run `.olean` compilation.
+ * 4. Optional Frozen-Statement Kernel Type-Matching (`statementFile` + `statementDef`):
+ *    - Compiles trusted `statementFile` into `FleetStmtTmp.<Stem>.olean`.
+ *    - Imports BOTH `stmtMod` and `claimMod` (shadowing fails safe with duplicate-decl error!).
+ *    - Verifies `c` is `.defnInfo` in `stmtMod` with `levelParams.isEmpty` and `c.type == .sort .zero` (Prop).
+ *    - Verifies `t` is `.thmInfo` in `claimMod` with `levelParams.isEmpty`.
+ *    - Verifies EXACT syntactic Expr equality: `t.type == .const claimN []` (or `Not (.const claimN [])`
+ *      for refutations) — zero unifier DoS, zero macro hijacking!
+ * 5. Calls kernel `Lean.collectAxioms` directly and writes structured JSON to a Judge-owned file.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -40,12 +49,20 @@ const FORBIDDEN_TOKENS = [
   { name: "#exit", re: /#exit\b/ },
   { name: "#print", re: /#print\b/ },
   { name: "run_cmd", re: /\brun_cmd\b/ },
-  { name: "elab", re: /\belab(_rules)?\b/ },
+  { name: "run_tac", re: /\brun_tac\b/ },
+  { name: "by_elab", re: /\bby_elab\b/ },
+  { name: "elab", re: /\b([a-z_]*elab(_rules)?)\b/ },
+  { name: "tactic attribute", re: /@\[[^\]]*\btactic\b/ },
   { name: "macro", re: /\bmacro(_rules)?\b/ },
   { name: "syntax", re: /\bsyntax\b/ },
   { name: "initialize", re: /\binitialize\b/ },
+  { name: "skipKernelTC", re: /\bskipKernelTC\b/ },
+  { name: "modifyEnv", re: /\bmodifyEnv\b/ },
 ];
 
+/**
+ * Strip nested block comments, line comments, string literals, and char literals (`'x'`, `'\"'`).
+ */
 export function stripLeanCommentsAndStrings(src) {
   let out = "";
   let i = 0;
@@ -103,6 +120,19 @@ export function stripLeanCommentsAndStrings(src) {
       i += 2;
       continue;
     }
+    // Char literal: e.g. 'a', '"', '\n', '\'' — only when NOT preceded by identifier char (prime suffix x')
+    if (ch === "'" && (i === 0 || !/[A-Za-z0-9_']/.test(src[i - 1]))) {
+      if (next === "\\" && i + 3 < src.length && src[i + 3] === "'") {
+        out += "''";
+        i += 4;
+        continue;
+      }
+      if (next !== "'" && next !== "\n" && i + 2 < src.length && src[i + 2] === "'") {
+        out += "''";
+        i += 3;
+        continue;
+      }
+    }
     if (ch === '"') {
       inString = true;
       i++;
@@ -136,63 +166,39 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
   const coreOlean = cfg.core_olean ? path.resolve(ROOT, cfg.core_olean) : null;
   const allowedDirs = (cfg.allowed_dirs || []).map((d) => path.resolve(ROOT, d));
   const allowedAxioms = new Set(cfg.allowed_axioms || ["propext", "Classical.choice", "Quot.sound"]);
+  const kind = opts.kind === "refutation" ? "refutation" : "proof";
 
   const started = Date.now();
   const leanVersion = getLeanVersion(leanDir);
   const coreHash = sha256File(coreFile);
 
+  const fail = (reason, extra = {}) => ({
+    ok: false,
+    judge: "lean4",
+    reason,
+    file: relOrAbsFile,
+    theorem: theoremName,
+    axioms: [],
+    duration_ms: Date.now() - started,
+    lean_version: leanVersion,
+    file_hash: null,
+    core_hash: coreHash,
+    statement_frozen: false,
+    statement_hash: null,
+    output: "",
+    ...extra,
+  });
+
   if (!validateLeanIdentifier(theoremName)) {
-    return {
-      ok: false,
-      judge: "lean4",
-      reason: `Invalid Lean theorem identifier: ${theoremName}`,
-      file: relOrAbsFile,
-      theorem: theoremName,
-      axioms: [],
-      duration_ms: Date.now() - started,
-      lean_version: leanVersion,
-      file_hash: null,
-      core_hash: coreHash,
-      output: "",
-    };
+    return fail(`Invalid Lean theorem identifier: ${theoremName}`);
   }
 
-  const absFile = path.isAbsolute(relOrAbsFile)
-    ? relOrAbsFile
-    : path.resolve(ROOT, relOrAbsFile);
-  if (!fs.existsSync(absFile)) {
-    return {
-      ok: false,
-      judge: "lean4",
-      reason: `File not found: ${relOrAbsFile}`,
-      file: relOrAbsFile,
-      theorem: theoremName,
-      axioms: [],
-      duration_ms: Date.now() - started,
-      lean_version: leanVersion,
-      file_hash: null,
-      core_hash: coreHash,
-      output: "",
-    };
-  }
+  const absFile = path.isAbsolute(relOrAbsFile) ? relOrAbsFile : path.resolve(ROOT, relOrAbsFile);
+  if (!fs.existsSync(absFile)) return fail(`File not found: ${relOrAbsFile}`);
 
   const realFile = fs.realpathSync(absFile);
   const relFile = path.relative(ROOT, realFile);
-  if (!realFile.endsWith(".lean")) {
-    return {
-      ok: false,
-      judge: "lean4",
-      reason: "Submitted file must have a .lean extension",
-      file: relFile,
-      theorem: theoremName,
-      axioms: [],
-      duration_ms: Date.now() - started,
-      lean_version: leanVersion,
-      file_hash: null,
-      core_hash: coreHash,
-      output: "",
-    };
-  }
+  if (!realFile.endsWith(".lean")) return fail("Submitted file must have a .lean extension", { file: relFile });
 
   if (!opts.allowTempForTests) {
     const insideAllowed = allowedDirs.some((dir) => {
@@ -204,19 +210,7 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
       }
     });
     if (!insideAllowed) {
-      return {
-        ok: false,
-        judge: "lean4",
-        reason: `Rejected by path gate: file must reside inside ${cfg.allowed_dirs.join(" or ")}`,
-        file: relFile,
-        theorem: theoremName,
-        axioms: [],
-        duration_ms: Date.now() - started,
-        lean_version: leanVersion,
-        file_hash: null,
-        core_hash: coreHash,
-        output: "",
-      };
+      return fail(`Rejected by path gate: file must reside inside ${cfg.allowed_dirs.join(" or ")}`, { file: relFile });
     }
   }
 
@@ -225,39 +219,35 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
 
   const lex = stripLeanCommentsAndStrings(rawSource);
   if (lex.unclosedComment || lex.unclosedString) {
-    return {
-      ok: false,
-      judge: "lean4",
-      reason: "Rejected by static gate: unclosed comment or string literal",
-      file: relFile,
-      theorem: theoremName,
-      axioms: [],
-      duration_ms: Date.now() - started,
-      lean_version: leanVersion,
-      file_hash: fileHash,
-      core_hash: coreHash,
-      output: "",
-    };
+    return fail("Rejected by static gate: unclosed comment or string literal", { file: relFile, file_hash: fileHash });
   }
   for (const pat of FORBIDDEN_TOKENS) {
     if (pat.re.test(lex.stripped)) {
-      return {
-        ok: false,
-        judge: "lean4",
-        reason: `Rejected by static gate: forbidden construct "${pat.name}" detected`,
+      return fail(`Rejected by static gate: forbidden construct "${pat.name}" detected`, {
         file: relFile,
-        theorem: theoremName,
-        axioms: [],
-        duration_ms: Date.now() - started,
-        lean_version: leanVersion,
         file_hash: fileHash,
-        core_hash: coreHash,
         output: `Forbidden token: ${pat.name}`,
-      };
+      });
     }
   }
 
-  // Build core library only if missing or stale
+  // Optional frozen statement binding
+  let realStmtFile = null;
+  let stmtHash = null;
+  const stmtDef = opts.statementDef || null;
+  if (opts.statementFile) {
+    const absStmt = path.isAbsolute(opts.statementFile) ? opts.statementFile : path.resolve(ROOT, opts.statementFile);
+    if (!fs.existsSync(absStmt)) {
+      return fail(`Frozen statement file missing: ${opts.statementFile}`, { file: relFile, file_hash: fileHash });
+    }
+    if (!validateLeanIdentifier(stmtDef)) {
+      return fail(`Invalid frozen statement identifier: ${stmtDef}`, { file: relFile, file_hash: fileHash });
+    }
+    realStmtFile = fs.realpathSync(absStmt);
+    stmtHash = sha256File(realStmtFile);
+  }
+
+  // Ensure Core library is built
   let needBuild = true;
   if (coreOlean && coreFile && fs.existsSync(coreOlean) && fs.existsSync(coreFile)) {
     if (fs.statSync(coreOlean).mtimeMs >= fs.statSync(coreFile).mtimeMs) needBuild = false;
@@ -267,78 +257,129 @@ export function checkLeanProof(relOrAbsFile, theoremName, opts = {}) {
   if (needBuild && cfg.lake_target) {
     const b = spawnSync("lake", ["build", cfg.lake_target], { encoding: "utf8", cwd: leanDir });
     if (b.status !== 0) {
-      return {
-        ok: false,
-        judge: "lean4",
-        reason: `Core library \`lake build ${cfg.lake_target}\` failed`,
+      return fail(`Core library \`lake build ${cfg.lake_target}\` failed`, {
         file: relFile,
-        theorem: theoremName,
-        axioms: [],
-        duration_ms: Date.now() - started,
-        lean_version: leanVersion,
         file_hash: fileHash,
-        core_hash: coreHash,
         output: ((b.stdout || "") + "\n" + (b.stderr || "")).trim().slice(0, 4000),
-      };
+      });
     }
   }
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-lean4-judge-"));
-  const modStem = `Sub_${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-  const modName = `FleetJudgeTmp.${modStem}`;
+  const salt = `${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const claimMod = `FleetJudgeTmp.Sub_${salt}`;
   const oleanDir = path.join(tmpDir, "FleetJudgeTmp");
   fs.mkdirSync(oleanDir, { recursive: true });
-  const oleanPath = path.join(oleanDir, `${modStem}.olean`);
+  const claimOlean = path.join(oleanDir, `Sub_${salt}.olean`);
   const auditLeanPath = path.join(tmpDir, "JudgeAudit.lean");
   const resultJsonPath = path.join(tmpDir, "result.json");
 
   try {
-    const lpRes = spawnSync("lake", ["env", "printenv", "LEAN_PATH"], {
-      encoding: "utf8",
-      cwd: leanDir,
-    });
+    const lpRes = spawnSync("lake", ["env", "printenv", "LEAN_PATH"], { encoding: "utf8", cwd: leanDir });
     const baseLeanPath =
-      lpRes.status === 0
-        ? (lpRes.stdout || "").trim()
-        : path.join(leanDir, ".lake", "build", "lib", "lean");
+      lpRes.status === 0 ? (lpRes.stdout || "").trim() : path.join(leanDir, ".lake", "build", "lib", "lean");
     const envWithPath = {
       ...process.env,
       LEAN_PATH: `${tmpDir}${path.delimiter}${baseLeanPath}`,
     };
 
-    const pass1 = spawnSync("lake", ["env", "lean", "-o", oleanPath, realFile], {
+    // Pass 0 (when frozen statement exists): mirror trusted base package .oleans into tmpDir
+    // so Lean's top-level package search sees BOTH trusted Core.olean AND freshly compiled stmtOlean!
+    let stmtMod = null;
+    if (realStmtFile) {
+      const relFromLean = path.relative(leanDir, realStmtFile);
+      if (!relFromLean.startsWith("..") && relFromLean.endsWith(".lean")) {
+        stmtMod = relFromLean.slice(0, -5).split(path.sep).join(".");
+        const topPkg = stmtMod.split(".")[0];
+        const lakeLibDir = path.join(leanDir, ".lake", "build", "lib", "lean");
+        const srcPkgDir = path.join(lakeLibDir, topPkg);
+        const dstPkgDir = path.join(tmpDir, topPkg);
+        if (fs.existsSync(srcPkgDir)) {
+          fs.cpSync(srcPkgDir, dstPkgDir, { recursive: true });
+        }
+        const srcPkgOlean = path.join(lakeLibDir, `${topPkg}.olean`);
+        if (fs.existsSync(srcPkgOlean)) {
+          fs.copyFileSync(srcPkgOlean, path.join(tmpDir, `${topPkg}.olean`));
+        }
+        const stmtOlean = path.join(tmpDir, relFromLean.slice(0, -5) + ".olean");
+        fs.mkdirSync(path.dirname(stmtOlean), { recursive: true });
+        const pass0 = spawnSync("lean", ["-o", stmtOlean, realStmtFile], {
+          encoding: "utf8",
+          cwd: leanDir,
+          env: envWithPath,
+          timeout: 90000,
+        });
+        if (pass0.status !== 0 || !fs.existsSync(stmtOlean)) {
+          return fail(`Trusted frozen statement failed to compile: ${opts.statementFile}`, {
+            file: relFile,
+            file_hash: fileHash,
+            statement_hash: stmtHash,
+            output: ((pass0.stdout || "") + "\n" + (pass0.stderr || "")).trim().slice(0, 4000),
+          });
+        }
+      } else {
+        return fail(`Frozen statement must reside inside ${cfg.lean_dir}`, {
+          file: relFile,
+          file_hash: fileHash,
+          statement_hash: stmtHash,
+        });
+      }
+    }
+
+    // Pass 1: Compile submitted Lean file cleanly into isolated .olean
+    const pass1 = spawnSync("lean", ["-o", claimOlean, realFile], {
       encoding: "utf8",
       cwd: leanDir,
       env: envWithPath,
       timeout: 90000,
     });
-    if (pass1.status !== 0 || !fs.existsSync(oleanPath)) {
-      return {
-        ok: false,
-        judge: "lean4",
-        reason: "Lean 4 kernel typecheck failed",
+    if (pass1.status !== 0 || !fs.existsSync(claimOlean)) {
+      return fail("Lean 4 kernel typecheck failed", {
         file: relFile,
-        theorem: theoremName,
-        axioms: [],
-        duration_ms: Date.now() - started,
-        lean_version: leanVersion,
         file_hash: fileHash,
-        core_hash: coreHash,
+        statement_hash: stmtHash,
         output: ((pass1.stdout || "") + "\n" + (pass1.stderr || "")).trim().slice(0, 4000),
-      };
+      });
     }
 
+    // Pass 2: Isolated Judge metaprogram importing BOTH trusted stmtMod (if present) and claimMod
     const escapedResultPath = JSON.stringify(resultJsonPath);
+    const stmtImport = stmtMod ? `import ${stmtMod}\n` : "";
+    const stmtCheckBlock = stmtMod
+      ? `
+      let stmtTarget : Name := \`${stmtDef}
+      let expectedStmtMod : Name := \`${stmtMod}
+      let stmtMatch := match env.find? stmtTarget with
+        | some (.defnInfo c) =>
+            let stmtModOk := match env.getModuleIdxFor? stmtTarget with
+              | some idx => (env.header.moduleNames[idx]!).toString == expectedStmtMod.toString
+              | none => false
+            let levelsOk := c.levelParams.isEmpty && info.levelParams.isEmpty
+            let isProp := c.type == Expr.sort Level.zero
+            let wantExpr := ${
+              kind === "refutation"
+                ? `Expr.app (Expr.const \`Not []) (Expr.const stmtTarget [])`
+                : `Expr.const stmtTarget []`
+            }
+            let exactMatch := info.type == wantExpr
+            -- Also accept direct unfolded syntactic equality against c.value when proof wrote the body directly
+            let bodyMatch := info.type == (${
+              kind === "refutation" ? `Expr.app (Expr.const \`Not []) c.value` : `c.value`
+            })
+            stmtModOk && levelsOk && isProp && (exactMatch || bodyMatch)
+        | _ => false`
+      : `      let stmtMatch := true`;
+
     const auditProgram = `import Lean.Util.CollectAxioms
 import Lean.Meta.Basic
 import Lean.Data.Json
-import ${modName}
+${stmtImport}import ${claimMod}
 
 open Lean Meta in
 #eval show MetaM Unit from do
   let env ← getEnv
   let target : Name := \`${theoremName}
-  let expectedMod : Name := \`${modName}
+  let expectedMod : Name := \`${claimMod}
   match env.find? target with
   | none =>
       let j := Json.mkObj [("found", Json.bool false)]
@@ -349,12 +390,16 @@ open Lean Meta in
         | some idx => (env.header.moduleNames[idx]!).toString
         | none => ""
       let inSubmittedMod := modNameStr == expectedMod.toString
+      let levelsEmpty := info.levelParams.isEmpty
+${stmtCheckBlock}
       let axioms ← Lean.collectAxioms target
       let fmt ← ppExpr info.type
       let j := Json.mkObj [
         ("found", Json.bool true),
         ("isTheorem", Json.bool isThm),
         ("inSubmittedMod", Json.bool inSubmittedMod),
+        ("levelsEmpty", Json.bool levelsEmpty),
+        ("statementMatched", Json.bool stmtMatch),
         ("declaredModule", Json.str modNameStr),
         ("axioms", Json.arr (axioms.map (fun n => Json.str n.toString))),
         ("type", Json.str fmt.pretty)
@@ -363,97 +408,58 @@ open Lean Meta in
 `;
     fs.writeFileSync(auditLeanPath, auditProgram, "utf8");
 
-    const pass2 = spawnSync("lake", ["env", "lean", auditLeanPath], {
+    const pass2 = spawnSync("lean", [auditLeanPath], {
       encoding: "utf8",
       cwd: leanDir,
       env: envWithPath,
       timeout: 90000,
     });
     if (pass2.status !== 0 || !fs.existsSync(resultJsonPath)) {
-      return {
-        ok: false,
-        judge: "lean4",
-        reason: `Judge kernel audit failed for ${theoremName}`,
+      return fail(`Judge kernel audit failed for ${theoremName} (possible duplicate/shadowed declaration)`, {
         file: relFile,
-        theorem: theoremName,
-        axioms: [],
-        duration_ms: Date.now() - started,
-        lean_version: leanVersion,
         file_hash: fileHash,
-        core_hash: coreHash,
+        statement_hash: stmtHash,
         output: ((pass2.stdout || "") + "\n" + (pass2.stderr || "")).trim().slice(0, 4000),
-      };
+      });
     }
 
     const audit = JSON.parse(fs.readFileSync(resultJsonPath, "utf8"));
-    if (!audit.found) {
-      return {
-        ok: false,
-        judge: "lean4",
-        reason: `Theorem \`${theoremName}\` not found in compiled environment`,
-        file: relFile,
-        theorem: theoremName,
-        axioms: [],
-        duration_ms: Date.now() - started,
-        lean_version: leanVersion,
-        file_hash: fileHash,
-        core_hash: coreHash,
-        output: "",
-      };
-    }
+    if (!audit.found) return fail(`Theorem \`${theoremName}\` not found in compiled environment`, { file: relFile, file_hash: fileHash });
     if (!audit.inSubmittedMod) {
-      return {
-        ok: false,
-        judge: "lean4",
-        reason: `Rejected: \`${theoremName}\` was NOT declared in submitted file (declared in \`${audit.declaredModule || "unknown"}\`)`,
+      return fail(`Rejected: \`${theoremName}\` was NOT declared in submitted file (declared in \`${audit.declaredModule || "unknown"}\`)`, {
         file: relFile,
-        theorem: theoremName,
-        axioms: audit.axioms || [],
-        duration_ms: Date.now() - started,
-        lean_version: leanVersion,
         file_hash: fileHash,
-        core_hash: coreHash,
-        output: "",
-      };
+      });
     }
     if (!audit.isTheorem) {
-      return {
-        ok: false,
-        judge: "lean4",
-        reason: `Rejected: \`${theoremName}\` is not a theorem (ConstantInfo.thmInfo required)`,
+      return fail(`Rejected: \`${theoremName}\` is not a theorem (ConstantInfo.thmInfo required)`, {
         file: relFile,
-        theorem: theoremName,
-        axioms: audit.axioms || [],
-        duration_ms: Date.now() - started,
-        lean_version: leanVersion,
         file_hash: fileHash,
-        core_hash: coreHash,
-        output: "",
-      };
+      });
+    }
+    if (stmtMod && !audit.statementMatched) {
+      return fail(
+        `Rejected by frozen-statement gate: \`${theoremName}\` does not syntactically match ${kind === "refutation" ? "¬ " : ""}\`${stmtDef}\` (no universe params, Prop required)`,
+        { file: relFile, file_hash: fileHash, statement_hash: stmtHash }
+      );
     }
 
     const axioms = Array.isArray(audit.axioms) ? audit.axioms : [];
     const disallowed = axioms.filter((a) => !allowedAxioms.has(a));
     if (disallowed.length > 0) {
-      return {
-        ok: false,
-        judge: "lean4",
-        reason: `Disallowed kernel axioms detected: ${disallowed.join(", ")}`,
+      return fail(`Disallowed kernel axioms detected: ${disallowed.join(", ")}`, {
         file: relFile,
-        theorem: theoremName,
-        axioms,
-        duration_ms: Date.now() - started,
-        lean_version: leanVersion,
         file_hash: fileHash,
-        core_hash: coreHash,
-        output: `Axioms: ${axioms.join(", ")}`,
-      };
+        axioms,
+      });
     }
 
     return {
       ok: true,
       judge: "lean4",
-      reason: "Verified by isolated Lean 4 kernel metaprogram (zero sorry, standard axioms only, module-bound)",
+      reason: stmtMod
+        ? `Verified by Lean 4 kernel & exact frozen-statement match against ${stmtDef} (zero sorry, standard axioms only)`
+        : "Verified by isolated Lean 4 kernel metaprogram (zero sorry, standard axioms only, module-bound)",
       file: relFile,
       theorem: theoremName,
       signature: `${theoremName} :\n  ${audit.type}`,
@@ -462,6 +468,8 @@ open Lean Meta in
       lean_version: leanVersion,
       file_hash: fileHash,
       core_hash: coreHash,
+      statement_frozen: Boolean(stmtMod),
+      statement_hash: stmtHash,
       output: (pass1.stdout || "").trim().slice(0, 2000),
     };
   } finally {

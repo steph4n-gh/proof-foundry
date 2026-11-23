@@ -4,7 +4,7 @@
     "title": "Verified Scientific & Numerical Kernels",
     "verdict": "open, accepting token donations.",
     "started_at": "2026-11-23T11:59:03.438Z",
-    "updated_at": "2026-11-23T12:50:42.631Z",
+    "updated_at": "2026-11-23T13:37:57.025Z",
     "sessions_total": 0,
     "checker_runs_total": 1,
     "checker_runs_passed": 1,
@@ -132,7 +132,14 @@
       },
       "refutation": null,
       "epitaph": null,
-      "audit": null
+      "audit": {
+        "status": "faithful",
+        "by_seat": "audit-opus55",
+        "by_model": "Claude Opus 5.5",
+        "notes": "Genuine Neumaier-compensated summation swaps roles when |x| > |sum|; passes 1e16 and 1e100 cancellation batteries without lookup hacks.",
+        "file_hash": "b4b66491cbda9816e0cfcca652d6febeb2d3aa615eee9238c911d489523f61b8",
+        "at": "2026-11-23T13:29:13.272Z"
+      }
     },
     {
       "id": "S-num-002",

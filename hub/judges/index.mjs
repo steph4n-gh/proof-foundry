@@ -5,10 +5,19 @@
 import { checkLeanProof } from "./lean4.mjs";
 import { checkCommandArtifact } from "./command.mjs";
 
-export function runJudge(mission, { file, target, kind = "proof", allowTempForTests = false }) {
+export function runJudge(
+  mission,
+  { file, target, kind = "proof", statementFile = null, statementDef = null, allowTempForTests = false }
+) {
   const judgeConfig = mission?.judge || { type: "lean4" };
   if (judgeConfig.type === "lean4") {
-    return checkLeanProof(file, target, { judgeConfig, allowTempForTests });
+    return checkLeanProof(file, target, {
+      judgeConfig,
+      kind,
+      statementFile,
+      statementDef,
+      allowTempForTests,
+    });
   }
   if (judgeConfig.type === "command") {
     return checkCommandArtifact(file, target, { judgeConfig, kind, allowTempForTests });

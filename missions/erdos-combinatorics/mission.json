@@ -4,7 +4,7 @@
   "title": "Erdős & Extremal Combinatorics",
   "tagline": "Token-donation open math fleet · Lean 4.36.0 kernel",
   "question": "Where are the exact extremal & Ramsey thresholds?",
-  "description": "Donate spare AI tokens to formalize exact Ramsey numbers, Turán/Mantel extremal graph bounds, and Schur additive-combinatorics thresholds in pure Lean 4 — pairing SAT/search constructions with zero-sorry proofs.",
+  "description": "Donate spare AI tokens to formalize exact Ramsey numbers, Turán/Mantel extremal graph bounds, Schur thresholds, and open Erdős problems (#128 & #156) in pure Lean 4 — verified against frozen statements by an isolated kernel Judge.",
   "verdict": "open, accepting token donations.",
   "tug_of_war": {
     "enabled": true,
@@ -16,13 +16,14 @@
   },
   "judge": {
     "type": "lean4",
-    "label": "Lean 4.36.0 kernel · zero sorry",
+    "label": "Lean 4.36.0 kernel · frozen statements · zero sorry",
     "lean_dir": "missions/erdos-combinatorics/lean",
     "lake_target": "Erdos",
     "core_file": "missions/erdos-combinatorics/lean/Erdos/Core.lean",
     "core_olean": "missions/erdos-combinatorics/lean/.lake/build/lib/lean/Erdos/Core.olean",
     "allowed_dirs": [
-      "missions/erdos-combinatorics/lean/Erdos/Claims"
+      "missions/erdos-combinatorics/lean/Erdos/Claims",
+      "missions/erdos-combinatorics/lean/Erdos/Statements"
     ],
     "allowed_extensions": [
       ".lean"
@@ -40,10 +41,21 @@
       "title": "Close Small Ramsey Thresholds: R(3,3) = 6 & R(3,4) > 8",
       "tier": "Milestone 1",
       "finish_line": "Prove both sides of R(3,3) = 6 and exhibit a Lean-verified 8-vertex avoidance graph for R(3,4) > 8.",
-      "required_claims": [
-        "E-ram-001",
-        "E-ram-002",
-        "E-ram-003"
+      "required": [
+        { "id": "E-ram-001", "expect": "proof" },
+        { "id": "E-ram-002", "expect": "proof" },
+        { "id": "E-ram-003", "expect": "proof" }
+      ]
+    },
+    {
+      "id": "OBJ-schur",
+      "title": "Exact Schur Thresholds: S(2) = 4, S(3) ≥ 13 & Refute S(3) ≤ 12",
+      "tier": "Milestone 2",
+      "finish_line": "Pin down exact S(2) = 4, verify a 13-element 3-color sum-free witness for S(3) ≥ 13, and refute S(3) ≤ 12.",
+      "required": [
+        { "id": "E-sch-001", "expect": "proof" },
+        { "id": "E-sch-002", "expect": "proof" },
+        { "id": "E-sch-003", "expect": "refutation" }
       ]
     },
     {
@@ -51,34 +63,32 @@
       "title": "Erdős Problem #128 ($250 Sparse-Halves) & Mantel's Theorem",
       "tier": "Open Erdős Frontier",
       "url": "https://www.erdosproblems.com/128",
-      "finish_line": "Prove universal Mantel (4e ≤ n²), prove all bipartite graphs satisfy Erdős #128, and verify C5 tightness.",
-      "required_claims": [
-        "E-tur-001",
-        "E-erd128-001",
-        "E-erd128-002"
-      ]
-    },
-    {
-      "id": "OBJ-schur",
-      "title": "Exact Schur Additive Thresholds: S(2) = 4 & S(3) ≥ 13",
-      "tier": "Milestone 2",
-      "finish_line": "Pin down exact S(2) = 4, verify a 13-element 3-color sum-free witness for S(3) ≥ 13, and refute S(3) ≤ 12.",
-      "accept_refutation": true,
-      "required_claims": [
-        "E-sch-001",
-        "E-sch-002",
-        "E-sch-003"
+      "finish_line": "Prove universal Mantel (4e ≤ n²), prove all bipartite graphs satisfy Erdős #128, and prove exact n=10 sharpness (50·e(S) = 100 via C5[2] / Petersen).",
+      "required": [
+        { "id": "E-tur-001", "expect": "proof" },
+        { "id": "E-erd128-001", "expect": "proof" },
+        { "id": "E-erd128-003", "expect": "proof" }
       ]
     },
     {
       "id": "OBJ-erdos-156",
-      "title": "Erdős Problem #156: Smallest Maximal Sidon Sets",
+      "title": "Erdős Problem #156: Exact Smallest Maximal Sidon Set in {1..30}",
       "tier": "Open Erdős Frontier",
       "url": "https://www.erdosproblems.com/156",
-      "finish_line": "Prove the formal Sidon blocking lemma and synthesize a compact Lean-verified maximal Sidon subset of {1..30} of size ≤ 6.",
-      "required_claims": [
-        "E-erd156-001",
-        "E-erd156-002"
+      "finish_line": "Prove the Sidon blocking lemma, synthesize a 5-element maximal Sidon set in {1..30}, and prove no size ≤ 4 maximal Sidon set exists in {1..30}.",
+      "required": [
+        { "id": "E-erd156-001", "expect": "proof" },
+        { "id": "E-erd156-002", "expect": "proof" },
+        { "id": "E-erd156-003", "expect": "proof" }
+      ]
+    },
+    {
+      "id": "OBJ-wave4-schur",
+      "title": "Wave 4 Frontier: Close Exact Schur Number S(3) = 13",
+      "tier": "Wave 4 Frozen Bounty",
+      "finish_line": "Prove the frozen upper bound SchurForced 14 3 (every 3-coloring of {1..14} contains a monochromatic x + y = z).",
+      "required": [
+        { "id": "E-sch-004", "expect": "proof" }
       ]
     }
   ]

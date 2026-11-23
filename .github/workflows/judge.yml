@@ -1,4 +1,4 @@
-name: Mechanical Judge (PR Verification)
+name: Mechanical Judge (Base-Trusted PR Verification)
 
 on:
   pull_request:
@@ -11,55 +11,72 @@ jobs:
   judge:
     name: Verify Swarm Submission
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Checkout PR head
+      # Check out TRUSTED base ref for hub/, Core.lean, Statements/, and Judge harnesses
+      - name: Checkout trusted base
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      - name: Detect changed files
-        id: changed
+      # Three-dot merge-base diff + safe newline file (zero bash filename injection!)
+      - name: Compute merge-base diff and stage ONLY allowlisted PR claim files
+        id: stage
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUM: ${{ github.event.pull_request.number }}
         run: |
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-          FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | paste -sd, -)
-          echo "files=$FILES" >> "$GITHUB_OUTPUT"
-          if echo "$FILES" | grep -qE '\.lean$|missions/(p-vs-np|erdos-combinatorics)/submissions/'; then
+          set -euo pipefail
+          git fetch --no-tags origin "refs/pull/$PR_NUM/head:pr-head"
+          git diff --name-only "$BASE_SHA...pr-head" > "$RUNNER_TEMP/changed_files.txt"
+          cat "$RUNNER_TEMP/changed_files.txt"
+
+          # Copy ONLY strictly allowlisted claim/artifact/submission files from pr-head onto trusted base
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            if echo "$f" | grep -qE '^(missions/[a-z0-9-_]+/(submissions/[A-Za-z0-9_.-]+\.json|artifacts/[A-Za-z0-9_.-]+|lean/[A-Za-z0-9_]+/Claims/[A-Za-z0-9_]+\.lean)|lean/PnP/Lemmas/[A-Za-z0-9_]+\.lean)$'; then
+              mkdir -p "$(dirname "$f")"
+              git show "pr-head:$f" > "$f"
+            fi
+          done < "$RUNNER_TEMP/changed_files.txt"
+
+          if grep -qE '\.lean$|missions/(p-vs-np|erdos-combinatorics)/submissions/' "$RUNNER_TEMP/changed_files.txt"; then
             echo "needs_lean=true" >> "$GITHUB_OUTPUT"
           else
             echo "needs_lean=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install Lean 4 (elan) if needed
-        if: steps.changed.outputs.needs_lean == 'true'
+        if: steps.stage.outputs.needs_lean == 'true'
         run: |
           set -euo pipefail
           curl -sSfL --retry 5 --retry-delay 2 --retry-all-errors https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain leanprover/lean4:v4.36.0
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
-      - name: Run Mechanical Judge Gatekeeper
-        id: verify
+      - name: Run Trusted Base Mechanical Judge
         run: |
           set +e
-          node hub/fleet.mjs verify-pr --files "${{ steps.changed.outputs.files }}" | tee judge-report.json
+          node hub/fleet.mjs verify-pr --files-list "$RUNNER_TEMP/changed_files.txt" | tee "$RUNNER_TEMP/judge-report.json"
           STATUS=${PIPESTATUS[0]}
-          echo "exit_code=$STATUS" >> "$GITHUB_OUTPUT"
           {
-            echo "## Mechanical Judge Receipt"
+            echo "## Proof Foundry Mechanical Judge Receipt (Base-Trusted)"
             echo ""
             echo '```json'
-            cat judge-report.json
+            cat "$RUNNER_TEMP/judge-report.json"
             echo '```'
             echo ""
             if [ "$STATUS" -eq 0 ]; then
-              echo "**Verdict: PASSED** — Ready for independent cross-model faithfulness audit before merge."
+              echo "**Verdict: PASSED ✓**"
             else
-              echo "**Verdict: REJECTED** — Fix the reported error or path violation and push again."
+              echo "**Verdict: REJECTED ✕**"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$STATUS"
