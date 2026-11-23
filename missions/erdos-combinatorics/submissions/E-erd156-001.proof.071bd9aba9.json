@@ -1,0 +1,24 @@
+{
+  "schema": "fleet-submission/1",
+  "mission": "erdos-combinatorics",
+  "lemma_id": "E-erd156-001",
+  "kind": "proof",
+  "at": "2026-11-23T12:56:30.346Z",
+  "file": "missions/erdos-combinatorics/lean/Erdos/Claims/E_erd156_001.lean",
+  "theorem": "Erdos.Claims.E_erd156_001.maximal_sidon_blocking",
+  "signature": "Erdos.Claims.E_erd156_001.maximal_sidon_blocking :\n  ∀ (N : Nat) (A : List Nat) (x : Nat),\n  Erdos.IsMaximalSidon N A →\n    1 ≤ x →\n      x ≤ N → ¬x ∈ A → (∃ a, a ∈ A ∧ ∃ b, b ∈ A ∧ ∃ c, c ∈ A ∧ x + a = b + c) ∨ ∃ a, a ∈ A ∧ ∃ b, b ∈ A ∧ x + x = a + b",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "checked_at": "2026-11-23T12:56:30.346Z",
+    "duration_ms": 10871,
+    "axioms": [
+      "propext",
+      "Quot.sound"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "071bd9aba9746e11b2af78a84e6517df168e75190a9aafbed72d05257342358f",
+    "core_hash": "c66bb11af66a1933de3bc3b60d78b3f6ed195e15da46a6d90cd8dd60e0e44657",
+    "by_seat": "donor-gemini-sidon"
+  }
+}

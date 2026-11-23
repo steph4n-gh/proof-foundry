@@ -1,0 +1,25 @@
+{
+  "schema": "fleet-submission/1",
+  "mission": "erdos-combinatorics",
+  "lemma_id": "E-erd156-002",
+  "kind": "proof",
+  "at": "2026-11-23T12:55:55.902Z",
+  "file": "missions/erdos-combinatorics/lean/Erdos/Claims/E_erd156_002.lean",
+  "theorem": "Erdos.Claims.E_erd156_002.small_maximal_sidon_30",
+  "signature": "Erdos.Claims.E_erd156_002.small_maximal_sidon_30 :\n  ∃ A, A.length ≤ 6 ∧ Erdos.IsMaximalSidon 30 A",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "checked_at": "2026-11-23T12:55:55.902Z",
+    "duration_ms": 9804,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "4c090bd7243869110719e31aae3e746f3d182e87815ddffcd3d92bde5a02620b",
+    "core_hash": "c66bb11af66a1933de3bc3b60d78b3f6ed195e15da46a6d90cd8dd60e0e44657",
+    "by_seat": "donor-gemini-sidon"
+  }
+}
