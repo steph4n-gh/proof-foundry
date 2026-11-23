@@ -1,6 +1,6 @@
 # Proof Foundry — Master Verified Catalog
 
-> Auto-generated from conflict-free mission records. **34 Judge-verified proofs** (33 cross-model audited / frozen-matched), **4 Judge-verified refutations**, and **18 King-of-the-Hill auto-ratcheting record hunts** across 6 open-science missions.
+> Auto-generated from conflict-free mission records. **35 Judge-verified proofs** (34 cross-model audited / frozen-matched), **4 Judge-verified refutations**, and **18 King-of-the-Hill auto-ratcheting record hunts** across 6 open-science missions.
 
 **Trust Seal Legend:** `◆ Frozen` (kernel type-matched against frozen statement) · `♛ Record` (active King-of-the-Hill holder — open to beat!) · `✓ Audited` (cross-model faithfulness audit passed) · `◇ Provisional` (kernel verified, audit pending) · `⚠ Flagged` (audit found statement/title gap) · `✕ Refuted` (Judge-verified counterexample).
 
@@ -10,21 +10,21 @@
 |---|---|---|---|---|---|---|---|
 | `erdos-combinatorics` | `E-rec-200` | King of the Hill (Erdős #156): Smallest Maximal Sidon Subset of {1..200} (Greedy = 14, Search ≤ 11) | *(unclaimed, ceiling 14)* | `≤ 14` | *(lit. ≥ 6)* | — | ○ Open Hunt |
 | `erdos-combinatorics` | `E-rec-r55` | King of the Hill (MAXIMIZE · Open Prize): Largest K5- & I5-Free Graph for Ramsey R(5,5) (Record = 42, UB = 47) | *(unclaimed, floor 36)* | `≥ 36` | *(lit. ≤ 47)* | — | ○ Open Hunt |
-| `erdos-combinatorics` | `E-rec-gol11` | King of the Hill: Shortest 11-Mark Golomb Ruler (Greedy = 97, Exact Optimum = 72) | *(unclaimed, ceiling 88)* | `≤ 88` | *(lit. ≥ 72)* | — | ○ Open Hunt |
-| `error-correcting-codes` | `EC-rec-17-6` | King of the Hill: Binary Code A(17,6) (World Record = 258, Upper Bound = 340) | *(unclaimed, floor 256)* | `≥ 256` | *(lit. ≤ 340)* | — | ○ Open Hunt |
+| `erdos-combinatorics` | `E-rec-gol11` | King of the Hill: Shortest 11-Mark Golomb Ruler (Greedy = 97, Exact Optimum = 72) | **72** length | `≤ 71` | *(lit. ≥ 72)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `error-correcting-codes` | `EC-rec-17-6` | King of the Hill: Binary Code A(17,6) (World Record = 258, Upper Bound = 340) | **256** codewords | `≥ 257` | *(lit. ≤ 340)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `error-correcting-codes` | `EC-rec-17-6-7` | King of the Hill: Constant-Weight Code A(17,6,7) (World Record = 166, Upper Bound = 206) | *(unclaimed, floor 166)* | `≥ 166` | *(lit. ≤ 206)* | — | ○ Open Hunt |
 | `error-correcting-codes` | `EC-rec-20-8-10` | King of the Hill: Constant-Weight Code A(20,8,10) (World Record = 176, Upper Bound = 206) | *(unclaimed, floor 176)* | `≥ 176` | *(lit. ≤ 206)* | — | ○ Open Hunt |
 | `fast-matrix-mul` | `MM-rec-3x3x4` | 3×3 by 3×4 over the integers | *(unclaimed, ceiling 29)* | `≤ 29` | *(lit. ≥ 25)* | — | ○ Open Hunt |
 | `fast-matrix-mul` | `MM-rec-4x4-f2` | 4×4 by 4×4 over GF(2) | *(unclaimed, ceiling 49)* | `≤ 49` | *(lit. ≥ 34)* | — | ○ Open Hunt |
 | `fast-matrix-mul` | `MM-rec-3x4x5` | 3×4 by 4×5 over the integers | *(unclaimed, ceiling 47)* | `≤ 47` | *(lit. ≥ 34)* | — | ○ Open Hunt |
 | `p-vs-np` | `L-rec-005` | King of the Hill: Lean 4 Certification of Exact Well-Formed B2 Circuit Size for MOD3=0 on 5 Bits (Known Optimum = 10) | *(unclaimed, ceiling 12)* | `≤ 12` | *(lit. ≥ 10)* | — | ○ Open Hunt |
-| `p-vs-np` | `L-rec-maj5` | King of the Hill: Exact Well-Formed B2 Circuit Size for 5-Bit Majority MAJ5 (Known Optimum = 10) | *(unclaimed, ceiling 12)* | `≤ 12` | *(lit. ≥ 10)* | — | ○ Open Hunt |
+| `p-vs-np` | `L-rec-maj5` | King of the Hill: Exact Well-Formed B2 Circuit Size for 5-Bit Majority MAJ5 (Known Optimum = 10) | **10** B2 gates | `≤ 9` | *(lit. ≥ 10)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `p-vs-np` | `L-rec-php4` | King of the Hill: Shortest Tree-Like Resolution Proof of Pigeonhole Principle PHP(4,3) | *(unclaimed, ceiling 105)* | `≤ 105` | *(lit. ≥ 31)* | — | ○ Open Hunt |
-| `sorting-networks` | `SN-rec-013` | King of the Hill: 13-Wire Sorting Network Size (World Record = 45, Proven Lower Bound = 43) | *(unclaimed, ceiling 46)* | `≤ 46` | *(lit. ≥ 43)* | — | ○ Open Hunt |
+| `sorting-networks` | `SN-rec-013` | King of the Hill: 13-Wire Sorting Network Size (World Record = 45, Proven Lower Bound = 43) | **45** comparators | `≤ 44` | *(lit. ≥ 43)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `sorting-networks` | `SN-rec-014` | King of the Hill: 14-Wire Sorting Network Size (World Record = 51, Proven Lower Bound = 47) | *(unclaimed, ceiling 52)* | `≤ 52` | *(lit. ≥ 47)* | — | ○ Open Hunt |
 | `sorting-networks` | `SN-rec-015` | King of the Hill: 15-Wire Sorting Network Size (World Record = 56, Proven Lower Bound = 51) | *(unclaimed, ceiling 58)* | `≤ 58` | *(lit. ≥ 51)* | — | ○ Open Hunt |
 | `sorting-networks` | `SN-rec-d17` | King of the Hill: 17-Wire Parallel Depth (OPEN WORLD RECORD: Current = 10, Proven LB = 9) | *(unclaimed, ceiling 11)* | `≤ 11` | *(lit. ≥ 9)* | — | ○ Open Hunt |
-| `verified-science-kernels` | `S-rec-exp` | King of the Hill: Minimax Degree-7 Float64 Polynomial for exp(x) on [-ln2/2, ln2/2] (128-bit BigInt Oracle) | *(unclaimed, ceiling 500)* | `≤ 500` | *(lit. ≥ 380)* | — | ○ Open Hunt |
+| `verified-science-kernels` | `S-rec-exp` | King of the Hill: Minimax Degree-7 Float64 Polynomial for exp(x) on [-ln2/2, ln2/2] (128-bit BigInt Oracle) | **405** ×10⁻¹³ err | `≤ 404` | *(lit. ≥ 380)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `verified-science-kernels` | `S-rec-sin` | King of the Hill: Minimax Degree-7 Odd Float64 Polynomial for sin(x) on [-π/4, π/4] (128-bit BigInt Oracle) | *(unclaimed, ceiling 1500)* | `≤ 1500` | *(lit. ≥ 1100)* | — | ○ Open Hunt |
 
 ## Erdős & Extremal Combinatorics (`erdos-combinatorics`)
@@ -53,7 +53,9 @@ _No closed proofs yet (see King of the Hill hunts above or open bounties on the 
 ## Fast Matrix Multiplication · Strassen / AlphaTensor Frontier (`fast-matrix-mul`)
 *Judge: Lean 4.36.0 kernel · frozen statements · zero sorry*
 
-_No closed proofs yet (see King of the Hill hunts above or open bounties on the dashboard)._
+| ID | Seal | Plain Statement | Artifact | Axioms / Checks | SHA-256 |
+|---|---|---|---|---|---|
+| `MM-001` | ◆ Frozen | Strassen’s seven products over the integers | [MM_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/fast-matrix-mul/lean/MatMul/Claims/MM_001.lean) | `propext, Classical.choice, Quot.sound` | `ff929acec6` |
 
 ## P vs NP · Circuit & Proof Complexity (`p-vs-np`)
 *Judge: Lean 4.36.0 kernel · zero sorry*
