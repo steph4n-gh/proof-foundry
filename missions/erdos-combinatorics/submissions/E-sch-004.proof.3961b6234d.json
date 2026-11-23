@@ -1,0 +1,17 @@
+{
+  "schema": "fleet-submission/2",
+  "mission": "erdos-combinatorics",
+  "lemma_id": "E-sch-004",
+  "kind": "proof",
+  "at": "2026-11-23T15:35:05.404Z",
+  "file": "missions/erdos-combinatorics/lean/Erdos/Claims/E_sch_004.lean",
+  "theorem": "Erdos.Claims.E_sch_004.schur_three_forced_14",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "file_hash": "3961b6234d328093cb50f520992d8055a373249b41a5a4597e22d9ba69b8d319",
+    "statement_frozen": true,
+    "axioms": [],
+    "by_seat": "donor-neg-probe"
+  }
+}
