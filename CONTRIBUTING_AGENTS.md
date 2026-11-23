@@ -4,10 +4,12 @@ Anyone with spare AI coding tokens (Claude Code, Codex, Gemini CLI, Cursor, T3 C
 
 ## 30-Second Workflow
 
-1. **Pick a mission and grab the next eligible open bounty** (`fleet next` automatically skips claims with active GitHub PRs or unmet dependencies and prioritizes frozen-statement bounties):
+1. **Pick a mission and grab the next eligible open bounty** (`fleet next` automatically skips fixed claims with active GitHub PRs or unmet dependencies, prioritizes frozen-statement bounties, and supports `--mission all` + `--exclude ID1,ID2` for multi-task sessions):
    ```bash
    node hub/fleet.mjs missions
-   node hub/fleet.mjs next --mission erdos-combinatorics
+   node hub/fleet.mjs next --mission all
+   # Or scope to one mission and exclude IDs already submitted this session:
+   node hub/fleet.mjs next --mission erdos-combinatorics --exclude E-ram-004,SN-rec-013
    ```
 2. **Read the mission's Core definitions AND frozen statement** (never modify `Core.lean`, `Statements/`, `hub/`, or `.github/` in a donor PR — base-trusted CI enforces a strict allowlist!).
    - If the bounty specifies a frozen statement file (e.g. `Erdos/Statements/E_erd128_003.lean`), import that module and state your theorem literally as `: Erdos.Statements.<ID>.Claim` (or `: ¬ Erdos.Statements.<ID>.Claim` for a refutation). The Lean 4 kernel verifies exact syntactic type equality against the frozen definition.
@@ -35,6 +37,21 @@ Anyone with spare AI coding tokens (Claude Code, Codex, Gemini CLI, Cursor, T3 C
    - Revert any local changes to `missions/<slug>/state.json` or `events.ndjson`.
    - Stage **ONLY** your new artifact file + `missions/<slug>/submissions/<ID>.*.json`.
    - Base-trusted GitHub Actions CI (`judge.yml`) checks out `base.sha` for all Judge/Core/Statement files, stages only your allowlisted claim files, re-runs the isolated Judge, and posts a cryptographic Judge Receipt.
+
+## Continuous Queue Mode (Task After Task)
+
+To run an agent across multiple open problems back-to-back without PR collisions:
+1. Keep track of every claim ID you have submitted or skipped this session (pass the literal comma-separated IDs to `--exclude`, or append one ID per line to `$(git rev-parse --git-path fleet-exclude)` and pass `--exclude-file` — do not rely on a shell variable like `$DONE` across separate shell commands).
+2. If you are contributing from a **fork**, add `upstream` once (`git remote add upstream https://github.com/steph4n-gh/proof-foundry.git`), base every branch off `upstream/main`, push branches to `origin`, and open PRs with `gh pr create --repo steph4n-gh/proof-foundry`.
+3. After opening each PR, clean any `state.json`/`events.ndjson` edits left by local verification, check out latest `main` (so `fleet next` reads newly merged submissions), and fetch the next problem:
+   ```bash
+   git restore --worktree --staged -- missions/*/state.json missions/*/events.ndjson
+   git status --porcelain   # must be empty
+   git fetch upstream main 2>/dev/null || git fetch origin main
+   git checkout --detach upstream/main 2>/dev/null || git checkout --detach origin/main
+   node hub/fleet.mjs next --mission all --exclude "E-ram-004,SN-rec-013"
+   ```
+4. Branch cleanly off `upstream/main` (or `origin/main` if not in a fork) via `git checkout -B donor/<next-id>-HANDLE upstream/main`, follow the returned `instructions`, verify locally with `--export`, revert state/event files, commit ONLY the new artifact + submission JSON, push, open a clean PR, add `<next-id>` to your `--exclude` list, and repeat until `claim` is `null`.
 
 ## Three-Tier Trust & Cross-Model Faithfulness Audit
 

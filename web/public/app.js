@@ -36,6 +36,7 @@ import {
   boundIntervalGeometry,
   ratchetSeries,
   toRoman,
+  buildLoopSuffix,
 } from "./ui_machine.js";
 
 // ---------------------------------------------------------------- helpers
@@ -1032,6 +1033,7 @@ function renderLeaderboard() {
   const slug = STATE.mission.slug;
   $("#lb-howto").textContent = [
     `git clone https://github.com/${repoOf(STATE)}.git`,
+    `# Pick next open problem in ${slug} (or use --mission all across every mission):`,
     `node hub/fleet.mjs next --mission ${slug}`,
     `node hub/fleet.mjs verify --mission ${slug} --lemma <ID> --seat donor-<handle> --file <path> --theorem <name> --export`,
     `# King of the Hill records:`,
@@ -1565,6 +1567,7 @@ async function openAttempt(mission, claimId) {
     mission,
     harness: storageGet("pf-harness", "claude"),
     handle: storageGet("pf-handle", ""),
+    queueMode: storageGet("pf-queue-mode", "single"),
     recKind: "record",
     recScore: lemma.kind === "record" ? defaultRecordScore(lemma, "record") : null,
   });
@@ -1646,6 +1649,14 @@ function buildPrompt(lemma, o) {
   const repo = repoOf(snap);
   const handle = (o.handle || "my-handle").toLowerCase().replace(/[^a-z0-9-_]/g, "") || "my-handle";
   const seat = `donor-${handle}`;
+  const loopSuffix = buildLoopSuffix({
+    slug,
+    lemmaId: lemma.id,
+    handle,
+    queueMode: o.queueMode,
+    repo,
+    missionCount: CATALOG.length || null,
+  });
   const preamble =
     {
       claude: "You are helping me contribute spare Claude Code tokens to Proof Foundry.",
@@ -1672,14 +1683,14 @@ function buildPrompt(lemma, o) {
         `Goal: ${lemma.title}`,
         ``,
         `Instructions:`,
-        `1. Clone/pull \`https://github.com/${repo}\`, create branch \`${branch}\`, and read \`CONTRIBUTING_AGENTS.md\`.`,
+        `1. Clone/pull \`https://github.com/${repo}\` (or fetch \`upstream/main\` if working in a fork), branch \`${branch}\` off latest main, and read \`CONTRIBUTING_AGENTS.md\`.`,
         `2. Read the FROZEN spec in \`${lemma.statement_file}\` and the trusted verifier harness (do NOT edit specs/ or judge/).`,
         `3. Write a NEW score-stamped pure-data module at \`${t.artifactFile}\` exporting only the required float64 \`coeffs\` array, achieving worst-case error ${rm.op} ${score} ${rm.unit}. No imports, no Math calls, no code paths — data only. Never edit older score files.`,
         `4. Verify locally & export the hashless record submission JSON:`,
         `   node hub/fleet.mjs record --mission ${slug} --lemma ${lemma.id} --score ${score} --seat ${seat} --export`,
-        `5. Commit ONLY \`${t.artifactFile}\` + \`${t.submissionFile}\` (never touch state.json or older files), push, and open a PR referencing ${lemma.id}.`,
+        `5. Revert any state/event edits (\`git restore --worktree --staged -- missions/*/state.json missions/*/events.ndjson\`), commit ONLY \`${t.artifactFile}\` + \`${t.submissionFile}\`, push, and open a PR against \`${repo}\` referencing ${lemma.id}.`,
         `Note: this hunt uses an empirical command Judge, so impossibility-bound submissions (¬ Record) are not accepted.`,
-      ].join("\n");
+      ].join("\n") + loopSuffix;
     }
     const typeStr = kind === "record_bound" ? `¬ ${lemma.statement_def} ${score}` : `${lemma.statement_def} ${score}`;
     const ns = t.theoremName.split(".").slice(0, -1).join(".");
@@ -1692,15 +1703,15 @@ function buildPrompt(lemma, o) {
       `Goal: ${lemma.title}`,
       ``,
       `Instructions:`,
-      `1. Clone/pull \`https://github.com/${repo}\`, create branch \`${branch}\`, and read \`CONTRIBUTING_AGENTS.md\`.`,
+      `1. Clone/pull \`https://github.com/${repo}\` (or fetch \`upstream/main\` if working in a fork), branch \`${branch}\` off latest main, and read \`CONTRIBUTING_AGENTS.md\`.`,
       `2. Read the FROZEN record statement in \`${lemma.statement_file}\` (do NOT modify Core or Statements files).`,
       `3. Write a NEW score-stamped Lean 4 file at \`${t.artifactFile}\` (no sorry, no admit, no native_decide, no custom axioms) inside \`namespace ${ns}\` proving literally:`,
       `   \`theorem ${shortThm} : ${typeStr} := ...\``,
       `   (Use the canonical numeral literal \`${score}\`${kind === "record_bound" ? " and literally `¬`, not `→ False`" : ""} — never edit older score files.)`,
       `4. Verify locally & export the hashless record submission JSON:`,
       `   node hub/fleet.mjs ${kind === "record_bound" ? "record-bound" : "record"} --mission ${slug} --lemma ${lemma.id} --score ${score} --seat ${seat} --file ${t.artifactFile} --export`,
-      `5. Commit ONLY \`${t.artifactFile}\` + \`${t.submissionFile}\` (never touch state.json or older files), push, and open a PR referencing ${lemma.id}.`,
-    ].join("\n");
+      `5. Revert any state/event edits (\`git restore --worktree --staged -- missions/*/state.json missions/*/events.ndjson\`), commit ONLY \`${t.artifactFile}\` + \`${t.submissionFile}\`, push, and open a PR against \`${repo}\` referencing ${lemma.id}.`,
+    ].join("\n") + loopSuffix;
   }
 
   const branch = `donor/${lemma.id.toLowerCase()}-${handle}`;
@@ -1715,14 +1726,14 @@ function buildPrompt(lemma, o) {
     `Goal: ${lemma.title}`,
     ``,
     `Instructions:`,
-    `1. Clone/pull \`https://github.com/${repo}\`, create branch \`${branch}\`, and read \`CONTRIBUTING_AGENTS.md\`.`,
+    `1. Clone/pull \`https://github.com/${repo}\` (or fetch \`upstream/main\` if working in a fork), branch \`${branch}\` off latest main, and read \`CONTRIBUTING_AGENTS.md\`.`,
     frozenStep,
     `3. Write your isolated artifact in \`${lemma.lean_file}\` (no sorry, no admit, no native_decide, no custom axioms).`,
     `4. Run the local mechanical Judge & export a conflict-free submission JSON:`,
     `   node hub/fleet.mjs verify --mission ${slug} --lemma ${lemma.id} --seat ${seat} --file ${lemma.lean_file} --theorem ${lemma.theorem_name} --export`,
     `   (If the claim is false, use \`refute --summary "..."\` with a Judge-verified counterexample.)`,
-    `5. Revert any edits to state.json/events.ndjson, commit ONLY \`${lemma.lean_file}\` + \`missions/${slug}/submissions/${lemma.id}.*.json\`, push, and open a PR referencing ${lemma.id}.`,
-  ].join("\n");
+    `5. Revert any state/event edits (\`git restore --worktree --staged -- missions/*/state.json missions/*/events.ndjson\`), commit ONLY \`${lemma.lean_file}\` + \`missions/${slug}/submissions/${lemma.id}.*.json\`, push, and open a PR against \`${repo}\` referencing ${lemma.id}.`,
+  ].join("\n") + loopSuffix;
 }
 
 function renderAttempt(o, p) {
@@ -1751,6 +1762,14 @@ function renderAttempt(o, p) {
     setTimeout(() => $("#attempt-copy").focus(), 0);
   }
   $$("#attempt-harness [data-harness]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.harness === o.harness)));
+  $$("#attempt-queue [data-queue]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.queue === o.queueMode)));
+  $("#attempt-queue-hint").textContent =
+    o.queueMode === "all"
+      ? `Loops across all ${CATALOG.length || ""} missions after each PR`.replace("  ", " ")
+      : o.queueMode === "mission"
+        ? `Loops within ${o.mission} after each PR`
+        : "One PR, then stop";
+  $("#attempt-prompt").rows = o.queueMode === "single" ? 13 : 16;
   const handleEl = $("#attempt-handle");
   if (document.activeElement !== handleEl && handleEl.value !== o.handle) handleEl.value = o.handle;
 
@@ -1928,6 +1947,12 @@ $("#attempt-harness").addEventListener("click", (e) => {
   if (!b) return;
   storageSet("pf-harness", b.dataset.harness);
   dispatch({ type: "ATTEMPT_UPDATE", patch: { harness: b.dataset.harness } });
+});
+$("#attempt-queue").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-queue]");
+  if (!b) return;
+  storageSet("pf-queue-mode", b.dataset.queue);
+  dispatch({ type: "ATTEMPT_UPDATE", patch: { queueMode: b.dataset.queue } });
 });
 $("#attempt-reckind").addEventListener("click", (e) => {
   const b = e.target.closest("[data-reckind]");

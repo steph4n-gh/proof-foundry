@@ -14,6 +14,7 @@ import path from "node:path";
 import {
   ROOT,
   DEFAULT_MISSION,
+  listMissionSlugs,
   loadMission,
   loadAllMissionsSummary,
   getMissionPaths,
@@ -169,7 +170,8 @@ function parseArgs(argv) {
 }
 
 const { cmd, flags } = parseArgs(process.argv.slice(2));
-const missionSlug = String(flags.mission || process.env.FLEET_MISSION || DEFAULT_MISSION);
+const rawMissionFlag = flags.mission === true ? "" : flags.mission;
+const missionSlug = String(rawMissionFlag || process.env.FLEET_MISSION || DEFAULT_MISSION).trim();
 
 if (!cmd || cmd === "help") {
   console.log(`Proof Foundry Fleet CLI (v4)
@@ -250,6 +252,202 @@ if (cmd === "new") {
   process.exit(0);
 }
 
+if (cmd === "next") {
+  // Pure in-memory derivation across one mission or `--mission all` (NEVER mutates state.json!)
+  if (flags.mission === true || !missionSlug) {
+    console.log(JSON.stringify({ ok: false, error: "Missing value for --mission (pass a mission slug or 'all')" }, null, 2));
+    process.exit(1);
+  }
+  const allScope = missionSlug.toLowerCase() === "all";
+  const knownSlugs = listMissionSlugs();
+  if (!allScope && !knownSlugs.includes(missionSlug)) {
+    console.log(
+      JSON.stringify(
+        { ok: false, error: `Unknown mission "${missionSlug}". Available: ${knownSlugs.join(", ")} (or "all")` },
+        null,
+        2
+      )
+    );
+    process.exit(1);
+  }
+  const targetSlugs = allScope ? knownSlugs : [missionSlug];
+  const excludeSet = new Set();
+  if (typeof flags.exclude === "string") {
+    for (const item of flags.exclude.split(",")) {
+      const cleaned = item.trim();
+      if (cleaned) excludeSet.add(cleaned);
+    }
+  }
+  if (typeof flags["exclude-file"] === "string" && flags["exclude-file"].trim()) {
+    const exPath = path.resolve(flags["exclude-file"].trim());
+    if (!fs.existsSync(exPath)) {
+      console.log(JSON.stringify({ ok: false, error: `Exclude file not found: ${flags["exclude-file"]}` }, null, 2));
+      process.exit(1);
+    }
+    const raw = fs.readFileSync(exPath, "utf8");
+    for (const tok of raw.split(/[\r\n,]+/)) {
+      const cleaned = tok.trim();
+      if (cleaned && !cleaned.startsWith("#")) excludeSet.add(cleaned);
+    }
+  }
+  const prCacheByRepo = new Map();
+  const getPrSnap = (repo) => {
+    if (flags.offline) return { ok: false, by_mission_claim: {}, by_claim: {} };
+    if (!prCacheByRepo.has(repo)) prCacheByRepo.set(repo, fetchOpenPRs(repo));
+    return prCacheByRepo.get(repo);
+  };
+
+  const nowMs = Date.now();
+  const STALE_PR_MS = 72 * 3600 * 1000;
+  const skippedActivePr = [];
+  const activeRecordPrs = [];
+  const candidates = [];
+  let prSyncOk = false;
+
+  for (const slug of targetSlugs) {
+    const m = loadMission(slug);
+    const { state } = deriveMissionState(slug);
+    const prSnap = getPrSnap(m.github_repo);
+    if (prSnap.ok) prSyncOk = true;
+    const byId = Object.fromEntries(state.lemmas.map((l) => [l.id, l]));
+
+    for (const l of state.lemmas) {
+      if (excludeSet.has(l.id) || excludeSet.has(`${slug}/${l.id}`)) continue;
+      if (typeof flags.program === "string" && l.program !== flags.program) continue;
+      if (l.kind === "record") {
+        if (l.record_state?.closed || l.record_state?.contradiction) continue;
+      } else if (l.status !== "conjecture") {
+        continue;
+      }
+
+      const combined = [...(prSnap.by_mission_claim?.[`${slug}/${l.id}`] || []), ...(prSnap.by_claim?.[l.id] || [])];
+      const prs = combined.filter((p) => nowMs - new Date(p.updated_at).getTime() < STALE_PR_MS);
+      const uniquePrNums = [...new Set(prs.map((p) => `#${p.number}`))];
+      if (prs.length > 0) {
+        if (l.kind === "record") {
+          // NEVER skip King-of-the-Hill hunts on active PR (otherwise 1 abandoned PR stalls the hunt!)
+          activeRecordPrs.push({ mission: slug, id: l.id, prs: uniquePrNums });
+        } else {
+          skippedActivePr.push({ mission: slug, id: l.id, prs: uniquePrNums });
+          continue;
+        }
+      }
+
+      const depsOk = (l.deps || []).every(
+        (d) => !byId[d] || byId[d].status === "checked" || byId[d].status === "refuted" || byId[d].record_state?.best
+      );
+      if (!depsOk) continue;
+
+      candidates.push({
+        mission: m,
+        lemma: l,
+        hasActiveRecordPr: l.kind === "record" && prs.length > 0,
+      });
+    }
+  }
+
+  // Deterministic ranking:
+  // 0: frozen-statement fixed bounties (lowest rung first)
+  // 1: unclaimed King-of-the-Hill hunts with no active PR
+  // 2: King-of-the-Hill hunts that already have an incumbent score or an active PR
+  // 3: free-form fixed bounties (lowest rung first)
+  const tierOf = (c) => {
+    const l = c.lemma;
+    if (l.kind !== "record") return l.statement_file ? 0 : 3;
+    if (!l.record_state?.best && !c.hasActiveRecordPr) return 1;
+    return 2;
+  };
+  candidates.sort(
+    (a, b) =>
+      tierOf(a) - tierOf(b) ||
+      (a.lemma.rung || 99) - (b.lemma.rung || 99) ||
+      a.mission.slug.localeCompare(b.mission.slug) ||
+      a.lemma.id.localeCompare(b.lemma.id)
+  );
+
+  if (!candidates.length) {
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          scope: allScope ? "all" : missionSlug,
+          mission: allScope ? null : missionSlug,
+          pr_sync_ok: prSyncOk,
+          excluded: [...excludeSet],
+          skipped_active_prs: skippedActivePr,
+          active_record_prs: activeRecordPrs,
+          remaining_count: 0,
+          claim: null,
+          next: null,
+          message: "No unclaimed open bounties right now (check skipped_active_prs, --exclude, or open a New Claim issue!).",
+        },
+        null,
+        2
+      )
+    );
+    process.exit(0);
+  }
+
+  const picked = candidates[0];
+  const m = picked.mission;
+  const pick = picked.lemma;
+  const repo = m.github_repo || "steph4n-gh/proof-foundry";
+  let instructions;
+  let branchHint;
+  if (pick.kind === "record") {
+    const isMax = pick.record?.direction === "max";
+    const op = isMax ? "≥" : "≤";
+    const isCmd = pick.record?.artifact_ext === ".mjs";
+    const targetScore = pick.record_state?.next_target ?? pick.record?.start_target;
+    const recTargets = computeRecordTargets(m.slug, pick, "record", targetScore);
+    branchHint = `donor/${pick.id.toLowerCase()}-${recTargets.tag}-HANDLE`;
+    instructions = isCmd
+      ? [
+          `1. Start from a clean base off upstream/main (or origin/main if not in a fork): git fetch upstream main 2>/dev/null || git fetch origin main; git checkout -B ${branchHint} upstream/main 2>/dev/null || git checkout -B ${branchHint} origin/main`,
+          `2. Read ${m.judge?.harness_file} AND frozen spec ${pick.statement_file}`,
+          `3. Export your candidate data in ${recTargets.artifactFile} targeting score ${op} ${targetScore} ${pick.record?.unit || ""}`,
+          `4. Verify locally (replace HANDLE with your GitHub handle): node hub/fleet.mjs record --mission ${m.slug} --lemma ${pick.id} --score ${targetScore} --seat donor-HANDLE --export`,
+          `5. Revert any state/event edits (git restore --worktree --staged -- missions/*/state.json missions/*/events.ndjson), commit ONLY ${recTargets.artifactFile} and ${recTargets.submissionFile}, push, and open a PR against ${repo} referencing ${pick.id}.`,
+        ]
+      : [
+          `1. Start from a clean base off upstream/main (or origin/main if not in a fork): git fetch upstream main 2>/dev/null || git fetch origin main; git checkout -B ${branchHint} upstream/main 2>/dev/null || git checkout -B ${branchHint} origin/main`,
+          `2. Read ${m.judge?.core_file} AND frozen record statement ${pick.statement_file}`,
+          `3. Prove \`theorem ${recTargets.theoremName} : ${pick.statement_def} ${targetScore}\` in ${recTargets.artifactFile} (or any strictly better score ${op} ${targetScore}!)`,
+          `4. Verify locally (replace HANDLE with your GitHub handle): node hub/fleet.mjs record --mission ${m.slug} --lemma ${pick.id} --score ${targetScore} --seat donor-HANDLE --file ${recTargets.artifactFile} --export`,
+          `5. Revert any state/event edits (git restore --worktree --staged -- missions/*/state.json missions/*/events.ndjson), commit ONLY ${recTargets.artifactFile} and ${recTargets.submissionFile}, push, and open a PR against ${repo} referencing ${pick.id}.`,
+        ];
+  } else {
+    branchHint = `donor/${pick.id.toLowerCase()}-HANDLE`;
+    instructions = [
+      `1. Start from a clean base off upstream/main (or origin/main if not in a fork): git fetch upstream main 2>/dev/null || git fetch origin main; git checkout -B ${branchHint} upstream/main 2>/dev/null || git checkout -B ${branchHint} origin/main`,
+      `2. Read ${m.judge?.core_file || m.judge?.harness_file}${pick.statement_file ? ` AND frozen statement ${pick.statement_file}` : ""}`,
+      `3. Write your isolated artifact in ${pick.lean_file}`,
+      `4. Verify locally (replace HANDLE with your GitHub handle): node hub/fleet.mjs verify --mission ${m.slug} --lemma ${pick.id} --seat donor-HANDLE --file ${pick.lean_file} --theorem ${pick.theorem_name} --export`,
+      `5. Revert any state/event edits (git restore --worktree --staged -- missions/*/state.json missions/*/events.ndjson), commit ONLY ${pick.lean_file} and missions/${m.slug}/submissions/${pick.id}.*.json, push, and open a PR against ${repo} referencing ${pick.id}.`,
+    ];
+  }
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        scope: allScope ? "all" : m.slug,
+        mission: m.slug,
+        pr_sync_ok: prSyncOk,
+        excluded: [...excludeSet],
+        skipped_active_prs: skippedActivePr,
+        active_record_prs: activeRecordPrs,
+        remaining_count: candidates.length,
+        branch_hint: branchHint,
+        claim: pick,
+        instructions,
+      },
+      null,
+      2
+    )
+  );
+  process.exit(0);
+}
+
 const mission = loadMission(missionSlug);
 
 function writeSubmissionFile(lemma, kind, payload) {
@@ -293,102 +491,6 @@ if (cmd === "status") {
   const keys = ["checked", "trusted", "records_active", "records_closed", "flagged", "in_work", "conjecture", "refuted", "dead", "contradiction"];
   const counts = Object.fromEntries(keys.map((key) => [key, projected[key]]));
   console.log(JSON.stringify({ mission: mission.slug, title: mission.title, counts }, null, 2));
-  process.exit(0);
-}
-
-if (cmd === "next") {
-  // Pure in-memory derivation (NEVER mutates tracked state.json in donor checkouts!)
-  const { state } = deriveMissionState(mission.slug);
-  const prSnap = flags.offline ? { ok: false, by_mission_claim: {}, by_claim: {} } : fetchOpenPRs(mission.github_repo);
-  const nowMs = Date.now();
-  const STALE_PR_MS = 72 * 3600 * 1000;
-  const byId = Object.fromEntries(state.lemmas.map((l) => [l.id, l]));
-
-  const skippedActivePr = [];
-  const activeRecordPrs = [];
-  const candidates = state.lemmas
-    .filter((l) => {
-      if (flags.program && l.program !== flags.program) return false;
-      if (l.kind === "record") return !l.record_state?.closed && !l.record_state?.contradiction;
-      return l.status === "conjecture";
-    })
-    .filter((l) => {
-      const combined = [...(prSnap.by_mission_claim?.[`${mission.slug}/${l.id}`] || []), ...(prSnap.by_claim?.[l.id] || [])];
-      const prs = combined.filter((p) => nowMs - new Date(p.updated_at).getTime() < STALE_PR_MS);
-      if (prs.length > 0) {
-        if (l.kind === "record") {
-          // NEVER skip King-of-the-Hill record hunts on active PR (otherwise 1 abandoned PR stalls the hunt!)
-          activeRecordPrs.push({ id: l.id, prs: [...new Set(prs.map((p) => `#${p.number}`))] });
-        } else {
-          skippedActivePr.push({ id: l.id, prs: [...new Set(prs.map((p) => `#${p.number}`))] });
-          return false;
-        }
-      }
-      return (l.deps || []).every((d) => !byId[d] || byId[d].status === "checked" || byId[d].status === "refuted" || byId[d].record_state?.best);
-    })
-    .sort((a, b) => (b.statement_file ? 1 : 0) - (a.statement_file ? 1 : 0) || (a.rung || 99) - (b.rung || 99));
-
-  if (!candidates.length) {
-    console.log(
-      JSON.stringify(
-        {
-          ok: true,
-          mission: mission.slug,
-          pr_sync_ok: prSnap.ok,
-          skipped_active_prs: skippedActivePr,
-          next: null,
-          message: "No unclaimed open bounties right now (check skipped_active_prs or open a New Claim issue!).",
-        },
-        null,
-        2
-      )
-    );
-    process.exit(0);
-  }
-  const pick = candidates[0];
-  let instructions;
-  if (pick.kind === "record") {
-    const isMax = pick.record?.direction === "max";
-    const op = isMax ? "≥" : "≤";
-    const isCmd = pick.record?.artifact_ext === ".mjs";
-    const targetScore = pick.record_state?.next_target ?? pick.record?.start_target;
-    const recTargets = computeRecordTargets(mission.slug, pick, "record", targetScore);
-    instructions = isCmd
-      ? [
-          `1. Read ${mission.judge?.harness_file} AND frozen spec ${pick.statement_file}`,
-          `2. Export your candidate data in ${recTargets.artifactFile} targeting score ${op} ${targetScore} ${pick.record?.unit || ""}`,
-          `3. Verify locally: node hub/fleet.mjs record --mission ${mission.slug} --lemma ${pick.id} --score ${targetScore} --seat donor-<handle> --export`,
-          `4. Open a PR with ONLY ${recTargets.artifactFile} and ${recTargets.submissionFile} (never edit state.json or older record files!).`,
-        ]
-      : [
-          `1. Read ${mission.judge?.core_file} AND frozen record statement ${pick.statement_file}`,
-          `2. Prove \`theorem ${recTargets.theoremName} : ${pick.statement_def} ${targetScore}\` in ${recTargets.artifactFile} (or any strictly better score ${op} ${targetScore}!)`,
-          `3. Verify locally: node hub/fleet.mjs record --mission ${mission.slug} --lemma ${pick.id} --score ${targetScore} --seat donor-<handle> --file ${recTargets.artifactFile} --export`,
-          `4. Open a PR with ONLY ${recTargets.artifactFile} and ${recTargets.submissionFile} (never edit state.json or older record files!).`,
-        ];
-  } else {
-    instructions = [
-      `1. Read ${mission.judge?.core_file || mission.judge?.harness_file}${pick.statement_file ? ` AND frozen statement ${pick.statement_file}` : ""}`,
-      `2. Write your isolated artifact in ${pick.lean_file}`,
-      `3. Verify locally: node hub/fleet.mjs verify --mission ${mission.slug} --lemma ${pick.id} --seat donor-<handle> --file ${pick.lean_file} --theorem ${pick.theorem_name} --export`,
-      `4. Open a PR with ONLY ${pick.lean_file} and missions/${mission.slug}/submissions/${pick.id}.*.json (never edit state.json!).`,
-    ];
-  }
-  console.log(
-    JSON.stringify(
-      {
-        ok: true,
-        mission: mission.slug,
-        pr_sync_ok: prSnap.ok,
-        skipped_active_prs: skippedActivePr,
-        active_record_prs: activeRecordPrs,
-        claim: pick,
-        instructions,
-      },
-      null,
-      2
-    )
-  );
   process.exit(0);
 }
 

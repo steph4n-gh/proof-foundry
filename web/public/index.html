@@ -430,6 +430,14 @@
         <input id="attempt-handle" type="text" placeholder="your-handle" maxlength="39" autocomplete="username" spellcheck="false">
       </label>
     </div>
+    <div class="field-row">
+      <div class="seg" id="attempt-queue" role="group" aria-label="Session mode" aria-describedby="attempt-queue-hint">
+        <button type="button" data-queue="single" aria-pressed="true">Single</button>
+        <button type="button" data-queue="mission" aria-pressed="false">This mission</button>
+        <button type="button" data-queue="all" aria-pressed="false">All missions</button>
+      </div>
+      <span class="field-hint" id="attempt-queue-hint">One PR, then stop</span>
+    </div>
     <div class="field-row" id="attempt-record" hidden>
       <div class="seg" id="attempt-reckind" role="tablist" aria-label="Submission kind">
         <button type="button" role="tab" data-reckind="record" aria-selected="true">Improve record</button>
