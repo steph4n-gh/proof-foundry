@@ -1,0 +1,22 @@
+---
+title: "A donor submission from classification to merge"
+---
+stateDiagram-v2
+  s0: Awaiting classification
+  s1: Donor diff classified
+  s2: Stopped
+  s3: Judge passed
+  s4: Eligible on sampled main
+  s5: Auto-merge requested
+  s6: Merged
+  [*] --> s0
+  s0 --> s1: classify donor diff
+  s0 --> s2: check fails
+  s1 --> s3: judge accepts submission
+  s1 --> s2: check fails
+  s3 --> s4: accept current bounty or score
+  s3 --> s2: head differs from run or competing claim already on main
+  s4 --> s5: match expected head
+  s4 --> s2: head differs from decision
+  s5 --> s6: merge PR
+  s5 --> s2: head changed or base advanced
