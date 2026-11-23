@@ -57,6 +57,7 @@ export const TRANSPORT_STATUSES = Object.freeze([
 ]);
 export const OVERLAY_KINDS = Object.freeze(["none", "dossier", "attempt", "search"]);
 export const HARNESSES = Object.freeze(["claude", "codex", "gemini", "t3"]);
+export const QUEUE_MODES = Object.freeze(["single", "mission", "all"]);
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const CLAIM_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
@@ -266,6 +267,7 @@ function reduceOverlay(o, ev, seq) {
           mission: sanitizeSlug(ev.mission),
           harness: HARNESSES.includes(ev.harness) ? ev.harness : "claude",
           handle: String(ev.handle ?? "").slice(0, 39),
+          queueMode: QUEUE_MODES.includes(ev.queueMode) ? ev.queueMode : "single",
           recKind: ev.recKind === "record_bound" ? "record_bound" : "record",
           recScore: ev.recScore ?? null,
         },
@@ -278,6 +280,7 @@ function reduceOverlay(o, ev, seq) {
       const changes = {};
       if (p.harness !== undefined && HARNESSES.includes(p.harness)) changes.harness = p.harness;
       if (p.handle !== undefined) changes.handle = String(p.handle).slice(0, 39);
+      if (p.queueMode !== undefined && QUEUE_MODES.includes(p.queueMode)) changes.queueMode = p.queueMode;
       if (p.recKind !== undefined) changes.recKind = p.recKind === "record_bound" ? "record_bound" : "record";
       if (p.recScore !== undefined) changes.recScore = p.recScore;
       return { overlay: patch(o, changes), seq };
@@ -790,4 +793,27 @@ export function toRoman(n) {
   let out = "";
   for (const [v, s] of map) while (x >= v) { out += s; x -= v; }
   return out;
+}
+
+/** Pure continuous-queue loop instructions appended to the Attempt prompt when queueMode != "single". */
+export function buildLoopSuffix({ slug, lemmaId, handle, queueMode, repo = "steph4n-gh/proof-foundry", missionCount = null }) {
+  if (queueMode !== "mission" && queueMode !== "all") return "";
+  const nextScope = queueMode === "all" ? "all" : slug;
+  const scopeLabel = queueMode === "all" ? (missionCount ? `all ${missionCount} missions` : "all missions") : `mission ${slug}`;
+  return [
+    ``,
+    `Continuous queue mode (${scopeLabel} — keep going task after task):`,
+    `Track every claim ID you submit or skip this session (starting with "${lemmaId}"). Do NOT rely on a shell variable like $DONE across commands (each shell call may start fresh) — pass the literal comma-separated list to \`--exclude\` (or append one ID per line to \`$(git rev-parse --git-path fleet-exclude)\` and pass \`--exclude-file\`).`,
+    `Fork note: if you are working in a fork, add \`upstream\` (\`git remote add upstream https://github.com/${repo}.git\`), fetch/branch off \`upstream/main\`, push branches to \`origin\`, and open PRs with \`gh pr create --repo ${repo}\`.`,
+    `After opening the PR above, repeat:`,
+    `A. Clean any state/event edits left by local verification and confirm a clean tree before switching branches:`,
+    `   git restore --worktree --staged -- missions/*/state.json missions/*/events.ndjson && git status --porcelain`,
+    `B. Refresh and check out latest main so \`fleet next\` sees newly merged submissions, then ask the queue for the next unclaimed problem (passing all session IDs literally):`,
+    `   git fetch upstream main 2>/dev/null || git fetch origin main`,
+    `   git checkout --detach upstream/main 2>/dev/null || git checkout --detach origin/main`,
+    `   node hub/fleet.mjs next --mission ${nextScope} --exclude "${lemmaId}"  # append each completed/skipped ID`,
+    `C. If \`claim\` is null, summarize every PR you opened and stop.`,
+    `D. Otherwise create a fresh branch (\`donor/<next-id>-${handle}\`) directly off \`upstream/main\` (or \`origin/main\`): \`git checkout -B donor/<next-id>-${handle} upstream/main 2>/dev/null || git checkout -B donor/<next-id>-${handle} origin/main\`. Follow the returned \`instructions\`, verify locally with \`node hub/fleet.mjs ... --seat donor-${handle} --export\`, revert state/event files, commit ONLY the new artifact + submission JSON, push, open a clean PR against \`${repo}\`, add the ID to your \`--exclude\` list, and repeat.`,
+    `E. If a problem hits a genuine mathematical roadblock after serious effort, do NOT cheat or leave dirty files — discard scratch changes, add its ID to your \`--exclude\` list, and move straight to the next problem.`,
+  ].join("\n");
 }

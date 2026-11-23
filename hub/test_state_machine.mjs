@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { buildMissionSnapshot } from "./build_site.mjs";
-import { ROOT, applySubmissionsPure, listMissionSlugs, loadAllMissionsSummary, loadMission } from "./missions.mjs";
+import { ROOT, applySubmissionsPure, deriveMissionState, listMissionSlugs, loadAllMissionsSummary, loadMission } from "./missions.mjs";
 import {
   assignSeatClaim,
   computeClaimFreshness,
@@ -436,4 +436,138 @@ esac
   assert.match(frame, /^event: snapshot\ndata: /);
   const sseSnapshot = JSON.parse(frame.split("\n")[1].slice("data: ".length));
   assert.deepEqual(sseSnapshot.lemmas, liveState.lemmas);
+});
+
+test("fleet next supports --mission all, --exclude, --exclude-file, ranking, PR filtering, and clean errors", (t) => {
+  // Compute expected open eligible count dynamically from mission state (never hardcoded)
+  let expectedTotal = 0;
+  for (const slug of listMissionSlugs()) {
+    const st = deriveMissionState(slug).state;
+    const byId = Object.fromEntries(st.lemmas.map((l) => [l.id, l]));
+    for (const l of st.lemmas) {
+      const open = l.kind === "record" ? !l.record_state?.closed && !l.record_state?.contradiction : l.status === "conjecture";
+      if (!open) continue;
+      const depsOk = (l.deps || []).every((d) => !byId[d] || byId[d].status === "checked" || byId[d].status === "refuted" || byId[d].record_state?.best);
+      if (depsOk) expectedTotal++;
+    }
+  }
+
+  // Snapshot every state.json hash before running `next` to verify zero mutation
+  const stateFiles = listMissionSlugs().map((slug) => loadMission(slug).paths.stateFile);
+  const hashesBefore = stateFiles.map((f) => sha256RelFile(f));
+
+  const first = runNode(["hub/fleet.mjs", "next", "--mission", "all", "--offline"]);
+  assert.equal(first.status, 0, first.stderr);
+  const p1 = JSON.parse(first.stdout);
+  assert.equal(p1.ok, true);
+  assert.equal(p1.scope, "all");
+  assert.ok(p1.mission && p1.claim?.id);
+  assert.equal(p1.remaining_count, expectedTotal);
+  assert.ok(p1.claim.kind !== "record" && p1.claim.statement_file, "frozen fixed bounty ranks first");
+  assert.ok(Array.isArray(p1.instructions) && p1.instructions.length >= 5);
+  assert.match(p1.instructions[0], /git checkout -B /);
+  assert.match(p1.instructions[4], /git restore --worktree --staged/);
+
+  // Uppercase ALL + bare `--exclude` (no value) treated cleanly as empty exclusion list
+  const bareEx = runNode(["hub/fleet.mjs", "next", "--mission", "ALL", "--offline", "--exclude"]);
+  assert.equal(bareEx.status, 0, bareEx.stderr);
+  const pb = JSON.parse(bareEx.stdout);
+  assert.deepEqual(pb.excluded, []);
+  assert.equal(pb.claim.id, p1.claim.id);
+
+  // Comma-separated `--exclude` and scoped `slug/ID` exclusion
+  const second = runNode(["hub/fleet.mjs", "next", "--mission", "all", "--offline", "--exclude", p1.claim.id]);
+  assert.equal(second.status, 0, second.stderr);
+  const p2 = JSON.parse(second.stdout);
+  assert.equal(p2.ok, true);
+  assert.ok(p2.claim?.id && p2.claim.id !== p1.claim.id);
+  assert.equal(p2.remaining_count, p1.remaining_count - 1);
+  assert.deepEqual(p2.excluded, [p1.claim.id]);
+
+  const scoped = runNode(["hub/fleet.mjs", "next", "--mission", "all", "--offline", "--exclude", `${p1.mission}/${p1.claim.id}`]);
+  assert.equal(scoped.status, 0, scoped.stderr);
+  assert.notEqual(JSON.parse(scoped.stdout).claim.id, p1.claim.id);
+
+  // `--exclude-file` skips newline/comma-listed IDs and ignores comments
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pf-next-test-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const exFile = path.join(dir, "done.txt");
+  fs.writeFileSync(exFile, `# session log\n${p1.claim.id}\n${p2.claim.id}\n`, "utf8");
+  const fromFile = runNode(["hub/fleet.mjs", "next", "--mission", "all", "--offline", "--exclude-file", exFile]);
+  assert.equal(fromFile.status, 0, fromFile.stderr);
+  const pf = JSON.parse(fromFile.stdout);
+  assert.notEqual(pf.claim.id, p1.claim.id);
+  assert.notEqual(pf.claim.id, p2.claim.id);
+  assert.equal(pf.remaining_count, p1.remaining_count - 2);
+
+  // `--program` works with `--mission all` (e.g. only record_hunt across missions)
+  const progAll = runNode(["hub/fleet.mjs", "next", "--mission", "all", "--program", "record_hunt", "--offline"]);
+  assert.equal(progAll.status, 0, progAll.stderr);
+  const pp = JSON.parse(progAll.stdout);
+  assert.equal(pp.claim.program, "record_hunt");
+  assert.equal(pp.claim.kind, "record");
+
+  // Ranking + open-PR handling via fake `gh` stub:
+  // Fixed claim SN-001 with open PR -> skipped in skipped_active_prs;
+  // KotH hunt SN-rec-013 with open PR -> STILL served when fixed bounties are excluded, listed in active_record_prs,
+  // and ranked AFTER unclaimed KotH hunts with no active PR!
+  const binDir = path.join(dir, "bin");
+  fs.mkdirSync(binDir, { recursive: true });
+  const fakeGh = path.join(binDir, "gh");
+  const fakePrs = [
+    { number: 501, title: "SN-001 witness", url: "https://example.test/501", headRefName: "donor/sn-001", updatedAt: new Date().toISOString(), statusCheckRollup: [] },
+    { number: 502, title: "SN-rec-013 score 46", url: "https://example.test/502", headRefName: "donor/sn-rec-013-s46", updatedAt: new Date().toISOString(), statusCheckRollup: [] },
+  ];
+  fs.writeFileSync(fakeGh, `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify(fakePrs)}'\n`, { mode: 0o755 });
+  const ghEnv = { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}` };
+
+  const snWithPr = runNode(["hub/fleet.mjs", "next", "--mission", "sorting-networks"], { env: ghEnv });
+  assert.equal(snWithPr.status, 0, snWithPr.stderr);
+  const snp = JSON.parse(snWithPr.stdout);
+  assert.equal(snp.pr_sync_ok, true);
+  assert.ok(snp.skipped_active_prs.some((x) => x.id === "SN-001"), "fixed claim with open PR skipped");
+  assert.ok(snp.active_record_prs.some((x) => x.id === "SN-rec-013"), "KotH hunt with open PR reported");
+  assert.notEqual(snp.claim.id, "SN-001");
+
+  // Exclude all fixed claims in sorting-networks AND all other KotH hunts except SN-rec-013 -> SN-rec-013 STILL served!
+  const snAll = deriveMissionState("sorting-networks").state.lemmas;
+  const exExceptRec13 = snAll.filter((l) => l.id !== "SN-rec-013").map((l) => l.id).join(",");
+  const recServed = runNode(["hub/fleet.mjs", "next", "--mission", "sorting-networks", "--exclude", exExceptRec13], { env: ghEnv });
+  assert.equal(recServed.status, 0, recServed.stderr);
+  const rps = JSON.parse(recServed.stdout);
+  assert.equal(rps.claim.id, "SN-rec-013");
+  assert.ok(rps.active_record_prs.some((x) => x.id === "SN-rec-013"));
+
+  // Exclude only fixed claims in sorting-networks -> unclaimed KotH hunt WITHOUT open PR (SN-rec-014) ranks ahead of SN-rec-013 (active PR)
+  const exFixedOnly = snAll.filter((l) => l.kind !== "record").map((l) => l.id).join(",");
+  const recRanked = runNode(["hub/fleet.mjs", "next", "--mission", "sorting-networks", "--exclude", exFixedOnly], { env: ghEnv });
+  assert.equal(recRanked.status, 0, recRanked.stderr);
+  assert.notEqual(JSON.parse(recRanked.stdout).claim.id, "SN-rec-013", "uncontested KotH hunt ranks ahead of contested KotH hunt");
+
+  // Clean exhaustion
+  const allSortNetIds = snAll.map((l) => l.id).join(",");
+  const exhausted = runNode(["hub/fleet.mjs", "next", "--mission", "sorting-networks", "--offline", "--exclude", allSortNetIds]);
+  assert.equal(exhausted.status, 0, exhausted.stderr);
+  const pe = JSON.parse(exhausted.stdout);
+  assert.equal(pe.ok, true);
+  assert.equal(pe.claim, null);
+  assert.equal(pe.next, null);
+  assert.equal(pe.remaining_count, 0);
+
+  // Clean JSON errors for invalid/missing `--mission` and missing `--exclude-file`
+  for (const args of [
+    ["hub/fleet.mjs", "next", "--mission", "nope", "--offline"],
+    ["hub/fleet.mjs", "next", "--mission", "../escape", "--offline"],
+    ["hub/fleet.mjs", "next", "--mission", "--offline"],
+    ["hub/fleet.mjs", "next", "--mission", "all", "--offline", "--exclude-file", path.join(dir, "does-not-exist.txt")],
+  ]) {
+    const bad = runNode(args);
+    assert.equal(bad.status, 1);
+    const body = JSON.parse(bad.stdout);
+    assert.equal(body.ok, false);
+    assert.ok(typeof body.error === "string" && body.error.length > 0);
+  }
+
+  // `next` never mutated any tracked state.json
+  assert.deepEqual(stateFiles.map((f) => sha256RelFile(f)), hashesBefore);
 });

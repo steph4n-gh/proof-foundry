@@ -823,14 +823,18 @@ input:hover {
 }
 .seg {
   display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius);
 }
 .seg button {
   border: 0;
   background: transparent;
-  height: 32px;
-  padding: 0 12px;
+  min-height: 32px;
+  padding: 5px 11px;
+  line-height: 1.25;
+  white-space: nowrap;
   font-size: 13.5px;
   color: var(--muted);
 }

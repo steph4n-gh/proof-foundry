@@ -262,6 +262,8 @@ const {
   isCurrentMissionRequest,
   VIEWS,
   LEDGER_TABS,
+  QUEUE_MODES,
+  buildLoopSuffix,
 } = mod;
 
 // --- routes
@@ -452,6 +454,40 @@ for (const [a, evA] of Object.entries(OPENERS)) {
   assert(s.overlay.kind === "none", "history back to a claim-less URL closes the dossier");
   s = reduceUI(s, { type: "OPEN_DOSSIER", claimId: "E-rec-r55", mission: "erdos-combinatorics" });
   assert(s.overlay.kind === "dossier" && s.route.claim === null, "cross-mission dossier opens without writing a foreign claim into the URL");
+
+  // Attempt overlay queueMode transitions (single / mission / all + invalid fallback) & markup/loop prompt checks
+  let qa = reduceUI(base(), { type: "OPEN_ATTEMPT", claimId: "SN-rec-013", mission: "sorting-networks", queueMode: "all" });
+  assert(qa.overlay.kind === "attempt" && qa.overlay.queueMode === "all", "OPEN_ATTEMPT stores valid queueMode");
+  qa = reduceUI(qa, { type: "ATTEMPT_UPDATE", patch: { queueMode: "mission" } });
+  assert(qa.overlay.queueMode === "mission", "ATTEMPT_UPDATE switches queueMode to mission");
+  const qaInvalid = reduceUI(qa, { type: "ATTEMPT_UPDATE", patch: { queueMode: "bogus" } });
+  assert(qaInvalid === qa, "ATTEMPT_UPDATE ignores invalid queueMode");
+  const qaDefault = reduceUI(base(), { type: "OPEN_ATTEMPT", claimId: "SN-rec-013", mission: "sorting-networks", queueMode: "bogus" });
+  assert(qaDefault.overlay.queueMode === "single", "OPEN_ATTEMPT defaults invalid queueMode to single");
+
+  const queueButtons = [...HTML.matchAll(/data-queue="([^"]+)"/g)].map((m) => m[1]);
+  assert(eq(queueButtons, [...QUEUE_MODES]), "#attempt-queue buttons match QUEUE_MODES exactly", JSON.stringify(queueButtons));
+  assert(HTML.includes('aria-describedby="attempt-queue-hint"'), "#attempt-queue linked to hint via aria-describedby");
+
+  assert(buildLoopSuffix({ slug: "sorting-networks", lemmaId: "SN-rec-013", handle: "alice", queueMode: "single" }) === "", "single mode appends zero loop text");
+  const loopMission = buildLoopSuffix({ slug: "sorting-networks", lemmaId: "SN-rec-013", handle: "alice", queueMode: "mission" });
+  assert(
+    loopMission.includes("--mission sorting-networks") &&
+      loopMission.includes('--exclude "SN-rec-013"') &&
+      loopMission.includes("git restore --worktree --staged") &&
+      loopMission.includes("upstream/main") &&
+      !loopMission.includes('"$DONE"'),
+    "mission loop prompt has clean-tree restore, literal --exclude, fork note, and no $DONE shell var"
+  );
+  const loopAll = buildLoopSuffix({ slug: "sorting-networks", lemmaId: "SN-rec-013", handle: "alice", queueMode: "all", missionCount: 6 });
+  assert(
+    loopAll.includes("--mission all") &&
+      loopAll.includes('--exclude "SN-rec-013"') &&
+      loopAll.includes("git restore --worktree --staged") &&
+      loopAll.includes("upstream/main") &&
+      !loopAll.includes('"$DONE"'),
+    "all-missions loop prompt has --mission all, clean-tree restore, literal --exclude, and fork note"
+  );
 }
 {
   const m = createUIMachine(initialUIState());
