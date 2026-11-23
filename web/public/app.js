@@ -1,1974 +1,2069 @@
-/* PROOF FOUNDRY v2 — Observatory Lab Frontend
- * Covers: All-Missions Hub, 3-Tier Trust Seals, Interactive Donate Modal, ⌘K Command Palette,
- * Race-Safe Mission & Dossier Sequence Guards, Deep-Link URL Sync, Live SSE + Static Pages fallback.
+/* PROOF FOUNDRY v3 — "Proceedings" frontend.
+ *
+ * All UI state (transport, route, overlay) lives in the explicit state machine in
+ * ./ui_machine.js. This module only:
+ *   1. performs side effects (fetch, EventSource, history, clipboard, localStorage),
+ *   2. holds fetched *data* (catalog, snapshots, records), and
+ *   3. renders DOM from machine state + data.
+ * Status, freshness, PR state, actions and record metadata come from the backend
+ * projection (lemma.seal / freshness / pr_state / actions / record_meta) via the
+ * adapters in ui_machine.js.
  */
-(function () {
-  const $ = (sel) => document.querySelector(sel);
-  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+import {
+  DEFAULT_MISSION,
+  NO_OVERLAY,
+  createUIMachine,
+  initialUIState,
+  parseRouteFromLocation,
+  serializeRouteToLocation,
+  acceptsSnapshot,
+  isCurrentMissionRequest,
+  sealOf,
+  statusOf,
+  freshnessOf,
+  prStateOf,
+  actionsOf,
+  isAttemptable,
+  recordMetaOf,
+  recordRowFromLemma,
+  normalizeRecordsPayload,
+  synthesizeRecordsPayload,
+  mergeSnapshotIntoRecords,
+  latestVerifiedFromSnapshots,
+  filterRecords,
+  sortRecords,
+  pickHotRecords,
+  boundIntervalGeometry,
+  ratchetSeries,
+  toRoman,
+} from "./ui_machine.js";
 
-  const VALID_VIEWS = ["missions", "control", "bounties", "live", "map", "leaderboard", "graveyard", "feed"];
-  const LAB_VIEWS = ["control", "live", "map", "leaderboard", "graveyard", "feed"];
+// ---------------------------------------------------------------- helpers
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+const DEFAULT_REPO = "steph4n-gh/proof-foundry";
 
-  let STATE = null;
-  let MISSIONS = [];
-  let STATIC_MODE = false;
-  let SSE = null;
-  let MISSION_REQ_SEQ = 0;
-  let DOSSIER_REQ_SEQ = 0;
-  let CURRENT_MISSION = new URLSearchParams(location.search).get("mission") || "erdos-combinatorics";
-  let CURRENT_VIEW = (location.hash || "").replace("#", "") || (new URLSearchParams(location.search).get("mission") ? "control" : "missions");
-  if (!VALID_VIEWS.includes(CURRENT_VIEW)) CURRENT_VIEW = "missions";
-  let BOUNTY_MODE = "open";
-  const FOCUS_STACK = [];
-  let PENDING_CLAIM_ID = null;
-
-  // Donate modal state
-  let DONATE_LEMMA = null;
-  let DONATE_HARNESS = localStorage.getItem("pf-harness") || "claude";
-  let DONATE_HANDLE = localStorage.getItem("pf-handle") || "";
-  let DONATE_REC_KIND = "record";
-  let DONATE_REC_SCORE = null;
-
-  // Command palette state
-  let CMD_ITEMS = [];
-  let CMD_IDX = 0;
-
-  // Theme: localStorage -> prefers-color-scheme fallback
-  const prefersLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
-  const savedTheme = localStorage.getItem("pf-theme") || (prefersLight ? "light" : "dark");
-  document.documentElement.setAttribute("data-theme", savedTheme);
-  $("#theme-toggle").addEventListener("click", () => {
-    const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
-    document.documentElement.setAttribute("data-theme", next);
-    localStorage.setItem("pf-theme", next);
-    if (STATE && CURRENT_VIEW === "map") drawProofMap();
-  });
-
-  function esc(s) {
-    return String(s ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
+function esc(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+function int(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n) : 0;
+}
+function relTime(iso) {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "";
+  const diff = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (diff < 10) return "just now";
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+function longDate(iso) {
+  const d = iso ? new Date(iso) : new Date();
+  if (!Number.isFinite(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+}
+function storageGet(key, fallback = "") {
+  try {
+    return window.localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
   }
-  function safeInt(v) {
-    const n = Number(v);
-    return Number.isFinite(n) ? Math.round(n) : 0;
+}
+function storageSet(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    /* private mode */
   }
-  function relTime(iso) {
-    if (!iso) return "";
-    const diff = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-    if (diff < 10) return "just now";
-    if (diff < 60) return `${diff}s ago`;
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    return `${Math.floor(diff / 86400)}d ago`;
-  }
-  function showToast(msg) {
-    const t = $("#toast");
-    t.textContent = msg;
-    t.hidden = false;
-    clearTimeout(t._tm);
-    t._tm = setTimeout(() => (t.hidden = true), 2400);
-  }
-  function isInputFocused() {
-    const el = document.activeElement;
-    if (!el) return false;
-    const tag = el.tagName;
-    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
-  }
-
-  function sealOf(lemma) {
-    if (!lemma) return "open";
-    if (lemma.seal) return lemma.seal;
-    if (lemma.status === "contradiction" || lemma.record_state?.contradiction) return "contradiction";
-    if (lemma.kind === "record") {
-      if (lemma.record_state?.closed) return "frozen";
-      if (lemma.record_state?.best) return "record";
-      return "open";
-    }
-    if (lemma.audit?.status === "flagged") return "flagged";
-    if (lemma.status === "checked") {
-      if (lemma.checker?.statement_frozen) return "frozen";
-      if (lemma.audit?.status === "faithful") return "audited";
-      return "provisional";
-    }
-    if (lemma.status === "refuted") return "refuted";
-    if (lemma.status === "dead") return "dead";
-    if (lemma.status === "in_work") return "in_work";
-    return "open";
-  }
-
-  const SEAL_META = {
-    frozen: { label: "◆ Frozen", title: "Kernel type-matched against frozen statement" },
-    record: { label: "♛ Record", title: "Active King-of-the-Hill record hunt — open to beat!" },
-    audited: { label: "✓ Audited", title: "Kernel-verified + independent cross-model audit passed" },
-    provisional: { label: "◇ Provisional", title: "Kernel-verified; awaiting independent cross-model audit" },
-    flagged: { label: "⚠ Flagged", title: "Cross-model audit flagged statement/title gap (excluded from objectives)" },
-    refuted: { label: "✕ Refuted", title: "Judge-verified counterexample" },
-    dead: { label: "☠ Barrier", title: "Ruled dead against known mathematical barrier" },
-    contradiction: { label: "⛔ Contradiction", title: "Opposing verified proof & refutation detected" },
-    in_work: { label: "● In Work", title: "Currently claimed by an active seat" },
-    open: { label: "○ Open Bounty", title: "Available for token donation" },
-  };
-
-  function sealHTML(lemmaOrSeal) {
-    if (lemmaOrSeal && typeof lemmaOrSeal === "object" && lemmaOrSeal.kind === "record") {
-      const rs = lemmaOrSeal.record_state || {};
-      const cfg = lemmaOrSeal.record || {};
-      const isMax = cfg.direction === "max";
-      const op = isMax ? "≥" : "≤";
-      if (rs.contradiction) {
-        return `<span class="seal seal-contradiction" title="${esc(SEAL_META.contradiction.title)}">⛔ Contradiction</span>`;
-      }
-      if (rs.closed && rs.best) {
-        return `<span class="seal seal-frozen" title="Exact optimal proven and closed">◆ Optimal (${safeInt(rs.best.score)})</span>`;
-      }
-      if (rs.best) {
-        return `<span class="seal seal-record" title="Current record held by ${esc(rs.best.seat || "donor")} — beat with ${op} ${safeInt(rs.next_target)}">♛ Record ${safeInt(rs.best.score)} · ${op}${safeInt(rs.next_target)}</span>`;
-      }
-      return `<span class="seal seal-record" title="Open King-of-the-Hill hunt — launch ${isMax ? "floor" : "ceiling"} ${op} ${safeInt(cfg.start_target)}">♛ Hunt · ${op}${safeInt(cfg.start_target)}</span>`;
-    }
-    const key = typeof lemmaOrSeal === "string" ? lemmaOrSeal : sealOf(lemmaOrSeal);
-    const m = SEAL_META[key] || SEAL_META.open;
-    return `<span class="seal seal-${esc(key)}" title="${esc(m.title)}">${esc(m.label)}</span>`;
-  }
-
-  function prBadgesHTML(lemma) {
-    const prs = lemma?.open_prs || [];
-    if (!prs.length) return "";
-    return prs
-      .map(
-        (p) =>
-          `<a class="pr-pill" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" title="Active PR: ${esc(p.title)}" onclick="event.stopPropagation()">◷ PR #${safeInt(p.number)}</a>`
-      )
-      .join(" ");
-  }
-
-  function progMonogram(progId) {
-    const p = STATE?.programs?.find((x) => x.id === progId);
-    const code = (p?.key || progId || "GEN").slice(0, 3).toUpperCase();
-    return `<span class="prog-tag" title="${esc(p?.title || progId)}">${esc(code)}</span>`;
-  }
-
-  function seatById(id) {
-    return STATE?.seats?.find((s) => s.id === id);
-  }
-
-  function isClaimDonateable(lemma) {
-    if (!lemma) return false;
-    if (lemma.kind === "record") {
-      return !lemma.record_state?.closed && !lemma.record_state?.contradiction;
-    }
-    return lemma.status === "conjecture" || lemma.status === "in_work";
-  }
-
-  function computeRecordTargetsUI(slug, lemma, kind, score) {
-    const rec = lemma?.record || {};
-    const tag = kind === "record_bound" ? `not_s${score}` : `s${score}`;
-    const stem = rec.file_stem || lemma.id.replace(/-/g, "_");
-    const claimsDir = rec.claims_dir || `missions/${slug}/lean/Claims`;
-    const ext = rec.artifact_ext || ".lean";
-    const artifactFile = `${claimsDir}/${stem}_${tag}${ext}`;
-    const submissionFile = `missions/${slug}/submissions/${lemma.id}.${kind}.s${score}.json`;
-    const tpl = rec.theorem_template || `${stem}_{tag}.record`;
-    const theoremName = tpl.replace(/\{tag\}/g, tag);
-    return { tag, artifactFile, submissionFile, theoremName };
-  }
-
-  // URL Sync
-  function syncURL({ view = CURRENT_VIEW, mission = CURRENT_MISSION, claim = null, push = false } = {}) {
-    const params = new URLSearchParams();
-    if (mission) params.set("mission", mission);
-    if (claim) params.set("claim", claim);
-    const nextUrl = `${location.pathname}?${params.toString()}#${view}`;
-    if (push) history.pushState({ view, mission, claim }, "", nextUrl);
-    else history.replaceState({ view, mission, claim }, "", nextUrl);
-  }
-
-  // Dropdown Lab menu
-  const labBtn = $("#lab-drop-btn");
-  const labMenu = $("#lab-menu");
-  function closeLabMenu() {
-    labMenu.hidden = true;
-    labBtn.setAttribute("aria-expanded", "false");
-  }
-  labBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const open = labMenu.hidden;
-    labMenu.hidden = !open;
-    labBtn.setAttribute("aria-expanded", open ? "true" : "false");
-  });
-  document.addEventListener("click", (e) => {
-    if (!labMenu.hidden && !$("#lab-dropdown").contains(e.target)) closeLabMenu();
-  });
-
-  function setView(view, { push = false, preserveClaim = false } = {}) {
-    if (!VALID_VIEWS.includes(view)) view = "missions";
-    CURRENT_VIEW = view;
-    closeLabMenu();
-    $$(".view").forEach((el) => (el.hidden = el.id !== `view-${view}`));
-    $$(".nav > a").forEach((a) => a.classList.toggle("active", a.dataset.nav === view));
-    const isLab = LAB_VIEWS.includes(view);
-    labBtn.classList.toggle("active", isLab);
-    const labNames = {
-      control: "Lab · Control",
-      live: "Lab · Fleet",
-      map: "Lab · Map",
-      leaderboard: "Lab · Board",
-      graveyard: "Lab · Graveyard",
-      feed: "Lab · Audit",
-    };
-    $("#lab-drop-label").textContent = isLab ? labNames[view] : "Lab";
-    $$("#lab-menu button").forEach((b) => b.classList.toggle("active", b.dataset.nav === view));
-    const claimForUrl = preserveClaim ? (PENDING_CLAIM_ID || currentOpenClaimId()) : currentOpenClaimId();
-    syncURL({ view, mission: CURRENT_MISSION, claim: claimForUrl, push });
-    renderCurrentView();
-  }
-
-  function currentOpenClaimId() {
-    return $("#lemma-drawer").classList.contains("open") ? $("#drawer-id").textContent || null : null;
-  }
-
-  // Delegate nav clicks everywhere
-  document.addEventListener("click", (e) => {
-    const navEl = e.target.closest("[data-nav]");
-    if (!navEl) return;
-    e.preventDefault();
-    const v = navEl.dataset.nav;
-    const m = navEl.dataset.mission;
-    if (m && m !== CURRENT_MISSION) {
-      switchMission(m, { targetView: v });
-    } else {
-      setView(v, { push: true });
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
-  });
-
-  window.addEventListener("popstate", () => {
-    const params = new URLSearchParams(location.search);
-    const m = params.get("mission") || CURRENT_MISSION;
-    const v = (location.hash || "").replace("#", "") || "missions";
-    const c = params.get("claim");
-    if (m !== CURRENT_MISSION) {
-      switchMission(m, { targetView: v, openClaim: c, fromHistory: true });
-    } else {
-      PENDING_CLAIM_ID = c || null;
-      setView(v, { push: false, preserveClaim: Boolean(c) });
-      if (c) openDossier(c, { syncUrl: false });
-      else if ($("#lemma-drawer").classList.contains("open")) closeDossier({ syncUrl: false });
-    }
-  });
-
-  // Boot & mission loading (race-safe; zero 404 console noise on github.io!)
-  async function boot() {
-    $("#boot-error").hidden = true;
-    const preferStatic = location.hostname.endsWith(".github.io") || location.protocol === "file:";
-    const sources = preferStatic
-      ? [
-          { url: "./data/missions.json", isStatic: true },
-          { url: "/api/missions", isStatic: false },
-        ]
-      : [
-          { url: "/api/missions", isStatic: false },
-          { url: "./data/missions.json", isStatic: true },
-        ];
-
-    let loaded = false;
-    let lastErr = null;
-    for (const src of sources) {
-      try {
-        const res = await fetch(src.url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        MISSIONS = data.missions || [];
-        STATIC_MODE = src.isStatic || Boolean(data.static);
-        loaded = true;
-        break;
-      } catch (err) {
-        lastErr = err;
-      }
-    }
-    if (!loaded) {
-      $("#boot-error-msg").textContent = `Unable to load Proof Foundry catalog (${lastErr?.message || "network error"}).`;
-      $("#boot-error").hidden = false;
-      return;
-    }
-
-    if (!MISSIONS.some((m) => m.slug === CURRENT_MISSION) && MISSIONS.length) {
-      CURRENT_MISSION = MISSIONS[0].slug;
-    }
-    populateMissionSelect();
-    renderMissionsHub();
-
-    const initialClaim = new URLSearchParams(location.search).get("claim");
-    await switchMission(CURRENT_MISSION, { targetView: CURRENT_VIEW, openClaim: initialClaim, fromHistory: true });
-  }
-
-  $("#boot-retry-btn").addEventListener("click", boot);
-
-  function populateMissionSelect() {
-    const sel = $("#mission-select");
-    sel.innerHTML = MISSIONS.map(
-      (m) => `<option value="${esc(m.slug)}" ${m.slug === CURRENT_MISSION ? "selected" : ""}>${esc(m.title)}</option>`
-    ).join("");
-  }
-
-  $("#mission-select").addEventListener("change", (e) => {
-    const nextView = CURRENT_VIEW === "missions" ? "control" : CURRENT_VIEW;
-    switchMission(e.target.value, { targetView: nextView });
-  });
-
-  async function switchMission(slug, { targetView = CURRENT_VIEW, openClaim = null, fromHistory = false } = {}) {
-    const prevMission = CURRENT_MISSION;
-    const seq = ++MISSION_REQ_SEQ;
-    // Cancel any in-flight dossier fetch from the previous mission & close open drawer unless deep-linking into new mission
-    DOSSIER_REQ_SEQ++;
-    if (!openClaim && $("#lemma-drawer").classList.contains("open")) {
-      closeDossier({ syncUrl: false });
-    }
-    if (SSE) {
-      SSE.close();
-      SSE = null;
-    }
-
-    try {
-      const url = STATIC_MODE ? `./data/${encodeURIComponent(slug)}/state.json` : `/api/state?mission=${encodeURIComponent(slug)}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const snap = await res.json();
-      if (seq !== MISSION_REQ_SEQ) return; // Stale mission switch discarded!
-
-      // Commit mission slug ONLY after fetch succeeds!
-      CURRENT_MISSION = slug;
-      if ($("#mission-select").value !== slug) $("#mission-select").value = slug;
-      PENDING_CLAIM_ID = openClaim || null;
-
-      applySnapshot(snap);
-      $("#boot-error").hidden = true;
-      if (!STATIC_MODE) connectSSE(slug, seq);
-      setView(targetView, { push: !fromHistory, preserveClaim: Boolean(openClaim) });
-      if (openClaim) openDossier(openClaim, { syncUrl: !fromHistory });
-    } catch (err) {
-      if (seq !== MISSION_REQ_SEQ) return;
-      // Restore selector to still-active mission on failure!
-      if ($("#mission-select").value !== prevMission) $("#mission-select").value = prevMission;
-      $("#boot-error-msg").textContent = `Could not load mission "${slug}": ${err.message}`;
-      $("#boot-error").hidden = false;
-    }
-  }
-
-  function connectSSE(slug, seq) {
-    try {
-      SSE = new EventSource(`/api/stream?mission=${encodeURIComponent(slug)}`);
-      SSE.addEventListener("snapshot", (ev) => {
-        if (seq !== MISSION_REQ_SEQ) return;
-        try {
-          applySnapshot(JSON.parse(ev.data));
-        } catch {}
-      });
-      SSE.onerror = () => {
-        if (seq !== MISSION_REQ_SEQ) return;
-        $("#sse-label").textContent = "Reconnecting…";
-      };
-    } catch {}
-  }
-
-  function applySnapshot(snap) {
-    if (!snap || !snap.ready) return;
-    STATE = snap;
-
-    // Update topbar & sync pill
-    const repo = snap.mission?.github_repo || "steph4n-gh/proof-foundry";
-    $("#gh-repo-link").href = `https://github.com/${repo}`;
-    $("#hub-proofs-link").href = STATIC_MODE ? "./PROOFS.md" : "/PROOFS.md";
-    const openCount = snap.lemmas.filter((l) => isClaimDonateable(l) && l.status !== "in_work").length;
-    $("#nav-bounty-count").textContent = String(openCount);
-
-    const pillDot = $("#sse-pill .pulse-dot");
-    if (STATIC_MODE) {
-      pillDot.classList.add("static");
-      $("#sse-label").textContent = relTime(snap.snapshot_at) || "synced";
-    } else {
-      pillDot.classList.remove("static");
-      $("#sse-label").textContent = "Live";
-    }
-    $("#footer-judge").textContent = `Judge: ${snap.mission?.judge?.label || "Isolated Mechanical Judge"}`;
-
-    // Just-in ribbon (explicit label for EVERY event type — never mislabel approach_dead as VERIFIED!)
-    if (snap.just_in) {
-      const e = snap.just_in;
-      const tag = $("#just-in-tag");
-      tag.className = "ribbon-tag";
-      if (e.type === "claim_refuted") {
-        tag.classList.add("refuted");
-        tag.textContent = "REFUTED";
-      } else if (e.type === "approach_dead") {
-        tag.classList.add("dead");
-        tag.textContent = "BARRIER / DEAD";
-      } else if (e.type === "lemma_audited" && String(e.detail || "").startsWith("flagged")) {
-        tag.classList.add("flagged");
-        tag.textContent = "AUDIT FLAGGED";
-      } else if (e.type === "lemma_audited") {
-        tag.textContent = "AUDITED ✓";
-      } else {
-        tag.textContent = "VERIFIED ✓";
-      }
-      $("#just-in-text").textContent = `${e.lemma_id || ""} · ${e.title || e.detail || ""} (${relTime(e.at)})`;
-      $("#just-in-open").onclick = () => e.lemma_id && openDossier(e.lemma_id, { triggerEl: $("#just-in-open") });
-      $("#just-in").hidden = false;
-    } else {
-      $("#just-in").hidden = true;
-    }
-
-    // Populate program filter dropdown; reset to "all" if previous mission's program isn't in the new mission!
-    const progSel = $("#board-program");
-    const curProg = progSel.value || "all";
-    const validProgIds = new Set((snap.programs || []).map((p) => p.id));
-    progSel.innerHTML =
-      `<option value="all">All programs</option>` +
-      (snap.programs || []).map((p) => `<option value="${esc(p.id)}">${esc(p.title)}</option>`).join("");
-    progSel.value = validProgIds.has(curProg) ? curProg : "all";
-
-    renderCurrentView();
-  }
-
-  function renderCurrentView() {
-    if (CURRENT_VIEW === "missions") {
-      renderMissionsHub();
-      return;
-    }
-    if (!STATE) return;
-    if (CURRENT_VIEW === "control") renderControl();
-    else if (CURRENT_VIEW === "bounties") renderBounties();
-    else if (CURRENT_VIEW === "live") renderLive();
-    else if (CURRENT_VIEW === "map") {
-      renderProofMap();
-      renderRelDAG();
-    } else if (CURRENT_VIEW === "leaderboard") renderLeaderboard();
-    else if (CURRENT_VIEW === "graveyard") renderGraveyard();
-    else if (CURRENT_VIEW === "feed") renderAuditLog();
-  }
-
-  // =========================================================================
-  // 0. ALL-MISSIONS HUB
-  // =========================================================================
-  function renderMissionsHub() {
-    let totTrusted = 0, totChecked = 0, totObjDone = 0, totObj = 0, totOpen = 0, totFallen = 0;
-    for (const m of MISSIONS) {
-      totTrusted += safeInt(m.counts?.trusted);
-      totChecked += safeInt(m.counts?.checked);
-      totObjDone += safeInt(m.objectives?.conquered);
-      totObj += safeInt(m.objectives?.total);
-      totOpen += safeInt(m.counts?.conjecture);
-      totFallen += safeInt(m.counts?.refuted) + safeInt(m.counts?.dead);
-    }
-    $("#gm-trusted").textContent = String(totTrusted);
-    $("#gm-checked-sub").textContent = `${totChecked} kernel-checked across ${MISSIONS.length} missions`;
-    $("#gm-objectives").textContent = `${totObjDone} / ${totObj}`;
-    $("#gm-open").textContent = String(totOpen);
-    $("#gm-fallen").textContent = String(totFallen);
-    if (STATE?.pr_sync) {
-      $("#hub-sync-chip").textContent = STATE.pr_sync.ok
-        ? `GitHub PRs synced ${relTime(STATE.pr_sync.fetched_at)}`
-        : "Offline snapshot";
-    }
-
-    $("#missions-hub-grid").innerHTML = MISSIONS.map((m) => {
-      const isCur = m.slug === CURRENT_MISSION;
-      return `
-        <article class="mission-hub-card ${isCur ? "active-mission" : ""}">
-          <div class="mhc-top">
-            <div>
-              <span class="mono small muted">${esc(m.slug)}</span>
-              <h3 class="mhc-title">${esc(m.title)}</h3>
-            </div>
-            <span class="judge-chip">${esc(m.judge_type === "command" ? "Command Judge" : "Lean 4.36")}</span>
-          </div>
-          <p class="mhc-q">${esc(m.question)}</p>
-          <div class="mhc-stats">
-            <div class="mhc-stat"><strong class="tabular">${safeInt(m.objectives?.conquered)}/${safeInt(m.objectives?.total)}</strong><span>Objectives</span></div>
-            <div class="mhc-stat"><strong class="tabular">${safeInt(m.counts?.trusted)}</strong><span>Trusted Proofs</span></div>
-            <div class="mhc-stat"><strong class="tabular">${safeInt(m.counts?.conjecture)}</strong><span>Open Bounties</span></div>
-          </div>
-          <div class="mhc-actions">
-            <button class="btn btn-primary btn-sm" type="button" data-nav="control" data-mission="${esc(m.slug)}">Mission Control &rarr;</button>
-            <button class="btn btn-ghost btn-sm" type="button" data-nav="bounties" data-mission="${esc(m.slug)}">Bounties (${safeInt(m.counts?.conjecture)})</button>
-          </div>
-        </article>`;
-    }).join("");
-  }
-
-  function pickTopOpenBounty() {
-    if (!STATE) return null;
-    const byId = Object.fromEntries(STATE.lemmas.map((l) => [l.id, l]));
-    const open = STATE.lemmas
-      .filter((l) => isClaimDonateable(l) && l.status !== "in_work")
-      .sort((a, b) => {
-        const aNoPr = a.kind === "record" || (a.open_prs?.length || 0) === 0 ? 1 : 0;
-        const bNoPr = b.kind === "record" || (b.open_prs?.length || 0) === 0 ? 1 : 0;
-        if (bNoPr !== aNoPr) return bNoPr - aNoPr;
-        const aFroz = a.statement_file ? 1 : 0;
-        const bFroz = b.statement_file ? 1 : 0;
-        if (bFroz !== aFroz) return bFroz - aFroz;
-        const aDepsOk = (a.deps || []).every((d) => !byId[d] || byId[d].status === "checked" || byId[d].status === "refuted" || byId[d].record_state?.best) ? 1 : 0;
-        const bDepsOk = (b.deps || []).every((d) => !byId[d] || byId[d].status === "checked" || byId[d].status === "refuted" || byId[d].record_state?.best) ? 1 : 0;
-        if (bDepsOk !== aDepsOk) return bDepsOk - aDepsOk;
-        return (a.rung || 99) - (b.rung || 99);
-      });
-    return open[0] || null;
-  }
-
-  $("#hub-donate-cta").addEventListener("click", () => {
-    const pick = pickTopOpenBounty();
-    if (pick) openDonateModal(pick, $("#hub-donate-cta"));
-    else setView("bounties", { push: true });
-  });
-  $("#control-donate-next").addEventListener("click", () => {
-    const pick = pickTopOpenBounty();
-    if (pick) openDonateModal(pick, $("#control-donate-next"));
-    else setView("bounties", { push: true });
-  });
-
-  // =========================================================================
-  // 1. MISSION CONTROL
-  // =========================================================================
-  function renderControl() {
-    const m = STATE.mission;
-    const c = STATE.counts;
-    $("#control-mission-slug").textContent = m.slug;
-    $("#control-pr-sync").textContent = STATE.pr_sync?.ok
-      ? `GitHub PRs synced ${relTime(STATE.pr_sync.fetched_at)}`
-      : "Local state (offline PR sync)";
-    $("#hero-judge-chip").textContent = m.judge?.label || "Mechanical Judge";
-    $("#hero-verdict-chip").textContent = STATE.meta?.verdict || "";
-    $("#hero-question").textContent = m.question;
-    $("#hero-description").textContent = m.description;
-
-    const objs = m.objectives || [];
-    const conquered = objs.filter((o) => o.conquered).length;
-    const openPrCount = STATE.lemmas.reduce((acc, l) => acc + (l.open_prs?.length || 0), 0);
-
-    $("#m-objectives").textContent = `${conquered} / ${objs.length}`;
-    $("#m-objectives-sub").textContent = c.flagged > 0 ? `${c.flagged} flagged excluded` : "trusted non-flagged rungs";
-    $("#m-checked").textContent = String(c.trusted ?? c.checked);
-    $("#m-audited-sub").textContent = `${c.frozen_matched || 0} frozen · ${c.audited_faithful || 0} audited · ${c.checked} total`;
-    $("#m-open").textContent = String(c.conjecture || 0);
-    $("#m-active-sub").textContent = !STATE.pr_sync?.ok
-      ? "PR sync offline"
-      : openPrCount > 0
-      ? `${openPrCount} active GitHub PR${openPrCount > 1 ? "s" : ""}`
-      : "0 open PRs · ready";
-    $("#m-fallen").textContent = String((c.refuted || 0) + (c.dead || 0));
-    $("#m-fallen-sub").textContent = `${c.refuted || 0} refuted · ${c.dead || 0} barriers`;
-
-    // Tug of war
-    if (m.tug_of_war?.enabled) {
-      const l = c.aims_left_checked || 0;
-      const r = c.aims_right_checked || 0;
-      const tot = Math.max(1, l + r);
-      $("#tug-left-text").textContent = `${m.tug_of_war.left_label}: ${l}`;
-      $("#tug-right-text").textContent = `${m.tug_of_war.right_label}: ${r}`;
-      $("#tug-l").style.width = `${(l / tot) * 100}%`;
-      $("#tug-r").style.width = `${(r / tot) * 100}%`;
-      $("#tug-inline").hidden = false;
-    } else {
-      $("#tug-inline").hidden = true;
-    }
-
-    // Objectives
-    $("#objectives-grid").innerHTML = objs.length
-      ? objs
-          .map((o) => {
-            const rungs = (o.items || [])
-              .map((it) => {
-                const expTag =
-                  it.expect === "refutation"
-                    ? `<span class="prog-tag" title="Refutation required">REFUTE</span>`
-                    : it.expect && typeof it.expect === "object" && it.expect.record_at_most != null
-                    ? `<span class="prog-tag" title="Milestone target score">GOAL ≤${safeInt(it.expect.record_at_most)}</span>`
-                    : it.expect && typeof it.expect === "object" && it.expect.record_at_least != null
-                    ? `<span class="prog-tag" title="Milestone target score">GOAL ≥${safeInt(it.expect.record_at_least)}</span>`
-                    : "";
-                const prTag = (it.open_prs || []).length
-                  ? `<span class="pr-pill">◷ PR #${safeInt(it.open_prs[0].number)}</span>`
-                  : "";
-                return `
-                  <button class="rung-btn" type="button" data-open-claim="${esc(it.id)}">
-                    <span class="rung-main">
-                      <span class="rung-id">${esc(it.id)}</span>
-                      <span class="rung-title">${esc(it.title)}</span>
-                    </span>
-                    <span class="rung-meta">
-                      ${expTag}${prTag}${sealHTML(it)}
-                    </span>
-                  </button>`;
-              })
-              .join("");
-            return `
-              <article class="obj-card ${o.conquered ? "conquered" : ""}">
-                <div class="obj-top">
-                  <div>
-                    <div class="obj-tier">${esc(o.tier || "Objective")}${o.conquered ? " · CONQUERED ✓" : ""}</div>
-                    <h3 class="obj-title">${esc(o.title)}</h3>
-                  </div>
-                  <span class="obj-ratio tabular">${safeInt(o.completed)} / ${safeInt(o.total)}</span>
-                </div>
-                <div class="obj-bar"><div class="obj-bar-fill" style="width:${safeInt(o.pct)}%"></div></div>
-                <p class="obj-desc">${esc(o.finish_line || "")}</p>
-                <div class="obj-rungs">${rungs}</div>
-              </article>`;
-          })
-          .join("")
-      : `<div class="empty-state">No objectives configured for this mission yet.</div>`;
-
-    // Top Open Bounties (prioritize active King-of-the-Hill hunts & frozen targets)
-    const openBounties = STATE.lemmas
-      .filter((l) => isClaimDonateable(l) && l.status !== "in_work")
-      .sort(
-        (a, b) =>
-          (b.kind === "record" ? 1 : 0) - (a.kind === "record" ? 1 : 0) ||
-          (b.statement_file ? 1 : 0) - (a.statement_file ? 1 : 0) ||
-          (a.rung || 99) - (b.rung || 99)
-      )
-      .slice(0, 6);
-    $("#control-bounties").innerHTML = openBounties.length
-      ? openBounties.map(renderBountyCard).join("")
-      : `<div class="empty-state">All registered bounties in this mission are complete! Switch missions or propose a new claim.</div>`;
-
-    // Strategy Desk
-    const note = STATE.meta?.strategy_note;
-    if (note) {
-      $("#strategy-meta").textContent = `${note.seat || "Strategy"} · ${relTime(note.at)}`;
-      $("#strategy-text").textContent = note.text || "";
-      $("#mentioned-list").innerHTML = (note.mentions || [])
-        .map((id) => `<button class="chip-btn" type="button" data-open-claim="${esc(id)}">${esc(id)}</button>`)
-        .join("");
-    } else {
-      $("#strategy-meta").textContent = "";
-      $("#strategy-text").textContent = "No strategy dispatch published yet.";
-      $("#mentioned-list").innerHTML = "";
-    }
-
-    // Live Whispers
-    const whispers = (STATE.whispers || []).slice(0, 8);
-    $("#whispers-count").textContent = `${whispers.length} recent`;
-    $("#whispers-list").innerHTML = whispers.length
-      ? whispers
-          .map(
-            (w) => `
-            <li class="whisper-item">
-              <div><strong class="mono small">${esc(w.seat)}</strong> <span class="muted">${esc(w.text)}</span></div>
-              <span class="mono small muted">${relTime(w.at)}</span>
-            </li>`
-          )
-          .join("")
-      : `<li class="empty-state">No whispers yet.</li>`;
-
-    // Recent Events
-    $("#overview-events").innerHTML = (STATE.events || []).slice(0, 8).map(renderEventItem).join("") || `<li class="empty-state">No events logged yet.</li>`;
-  }
-
-  function renderBountyCard(l) {
-    const isRec = l.kind === "record";
-    const rs = l.record_state || {};
-    const cfg = l.record || {};
-    const isMax = cfg.direction === "max";
-    const op = isMax ? "≥" : "≤";
-    const boundOp = isMax ? "≤" : "≥";
-    const boundLabel = isMax ? "UB" : "LB";
-    const litBound = isMax ? cfg.literature_upper_bound : cfg.literature_lower_bound;
-    const frozenChip = isRec
-      ? `<span class="seal seal-frozen" title="Auto-ratcheting King-of-the-Hill frozen target">♛ King of the Hill</span>`
-      : l.statement_file
-      ? `<span class="seal seal-frozen" title="Frozen formal statement: ${esc(l.statement_file)}">◆ Frozen Target</span>`
-      : "";
-    const deps = (l.deps || []).length
-      ? `<span class="mono small muted">deps: ${(l.deps || []).map(esc).join(", ")}</span>`
-      : `<span class="mono small muted">standalone</span>`;
-    let donateLabel = "Donate Tokens";
-    if (isRec) {
-      const nextT = rs.next_target ?? cfg.start_target;
-      donateLabel = rs.best ? `Beat Record (${op} ${safeInt(nextT)})` : `Start Hunt (${op} ${safeInt(nextT)})`;
-    }
-    const donateBtn = isClaimDonateable(l)
-      ? `<button class="btn btn-primary btn-sm" type="button" data-donate-claim="${esc(l.id)}">${esc(donateLabel)}</button>`
-      : "";
-    const recBanner = isRec
-      ? `<div class="rec-banner">
-           <span>${rs.best ? `Best: <strong>${safeInt(rs.best.score)}</strong> ${esc(cfg.unit || "")} (${esc(rs.best.seat)})` : `Unclaimed · ${isMax ? "Floor" : "Ceiling"} ${op} <strong>${safeInt(cfg.start_target)}</strong> ${esc(cfg.unit || "")}`}</span>
-           <span>${rs.contradiction ? `Halted` : rs.closed ? `Exact Optimal ✓` : `Target: <strong>${op} ${safeInt(rs.next_target ?? cfg.start_target)}</strong>`}</span>
-           <span>${rs.refuted ? `Proven ${boundLabel}: <strong>${boundOp} ${safeInt(rs.refuted.inclusive_bound)}</strong>` : litBound != null ? `Lit. ${boundLabel}: ${boundOp} ${safeInt(litBound)}` : ""}</span>
-         </div>`
-      : "";
-    return `
-      <article class="bounty-card">
-        <div class="bounty-top">
-          <div class="bounty-id-group">
-            <strong class="mono">${esc(l.id)}</strong>
-            ${progMonogram(l.program)}
-            ${frozenChip}
-          </div>
-          <div class="bounty-id-group">
-            ${prBadgesHTML(l)}
-            ${sealHTML(l)}
-          </div>
-        </div>
-        <p class="bounty-title">${esc(l.title)}</p>
-        ${recBanner}
-        <pre class="bounty-stmt">${esc(l.registered_statement || l.statement || l.theorem_name)}</pre>
-        <div class="bounty-foot">
-          ${deps}
-          <div class="bounty-actions">
-            <button class="btn btn-ghost btn-sm" type="button" data-open-claim="${esc(l.id)}">Dossier</button>
-            ${donateBtn}
-          </div>
-        </div>
-      </article>`;
-  }
-
-  // =========================================================================
-  // 2. BOUNTIES & CLAIM LEDGER
-  // =========================================================================
-  $$("[data-bmode]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      BOUNTY_MODE = btn.dataset.bmode;
-      $$("[data-bmode]").forEach((b) => {
-        const active = b.dataset.bmode === BOUNTY_MODE;
-        b.classList.toggle("active", active);
-        b.setAttribute("aria-selected", active ? "true" : "false");
-      });
-      renderBounties();
-    });
-  });
-  ["#board-search", "#board-program", "#board-status"].forEach((id) => {
-    $(id).addEventListener("input", renderBounties);
-    $(id).addEventListener("change", renderBounties);
-  });
-
-  function renderBounties() {
-    const q = ($("#board-search").value || "").trim().toLowerCase();
-    const prog = $("#board-program").value;
-    const sealFilter = $("#board-status").value;
-
-    const filtered = (STATE.lemmas || []).filter((l) => {
-      const s = sealOf(l);
-      if (BOUNTY_MODE === "open" && !isClaimDonateable(l)) return false;
-      if (prog !== "all" && l.program !== prog) return false;
-      if (sealFilter === "record") {
-        if (s !== "record" && !(l.kind === "record" && !l.record_state?.closed && !l.record_state?.contradiction)) return false;
-      } else if (sealFilter !== "all" && s !== sealFilter) {
-        return false;
-      }
-      if (q) {
-        const hay = `${l.id} ${l.title} ${l.statement} ${l.theorem_name} ${l.paper_notes || ""}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-
-    if (BOUNTY_MODE === "open") {
-      $("#bounties-open-grid").hidden = false;
-      $("#bounties-table-wrap").hidden = true;
-      const sorted = [...filtered].sort(
-        (a, b) =>
-          (b.kind === "record" ? 1 : 0) - (a.kind === "record" ? 1 : 0) ||
-          (b.statement_file ? 1 : 0) - (a.statement_file ? 1 : 0) ||
-          (a.rung || 99) - (b.rung || 99)
-      );
-      $("#bounties-open-grid").innerHTML = sorted.length
-        ? sorted.map(renderBountyCard).join("")
-        : `<div class="empty-state">No open bounties match your filter. Switch to <strong>Full Claim Table</strong> to view all completed &amp; audited proofs.</div>`;
-    } else {
-      $("#bounties-open-grid").hidden = true;
-      $("#bounties-table-wrap").hidden = false;
-      $("#board-tbody").innerHTML = filtered.length
-        ? filtered
-            .map((l) => {
-              const actor =
-                l.kind === "record"
-                  ? l.record_state?.best?.seat || "—"
-                  : l.checker?.by_seat || l.refutation?.by_seat || l.epitaph?.by_seat || l.claimed_by || "—";
-              const dur =
-                l.kind === "record"
-                  ? l.record_state?.best?.duration_ms
-                  : l.checker?.duration_ms || l.refutation?.duration_ms;
-              return `
-                <tr data-open-claim="${esc(l.id)}">
-                  <td class="mono"><button class="table-id-btn" type="button" data-open-claim="${esc(l.id)}">${esc(l.id)}</button></td>
-                  <td>${sealHTML(l)} ${prBadgesHTML(l)}</td>
-                  <td>${progMonogram(l.program)}</td>
-                  <td><div>${esc(l.title)}</div><div class="mono small muted">${esc((l.statement || "").slice(0, 110))}</div></td>
-                  <td class="mono small">${esc(actor)}</td>
-                  <td class="mono small tabular">${dur ? `${safeInt(dur)}ms` : "—"}</td>
-                </tr>`;
-            })
-            .join("")
-        : `<tr><td colspan="6" class="empty-state">No claims match your filter.</td></tr>`;
-    }
-  }
-
-  // =========================================================================
-  // 3. LIVE FLEET
-  // =========================================================================
-  function renderLive() {
-    const seats = STATE.seats || [];
-    const runs = STATE.checker_runs || [];
-    const passed = runs.filter((r) => r.ok).length;
-    $("#live-header-stats").textContent = `${seats.length} seats · ${runs.length} recent Judge runs`;
-    $("#checker-pass-rate").textContent = `${passed}/${runs.length} passed`;
-    $("#live-msg-count").textContent = `${(STATE.messages || []).length} dispatches`;
-
-    // SVG communication ring
-    const w = 520, h = 290, cx = 260, cy = 145, R = 102;
-    const coords = {};
-    seats.forEach((s, i) => {
-      const ang = (Math.PI * 2 * i) / Math.max(1, seats.length) - Math.PI / 2;
-      coords[s.id] = { x: cx + R * Math.cos(ang), y: cy + R * Math.sin(ang) };
-    });
-    const edges = (STATE.messages || []).slice(0, 12).map((m) => {
-      const a = coords[m.from];
-      const b = coords[m.to];
-      if (!a || !b) return "";
-      const isChallenge = m.kind === "challenge" || m.kind === "refute";
-      return `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="${isChallenge ? "var(--coral)" : "var(--emerald)"}" stroke-width="1.6" stroke-dasharray="${isChallenge ? "4 3" : "none"}" opacity="0.7"/>`;
-    });
-    const nodes = seats.map((s) => {
-      const p = coords[s.id];
-      const active = s.status === "working" || s.status === "checking";
-      return `
-        <g transform="translate(${p.x.toFixed(1)},${p.y.toFixed(1)})">
-          <circle r="19" fill="var(--bg)" stroke="${active ? "var(--sky)" : "var(--border-strong)"}" stroke-width="${active ? 2.2 : 1.3}"/>
-          <text text-anchor="middle" dy="4" fill="var(--ink)" font-size="11" font-family="var(--font-mono)" font-weight="600">${esc(s.badge || s.id.slice(0, 2).toUpperCase())}</text>
-          <text text-anchor="middle" dy="33" fill="var(--muted)" font-size="10" font-family="var(--font-mono)">${esc(s.name.slice(0, 16))}</text>
-        </g>`;
-    });
-    $("#live-seat-graph").innerHTML = `
-      <svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Seat communication ring">
-        <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--border)" stroke-dasharray="3 5"/>
-        <circle cx="${cx}" cy="${cy}" r="28" fill="var(--sky-dim)" stroke="var(--sky)" stroke-width="1.4"/>
-        <text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="var(--sky)" font-size="10.5" font-family="var(--font-mono)" font-weight="700">JUDGE</text>
-        ${edges.join("")}${nodes.join("")}
-      </svg>`;
-
-    $("#live-seat-cards").innerHTML = seats
-      .map(
-        (s) => `
-        <div class="seat-card">
-          <div class="seat-head">
-            <strong class="small">${esc(s.name)}</strong>
-            <span class="seat-badge">${esc(s.badge || "TD")}</span>
-          </div>
-          <div class="mono small muted">${esc(s.model || s.provider || "")}</div>
-          <div class="small muted">${esc(s.current_whisper || s.status)}</div>
-          <div class="mono small tabular">✓ ${safeInt(s.counts?.checked)} · ✕ ${safeInt(s.counts?.refuted)} · ☠ ${safeInt(s.counts?.blocked)}</div>
-        </div>`
-      )
-      .join("");
-
-    $("#live-checker-runs").innerHTML = runs.length
-      ? runs
-          .slice(0, 14)
-          .map(
-            (r) => `
-            <li class="ticker-item" data-open-claim="${esc(r.lemma_id)}" style="cursor:pointer">
-              <div>
-                <strong class="mono">${esc(r.lemma_id)}</strong>
-                <span class="seal ${r.ok ? "seal-audited" : "seal-refuted"}">${r.ok ? "OK" : "FAIL"}</span>
-                <div class="small muted">${esc(r.seat)} · ${safeInt(r.duration_ms)}ms</div>
-              </div>
-              <span class="mono small muted">${relTime(r.at)}</span>
-            </li>`
-          )
-          .join("")
-      : `<li class="empty-state">No local Judge runs recorded in this snapshot.</li>`;
-
-    $("#live-messages").innerHTML = (STATE.messages || []).length
-      ? STATE.messages
-          .slice(0, 14)
-          .map(
-            (m) => `
-            <li class="ticker-item">
-              <div>
-                <strong class="mono small">${esc(m.from)} &rarr; ${esc(m.to)}</strong>
-                <div class="small muted">${esc(m.text)}</div>
-              </div>
-              <span class="mono small muted">${relTime(m.at)}</span>
-            </li>`
-          )
-          .join("")
-      : `<li class="empty-state">No inter-seat dispatches yet.</li>`;
-  }
-
-  // =========================================================================
-  // 4. CONSTELLATION MAP & REL DAG
-  // =========================================================================
-  let MAP_NODES = [];
-  let MAP_CAM = { x: 0, y: 0, z: 1 };
-  let MAP_DRAG = null;
-  let MAP_BOUND = false;
-
-  function sealColor(seal) {
-    const dark = document.documentElement.getAttribute("data-theme") !== "light";
-    if (seal === "frozen") return dark ? "#22d3ee" : "#0891b2";
-    if (seal === "record") return dark ? "#c084fc" : "#7e22ce";
-    if (seal === "audited") return dark ? "#10b981" : "#059669";
-    if (seal === "provisional") return dark ? "#94a3b8" : "#64748b";
-    if (seal === "flagged" || seal === "in_work") return dark ? "#f59e0b" : "#d97706";
-    if (seal === "refuted" || seal === "contradiction") return dark ? "#f43f5e" : "#e11d48";
-    if (seal === "dead") return dark ? "#64748b" : "#94a3b8";
-    return dark ? "#38bdf8" : "#0284c7";
-  }
-
-  function renderProofMap() {
-    const progs = STATE.programs || [];
-    const lemmas = STATE.lemmas || [];
-    MAP_NODES = [];
-    const ringR = progs.length <= 1 ? 0 : 180;
-    progs.forEach((p, pi) => {
-      const ang = (Math.PI * 2 * pi) / Math.max(1, progs.length) - Math.PI / 2;
-      const cx = Math.cos(ang) * ringR;
-      const cy = Math.sin(ang) * ringR;
-      const group = lemmas.filter((l) => l.program === p.id);
-      group.forEach((l, li) => {
-        const a2 = (Math.PI * 2 * li) / Math.max(1, group.length);
-        const r2 = group.length <= 1 ? 0 : 52 + (li % 2) * 28;
-        MAP_NODES.push({ lemma: l, prog: p, x: cx + Math.cos(a2) * r2, y: cy + Math.sin(a2) * r2, r: l.status === "checked" ? 11 : 9 });
-      });
-    });
-    if (!MAP_BOUND) bindMapEvents();
-    drawProofMap();
-  }
-
-  function drawProofMap() {
-    const canvas = $("#proof-map-canvas");
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, rect.width, rect.height);
-
-    ctx.save();
-    ctx.translate(rect.width / 2 + MAP_CAM.x, rect.height / 2 + MAP_CAM.y);
-    ctx.scale(MAP_CAM.z, MAP_CAM.z);
-
-    const byId = Object.fromEntries(MAP_NODES.map((n) => [n.lemma.id, n]));
-    // Dependency edges
-    ctx.strokeStyle = document.documentElement.getAttribute("data-theme") === "light" ? "rgba(15,23,42,0.16)" : "rgba(182,197,224,0.2)";
-    ctx.lineWidth = 1.2;
-    for (const n of MAP_NODES) {
-      for (const depId of n.lemma.deps || []) {
-        const d = byId[depId];
-        if (!d) continue;
-        ctx.beginPath();
-        ctx.moveTo(d.x, d.y);
-        ctx.lineTo(n.x, n.y);
-        ctx.stroke();
-      }
-    }
-
-    // Nodes
-    const ink = document.documentElement.getAttribute("data-theme") === "light" ? "#0f172a" : "#ecf2ff";
-    for (const n of MAP_NODES) {
-      const col = sealColor(sealOf(n.lemma));
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-      ctx.fillStyle = col;
-      ctx.fill();
-      ctx.strokeStyle = ink;
-      ctx.lineWidth = n.lemma.statement_file ? 2 : 0.8;
-      ctx.stroke();
-
-      ctx.fillStyle = ink;
-      ctx.font = "600 10.5px JetBrains Mono, monospace";
-      ctx.textAlign = "center";
-      ctx.fillText(n.lemma.id, n.x, n.y + n.r + 13);
-    }
-    ctx.restore();
-  }
-
-  function screenToWorld(canvas, sx, sy) {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (sx - rect.width / 2 - MAP_CAM.x) / MAP_CAM.z,
-      y: (sy - rect.height / 2 - MAP_CAM.y) / MAP_CAM.z,
-    };
-  }
-
-  function hitTestNode(canvas, sx, sy) {
-    const w = screenToWorld(canvas, sx, sy);
-    return MAP_NODES.find((n) => Math.hypot(n.x - w.x, n.y - w.y) <= n.r + 6) || null;
-  }
-
-  function bindMapEvents() {
-    MAP_BOUND = true;
-    const canvas = $("#proof-map-canvas");
-    const tip = $("#map-hover-card");
-    canvas.addEventListener("mousedown", (e) => {
-      MAP_DRAG = { sx: e.clientX, sy: e.clientY, cx: MAP_CAM.x, cy: MAP_CAM.y, moved: false };
-    });
-    window.addEventListener("mousemove", (e) => {
-      if (MAP_DRAG) {
-        const dx = e.clientX - MAP_DRAG.sx;
-        const dy = e.clientY - MAP_DRAG.sy;
-        if (Math.hypot(dx, dy) > 3) MAP_DRAG.moved = true;
-        MAP_CAM.x = MAP_DRAG.cx + dx;
-        MAP_CAM.y = MAP_DRAG.cy + dy;
-        drawProofMap();
-        return;
-      }
-      if (CURRENT_VIEW !== "map") return;
-      const rect = canvas.getBoundingClientRect();
-      const hit = hitTestNode(canvas, e.clientX - rect.left, e.clientY - rect.top);
-      if (hit) {
-        tip.innerHTML = `<strong>${esc(hit.lemma.id)}</strong> ${sealHTML(hit.lemma)}<div class="small muted" style="margin-top:4px">${esc(hit.lemma.title)}</div>`;
-        tip.style.left = `${Math.min(rect.width - 260, Math.max(10, e.clientX - rect.left + 14))}px`;
-        tip.style.top = `${Math.min(rect.height - 90, Math.max(10, e.clientY - rect.top + 14))}px`;
-        tip.hidden = false;
-      } else {
-        tip.hidden = true;
-      }
-    });
-    window.addEventListener("mouseup", (e) => {
-      if (!MAP_DRAG) return;
-      const wasMoved = MAP_DRAG.moved;
-      MAP_DRAG = null;
-      if (!wasMoved && CURRENT_VIEW === "map") {
-        const rect = canvas.getBoundingClientRect();
-        const hit = hitTestNode(canvas, e.clientX - rect.left, e.clientY - rect.top);
-        if (hit) openDossier(hit.lemma.id);
-      }
-    });
-    canvas.addEventListener(
-      "wheel",
-      (e) => {
-        e.preventDefault();
-        const f = e.deltaY < 0 ? 1.12 : 0.89;
-        MAP_CAM.z = Math.max(0.4, Math.min(2.6, MAP_CAM.z * f));
-        drawProofMap();
-      },
-      { passive: false }
+}
+function showToast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(showToast._tm);
+  showToast._tm = setTimeout(() => (t.hidden = true), 2600);
+}
+function isTyping() {
+  const el = document.activeElement;
+  if (!el) return false;
+  return el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable;
+}
+async function fetchJSON(url) {
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const type = res.headers.get("content-type") || "";
+  if (!type.includes("json")) throw new Error("not JSON");
+  return res.json();
+}
+function cleanRecordTitle(t) {
+  return String(t || "")
+    .replace(/^King of the Hill(?:\s*\([^)]*\))?:\s*/i, "")
+    .replace(/\s*\((?=[^)]*=)[^)]*\)\s*$/, "");
+}
+function shortLean(label) {
+  const m = String(label || "").match(/Lean\D{0,12}(4\.\d+)/i);
+  return m ? `Lean ${m[1]}` : label || "Judge";
+}
+
+// ------------------------------------------------------------------ theme
+function applyTheme(theme) {
+  const t = theme === "dark" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", t);
+  $("#theme-paper").setAttribute("aria-pressed", String(t === "light"));
+  $("#theme-night").setAttribute("aria-pressed", String(t === "dark"));
+  if (isMapVisible()) drawMap();
+}
+$$("[data-theme-set]").forEach((b) =>
+  b.addEventListener("click", () => {
+    storageSet("pf-theme-v3", b.dataset.themeSet);
+    applyTheme(b.dataset.themeSet);
+  })
+);
+
+// ------------------------------------------------------- machine + data
+const machine = createUIMachine(
+  initialUIState({ route: parseRouteFromLocation(window.location, { defaultMission: DEFAULT_MISSION }) })
+);
+const dispatch = (ev) => machine.dispatch(ev);
+const ui = () => machine.getState();
+
+let CATALOG = []; // /api/missions summaries
+let STATE = null; // committed snapshot of transport.activeMission
+let RECORDS = null; // normalized records payload (all missions)
+const SNAP_CACHE = new Map(); // slug -> snapshot (read-only data for cross-mission lookups)
+let SSE = null; // { es, slug }
+let PENDING_PUSH = false;
+let LAST_FAILED_MISSION = null;
+let FOCUS_RETURN = null;
+
+// View-local presentation filters (not application state; never affect correctness)
+const REC_FILTER = { mission: "all", direction: "all", sort: "gap" };
+const BOUNTY = { mode: "open", expanded: new Set() };
+let SEARCH_RESULTS = [];
+
+const missionMeta = (slug) => CATALOG.find((m) => m.slug === slug) || null;
+const activeSlug = () => ui().transport.activeMission;
+const repoOf = (snap) => snap?.mission?.github_repo || DEFAULT_REPO;
+const isStatic = () => ui().transport.mode === "static";
+
+function lemmaFor(mission, id) {
+  const snap = mission ? SNAP_CACHE.get(mission) : STATE;
+  return (snap || STATE)?.lemmas?.find((l) => l.id === id) || null;
+}
+
+// ======================================================= status grammar
+const STATUS_TITLES = {
+  open: "Open problem — available to attempt",
+  in_work: "Claimed by an active seat",
+  provisional: "Kernel-checked; awaiting an independent cross-model audit",
+  frozen: "Kernel type-matched against a frozen statement",
+  audited: "Kernel-checked and confirmed faithful by an independent model",
+  record: "Live record — beat it to take the hill",
+  hunt: "Open record hunt — the launch target is unclaimed",
+  refuted: "Judge-verified counterexample (a valid mathematical result)",
+  dead: "Approach ruled dead against a known barrier",
+  flagged: "Cross-model audit flagged a statement/title gap — excluded from objectives",
+  contradiction: "Opposing verified proof and refutation — halted for review",
+};
+
+function statusHTML(lemma) {
+  const s = statusOf(lemma);
+  return `<span class="st tone-${s.tone}" title="${esc(STATUS_TITLES[s.key] || s.label)}"><span class="st-glyph" aria-hidden="true">${s.glyph}</span><span class="st-label">${esc(s.label)}</span></span>`;
+}
+
+function flagsHTML(lemma) {
+  const out = [];
+  const fresh = freshnessOf(lemma);
+  if (fresh === "stale_statement") out.push(`<span class="pr-note" title="The frozen statement changed after this check; re-verification required">↻ stale statement</span>`);
+  else if (fresh === "stale_core") out.push(`<span class="pr-note" title="Core definitions changed since this check (advisory)">↻ stale core</span>`);
+  const pr = prStateOf(lemma);
+  const first = (lemma?.open_prs || [])[0];
+  if (pr === "needs_fix") {
+    out.push(
+      first
+        ? `<a class="flag-line" href="${esc(first.url)}" target="_blank" rel="noopener noreferrer" data-stop>PR ${int(first.number) ? `#${int(first.number)} ` : ""}needs fix</a>`
+        : `<span class="flag-line">PR needs fix</span>`
     );
-    $("#map-zoom-in").addEventListener("click", () => {
-      MAP_CAM.z = Math.min(2.6, MAP_CAM.z * 1.2);
-      drawProofMap();
-    });
-    $("#map-zoom-out").addEventListener("click", () => {
-      MAP_CAM.z = Math.max(0.4, MAP_CAM.z * 0.82);
-      drawProofMap();
-    });
-    $("#map-reset").addEventListener("click", () => {
-      MAP_CAM = { x: 0, y: 0, z: 1 };
-      drawProofMap();
-    });
-    window.addEventListener("resize", () => CURRENT_VIEW === "map" && drawProofMap());
+  } else if (pr !== "none") {
+    const label = pr === "passing" ? "passing" : "open";
+    out.push(
+      first
+        ? `<a class="pr-note" href="${esc(first.url)}" target="_blank" rel="noopener noreferrer" data-stop title="${esc(first.title || "")}">PR #${int(first.number)} · ${label}</a>`
+        : `<span class="pr-note">PR ${label}</span>`
+    );
+  }
+  return out.join(" ");
+}
 
-    // Map search jump
-    const inp = $("#map-search");
-    const pop = $("#map-search-results");
-    inp.addEventListener("input", () => {
-      const q = inp.value.trim().toLowerCase();
-      if (!q) {
-        pop.hidden = true;
-        return;
-      }
-      const matches = MAP_NODES.filter((n) => `${n.lemma.id} ${n.lemma.title}`.toLowerCase().includes(q)).slice(0, 8);
-      pop.innerHTML = matches.length
-        ? matches.map((n) => `<button type="button" data-jump-id="${esc(n.lemma.id)}"><strong class="mono">${esc(n.lemma.id)}</strong><span class="muted">${esc(n.lemma.title.slice(0, 40))}</span></button>`).join("")
-        : `<div class="small muted" style="padding:8px 10px">No matches</div>`;
-      pop.hidden = false;
-    });
-    pop.addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-jump-id]");
-      if (!btn) return;
-      const node = MAP_NODES.find((n) => n.lemma.id === btn.dataset.jumpId);
-      if (node) {
-        MAP_CAM = { x: -node.x * 1.25, y: -node.y * 1.25, z: 1.25 };
-        drawProofMap();
-        openDossier(node.lemma.id);
-      }
-      pop.hidden = true;
-    });
+function programTitle(snap, progId) {
+  return snap?.programs?.find((p) => p.id === progId)?.title || progId || "";
+}
+
+// ================================================== records presentation
+function recordFigureHTML(r) {
+  const unit = esc(r.unit || "");
+  if (r.contradiction) return `<span class="rec-figure"><span class="st tone-alarm"><span class="st-glyph">⛔</span><span class="st-label">Halted</span></span></span>`;
+  if (r.closed && r.best_score != null) return `<span class="rec-figure">${int(r.best_score)}<span class="unit">${unit} · optimal, closed</span></span>`;
+  if (r.best_score != null) {
+    return `<span class="rec-figure">${int(r.best_score)}<span class="slash">/</span><span class="target">${esc(r.op)}${int(r.next_target)}</span><span class="unit">${unit}${r.best_seat ? ` · ${esc(r.best_seat)}` : ""}</span></span>`;
+  }
+  const t = r.next_target ?? r.start_target;
+  return `<span class="rec-figure"><span class="target">${esc(r.op)}</span>${t == null ? "—" : int(t)}<span class="unit">${unit} · launch target, unclaimed</span></span>`;
+}
+
+function boundBarHTML(r) {
+  const g = boundIntervalGeometry(r);
+  if (!g) return `<span class="muted small">No bounds registered</span>`;
+  const isMax = r.direction === "max";
+  const boundWord = isMax ? "UB" : "LB";
+  const parts = [`<span class="bib-track"></span>`];
+  if (g.gapLeftPct != null && g.gapWidthPct > 0 && !r.closed) {
+    parts.push(`<span class="bib-gap" style="left:${g.gapLeftPct}%;width:${g.gapWidthPct}%"></span>`);
+  }
+  if (g.literaturePct != null) {
+    parts.push(`<span class="bib-lit" style="left:${g.literaturePct}%;top:calc(50% + 4px)" title="Best known in the literature: ${int(g.literature)}">▴</span>`);
+  }
+  if (g.boundPct != null) {
+    parts.push(
+      `<span class="bib-tick is-bound ${g.boundProven ? "" : "is-literature-bound"}" style="left:${g.boundPct}%" title="${g.boundProven ? "Proven in the ledger" : "Literature bound (not yet proven here)"}"><span class="bib-lab">${g.boundProven ? "" : "lit. "}${boundWord} ${int(g.bound)}</span></span>`
+    );
+  }
+  if (g.currentPct != null) {
+    parts.push(
+      `<span class="bib-tick is-best" style="left:${g.currentPct}%" title="${r.best_score != null ? "Best verified" : "Launch target"}"><span class="bib-lab">${r.best_score != null ? "" : "launch "}${int(g.current)}</span></span>`
+    );
+  }
+  const aria = `${r.best_score != null ? `Best ${r.best_score}` : `Launch target ${r.start_target}`}, ${g.boundProven ? "proven" : "literature"} ${isMax ? "upper" : "lower"} bound ${g.bound ?? "unknown"}${r.gap != null ? `, gap ${r.gap}` : ""}`;
+  const caption = r.closed
+    ? "closed — optimum proven"
+    : [r.gap != null ? `gap ${int(r.gap)}${r.unit ? ` ${esc(r.unit)}` : ""}` : null, r.literature_best != null ? `lit. best ${int(r.literature_best)}` : null].filter(Boolean).join(" · ");
+  return `<div class="bib" role="img" aria-label="${esc(aria)}">${parts.join("")}</div><div class="bib-caption">${caption}</div>`;
+}
+
+function sparkHTML(r) {
+  const w = 112;
+  const h = 26;
+  const pts = ratchetSeries(r);
+  if (!pts.length) {
+    return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path class="spark-base" d="M0 ${h / 2} H${w}"/></svg><div class="spark-note">unclaimed baseline</div>`;
+  }
+  const scores = [r.start_target, ...pts.map((p) => p.score)].filter((v) => v != null);
+  const lo = Math.min(...scores);
+  const hi = Math.max(...scores);
+  const y = (v) => (hi === lo ? h / 2 : 3 + ((hi - v) / (hi - lo)) * (h - 6));
+  const steps = [r.start_target ?? pts[0].score, ...pts.map((p) => p.score)];
+  const dx = w / Math.max(1, steps.length - 1);
+  let d = `M0 ${y(steps[0]).toFixed(1)}`;
+  for (let i = 1; i < steps.length; i++) d += ` H${(i * dx).toFixed(1)} V${y(steps[i]).toFixed(1)}`;
+  const last = steps[steps.length - 1];
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path class="spark-base" d="M0 ${y(steps[0]).toFixed(1)} H${w}"/><path class="spark-line" d="${d}"/><circle class="spark-dot" cx="${w}" cy="${y(last).toFixed(1)}" r="2.2"/></svg><div class="spark-note">${pts.length} ratchet${pts.length === 1 ? "" : "s"}${pts[pts.length - 1].t && relTime(pts[pts.length - 1].t) ? ` · ${relTime(pts[pts.length - 1].t)}` : ""}</div>`;
+}
+
+function attemptButtonHTML(id, mission, label = "Attempt →") {
+  return `<button class="attempt-link" type="button" data-attempt="${esc(id)}" data-mission="${esc(mission || "")}">${esc(label)}</button>`;
+}
+
+function recordRowHTML(r) {
+  const live = !r.closed && !r.contradiction;
+  const dirLabel = r.direction === "max" ? "maximize" : "minimize";
+  return `
+    <li class="rec-row" data-open-claim="${esc(r.id)}" data-mission="${esc(r.mission)}" tabindex="0" role="button" aria-label="Open dossier for ${esc(r.id)}">
+      <span class="rec-id">${esc(r.id)}</span>
+      <div><div class="rec-title">${esc(cleanRecordTitle(r.title))}</div><div class="rec-mission">${esc(r.mission_title || r.mission)} · ${dirLabel}</div></div>
+      ${recordFigureHTML(r)}
+      <div class="rec-bar">${boundBarHTML(r)}</div>
+      <span class="rec-go">${live ? attemptButtonHTML(r.id, r.mission) : ""}</span>
+    </li>`;
+}
+
+// ============================================================ render hub
+function renderCurrent() {
+  const r = ui().route;
+  renderChrome();
+  switch (r.view) {
+    case "missions":
+      renderMissions();
+      break;
+    case "records":
+      renderRecords();
+      break;
+    case "control":
+      renderControl();
+      break;
+    case "bounties":
+      renderBounties();
+      break;
+    case "ledger":
+      renderLedger(r.ledgerTab);
+      break;
+  }
+}
+
+function renderChrome() {
+  const live = (RECORDS?.records || []).filter((r) => !r.closed && !r.contradiction).length;
+  $("#nav-records-count").textContent = RECORDS ? String(live) : "";
+  $("#records-more-link").textContent = RECORDS ? `View all ${RECORDS.records.length} records →` : "View all records →";
+  const judge = STATE?.mission?.judge?.label;
+  $("#footer-judge").textContent = judge ? `Judge · ${judge}` : "Judge · isolated mechanical Judge";
+  $("#footer-gh").href = `https://github.com/${repoOf(STATE)}`;
+  $("#footer-proofs").href = isStatic() ? "./PROOFS.md" : "/PROOFS.md";
+  syncMissionSelects();
+}
+
+function syncMissionSelects() {
+  const slug = activeSlug();
+  for (const sel of $$(".mission-switch")) {
+    if (sel.options.length !== CATALOG.length) {
+      sel.innerHTML = CATALOG.map((m) => `<option value="${esc(m.slug)}">${esc(m.title)}</option>`).join("");
+    }
+    if (slug && sel.value !== slug) sel.value = slug;
+  }
+  const recSel = $("#rec-mission");
+  if (recSel.options.length !== CATALOG.length + 1) {
+    recSel.innerHTML = `<option value="all">All missions</option>` + CATALOG.map((m) => `<option value="${esc(m.slug)}">${esc(m.title)}</option>`).join("");
+    recSel.value = REC_FILTER.mission;
+  }
+}
+
+// =========================================================== I. Missions
+function figureSentenceHTML() {
+  const t = RECORDS?.totals || {};
+  const sum = (k) => CATALOG.reduce((a, m) => a + int(m.counts?.[k]), 0);
+  const checked = t.checked_total ?? sum("checked");
+  const refuted = t.refuted ?? sum("refuted");
+  const liveRecs = RECORDS ? RECORDS.records.filter((r) => !r.closed && !r.contradiction).length : t.records_active ?? sum("records_active");
+  const missions = t.missions ?? CATALOG.length;
+  const sep = `<span class="sep" aria-hidden="true">·</span>`;
+  return `<strong>${int(checked)}</strong> checked${sep}<strong>${int(refuted)}</strong> refuted${sep}<strong class="accent">${int(liveRecs)}</strong> live records${sep}<strong>${int(missions)}</strong> missions`;
+}
+
+function featuredTheorem() {
+  if (RECORDS?.latest_verified) return RECORDS.latest_verified;
+  return latestVerifiedFromSnapshots([...SNAP_CACHE.values()]);
+}
+
+function renderMissions() {
+  $("#dateline").textContent = longDate(RECORDS?.generated_at || STATE?.snapshot_at);
+  $("#figure-sentence").innerHTML = CATALOG.length ? figureSentenceHTML() : "&nbsp;";
+
+  const f = featuredTheorem();
+  const feat = $("#featured");
+  if (f) {
+    feat.dataset.openClaim = f.id;
+    feat.dataset.mission = f.mission || "";
+    $("#featured-title").classList.toggle("is-long", String(f.title || "").length > 90);
+    $("#featured-title").innerHTML = `<span class="featured-label">Theorem ${esc(f.id)}.</span>${esc(f.title)}`;
+    $("#featured-stmt").textContent = f.statement || "";
+    $("#featured-stmt").hidden = !f.statement;
+    const sealWord = f.seal === "audited" ? "Audited" : "Verified";
+    const bits = [
+      `<span class="verified">◆ ${sealWord}</span>`,
+      esc(shortLean(f.judge_label)),
+      "zero sorry",
+      f.by_seat ? `<span class="mono small">${esc(f.by_seat)}</span>` : null,
+      f.mission_title ? esc(f.mission_title) : null,
+      f.at ? esc(relTime(f.at)) : null,
+    ].filter(Boolean);
+    $("#featured-attr").innerHTML = bits.join(`<span class="sep" aria-hidden="true">·</span>`);
+  } else {
+    delete feat.dataset.openClaim;
+    $("#featured-title").textContent = CATALOG.length ? "The ledger is open." : "Loading the ledger…";
+    $("#featured-stmt").hidden = true;
+    $("#featured-attr").textContent = "";
   }
 
-  function renderRelDAG() {
-    const lemmas = STATE.lemmas || [];
-    const byId = Object.fromEntries(lemmas.map((l) => [l.id, l]));
-    const depthOf = (id, seen = new Set()) => {
-      if (seen.has(id)) return 0;
-      seen.add(id);
-      const l = byId[id];
-      if (!l || !(l.deps || []).length) return 0;
-      return 1 + Math.max(...l.deps.map((d) => depthOf(d, seen)));
-    };
-    const cols = {};
-    lemmas.forEach((l) => {
-      const d = depthOf(l.id);
-      (cols[d] = cols[d] || []).push(l);
-    });
-    const colKeys = Object.keys(cols).map(Number).sort((a, b) => a - b);
-    const colW = 210, rowH = 54, padX = 20, padY = 24;
-    const maxRows = Math.max(1, ...colKeys.map((k) => cols[k].length));
-    const width = Math.max(600, colKeys.length * colW + padX * 2);
-    const height = maxRows * rowH + padY * 2;
-    const pos = {};
-    colKeys.forEach((ck, ci) => {
-      cols[ck].forEach((l, ri) => {
-        pos[l.id] = { x: padX + ci * colW, y: padY + ri * rowH };
-      });
-    });
-
-    const lines = [];
-    for (const l of lemmas) {
-      const to = pos[l.id];
-      for (const depId of l.deps || []) {
-        const from = pos[depId];
-        if (!from || !to) continue;
-        lines.push(`<path d="M ${from.x + 156} ${from.y + 18} C ${from.x + 184} ${from.y + 18}, ${to.x - 28} ${to.y + 18}, ${to.x} ${to.y + 18}" fill="none" stroke="var(--border-strong)" stroke-width="1.3"/>`);
-      }
-    }
-    const boxes = lemmas.map((l) => {
-      const p = pos[l.id];
-      const col = sealColor(sealOf(l));
-      return `
-        <g transform="translate(${p.x},${p.y})" style="cursor:pointer" data-open-claim="${esc(l.id)}">
-          <rect width="156" height="36" rx="7" fill="var(--bg)" stroke="${col}" stroke-width="1.4"/>
-          <text x="10" y="15" fill="var(--ink)" font-size="11" font-family="var(--font-mono)" font-weight="600">${esc(l.id)}</text>
-          <text x="10" y="29" fill="var(--muted)" font-size="9.5" font-family="var(--font-body)">${esc((l.title || "").slice(0, 22))}</text>
-        </g>`;
-    });
-    $("#rel-graph-wrap").innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">${lines.join("")}${boxes.join("")}</svg>`;
+  // §1 hottest record hunts
+  const prev = $("#records-preview");
+  if (!RECORDS) prev.innerHTML = `<li class="empty">Loading record hunts…</li>`;
+  else {
+    const hot = pickHotRecords(RECORDS.records, 5);
+    prev.innerHTML = hot.length ? hot.map(recordRowHTML).join("") : `<li class="empty">No live record hunts right now.</li>`;
   }
 
-  // =========================================================================
-  // 5. LEADERBOARD
-  // =========================================================================
-  function renderLeaderboard() {
-    // Credit ONLY trusted non-flagged proofs + King-of-the-Hill delta record points + verified refutations + barrier rulings
-    const seatStats = new Map();
-    const ensure = (id) => {
-      if (!seatStats.has(id)) {
-        const s = seatById(id);
-        seatStats.set(id, { id, name: s?.name || id, model: s?.model || "Community Donor", trusted: 0, recordPts: 0, recordWins: 0, refuted: 0, dead: 0 });
-      }
-      return seatStats.get(id);
-    };
-    for (const s of STATE.seats || []) ensure(s.id);
-    for (const l of STATE.lemmas || []) {
-      if (l.kind === "record") {
-        const rs = l.record_state;
-        if (rs && !rs.contradiction) {
-          for (const [seatId, pts] of Object.entries(rs.points_by_seat || {})) {
-            ensure(seatId).recordPts += safeInt(pts);
-          }
-          for (const h of rs.history || []) {
-            if (h.state === "accepted" && h.seat) ensure(h.seat).recordWins++;
-          }
-        }
-        continue;
-      }
-      const seal = sealOf(l);
-      if ((seal === "audited" || seal === "frozen") && l.checker?.by_seat) ensure(l.checker.by_seat).trusted++;
-      if (seal === "refuted" && l.refutation?.by_seat) ensure(l.refutation.by_seat).refuted++;
-      if (seal === "dead" && l.epitaph?.by_seat) ensure(l.epitaph.by_seat).dead++;
-    }
-    const rows = [...seatStats.values()]
-      .map((r) => ({ ...r, score: r.trusted * 10 + r.recordPts * 5 + r.refuted * 10 + r.dead * 4 }))
-      .sort((a, b) => b.score - a.score || b.trusted - a.trusted || b.recordPts - a.recordPts);
+  // §2 table of contents
+  $("#missions-count").textContent = CATALOG.length ? `${CATALOG.length} missions` : "";
+  $("#missions-toc").innerHTML = CATALOG.length
+    ? CATALOG.map((m, i) => {
+        const c = m.counts || {};
+        const open = Math.max(0, int(c.conjecture) - int(c.records_active));
+        const recs = int(c.records_active) + int(c.records_closed);
+        return `
+        <li class="toc-row ${m.slug === activeSlug() ? "is-active" : ""}" data-open-mission="${esc(m.slug)}" tabindex="0" role="link" aria-label="Open mission ${esc(m.title)}">
+          <span class="toc-num">${toRoman(i + 1)}.</span>
+          <div>
+            <div class="toc-title">${esc(m.title)}</div>
+            <p class="toc-question">${esc(m.question || m.tagline || "")}</p>
+            <div class="toc-judge">${esc(m.judge_label || (m.judge_type === "command" ? "Command Judge" : "Lean 4 kernel"))}</div>
+          </div>
+          ${rungStripHTML(m)}
+          <div class="toc-counts tabular"><strong>${int(c.trusted)}</strong> trusted<br><strong>${open}</strong> open · <strong>${recs}</strong> records</div>
+          <span class="toc-arrow" aria-hidden="true">→</span>
+        </li>`;
+      }).join("")
+    : `<li class="empty">Loading missions…</li>`;
+}
 
-    // Group by model family
-    const byModel = new Map();
-    for (const r of rows) {
-      const cur = byModel.get(r.model) || 0;
-      byModel.set(r.model, cur + r.trusted + r.refuted + r.recordWins);
-    }
-    const mList = [...byModel.entries()].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
-    const maxM = Math.max(1, ...mList.map(([, n]) => n));
-    $("#leaderboard-models").innerHTML = mList.length
-      ? mList
-          .map(
-            ([model, n]) => `
-            <div class="mbar-row">
-              <div class="mbar-top"><strong>${esc(model)}</strong><span class="mono tabular">${n} verified</span></div>
-              <div class="mbar-track"><div class="mbar-fill" style="width:${Math.round((n / maxM) * 100)}%"></div></div>
-            </div>`
-          )
-          .join("")
-      : `<div class="empty-state">No trusted proofs or refutations yet.</div>`;
+function objectivesDetailFor(m) {
+  if (Array.isArray(m.objectives_detail) && m.objectives_detail.length) return m.objectives_detail;
+  const snap = SNAP_CACHE.get(m.slug);
+  const objs = snap?.mission?.objectives;
+  if (Array.isArray(objs) && objs.length) {
+    return objs.map((o) => ({
+      id: o.id,
+      title: o.title,
+      tier: o.tier,
+      conquered: Boolean(o.conquered),
+      rungs: (o.items || []).map((it) => ({ id: it.id, conquered: Boolean(it.done), seal: it.seal })),
+    }));
+  }
+  return null;
+}
 
-    const slug = STATE.mission?.slug || CURRENT_MISSION;
-    $("#leaderboard-howto").textContent = [
-      `git clone https://github.com/${STATE.mission?.github_repo || "steph4n-gh/proof-foundry"}.git`,
-      `node hub/fleet.mjs next --mission ${slug}`,
-      `node hub/fleet.mjs verify --mission ${slug} --lemma <ID> --seat donor-<handle> --file <path> --theorem <name> --export`,
-      `# Or for King of the Hill records:`,
-      `node hub/fleet.mjs record --mission ${slug} --lemma <ID> --score <N> --seat donor-<handle> --export`,
-      `# Commit ONLY your artifact + missions/${slug}/submissions/<ID>.*.json and open a PR!`,
-    ].join("\n");
-
-    $("#leaderboard-tbody").innerHTML = rows
-      .map(
-        (r, idx) => `
-        <tr>
-          <td class="mono tabular">#${idx + 1}</td>
-          <td><strong>${esc(r.name)}</strong><div class="mono small muted">${esc(r.id)}</div></td>
-          <td>${esc(r.model)}</td>
-          <td class="mono tabular">${r.trusted}</td>
-          <td class="mono tabular">${r.recordPts}</td>
-          <td class="mono tabular">${r.refuted}</td>
-          <td class="mono tabular">${r.dead}</td>
-          <td class="mono tabular"><strong>${r.score}</strong></td>
-        </tr>`
-      )
+function rungStripHTML(m) {
+  const det = objectivesDetailFor(m);
+  if (det) {
+    const done = det.filter((o) => o.conquered).length;
+    const groups = det
+      .map((o) => {
+        const rungs = (o.rungs || []).map((r) => `<span class="${r.conquered ? "on" : "off"}">${r.conquered ? "◆" : "○"}</span>`).join("");
+        const n = (o.rungs || []).filter((r) => r.conquered).length;
+        return `<span class="obj" title="${esc(o.title)} — ${n}/${(o.rungs || []).length} rungs">${rungs || `<span class="${o.conquered ? "on" : "off"}">${o.conquered ? "◆" : "○"}</span>`}</span>`;
+      })
       .join("");
+    return `<div class="rung-strip" aria-label="${done} of ${det.length} objectives conquered">${groups}<span class="rung-strip-label">${done}/${det.length}</span></div>`;
   }
+  const total = int(m.objectives?.total);
+  const won = int(m.objectives?.conquered);
+  const marks = Array.from({ length: total }, (_, i) => `<span class="${i < won ? "on" : "off"}">${i < won ? "◆" : "○"}</span>`).join("");
+  return `<div class="rung-strip" aria-label="${won} of ${total} objectives conquered"><span class="obj">${marks}</span><span class="rung-strip-label">${won}/${total}</span></div>`;
+}
 
-  // =========================================================================
-  // 6. GRAVEYARD & 7. AUDIT LOG
-  // =========================================================================
-  function renderGraveyard() {
-    const fallen = (STATE.lemmas || []).filter((l) => {
-      const s = sealOf(l);
-      return s === "refuted" || s === "dead" || s === "flagged" || s === "contradiction";
-    });
-    $("#graveyard-grid").innerHTML = fallen.length
-      ? fallen
-          .map((l) => {
-            const s = sealOf(l);
-            const reason =
-              s === "refuted"
-                ? l.refutation?.summary
-                : s === "flagged"
-                ? l.audit?.notes
-                : l.epitaph?.reason || "Ruled dead.";
-            return `
-              <article class="grave-card is-${esc(s)}">
-                <div class="bounty-top">
-                  <strong class="mono">${esc(l.id)}</strong>
-                  ${sealHTML(l)}
-                </div>
-                <p class="bounty-title">${esc(l.title)}</p>
-                <p class="small muted" style="margin:0">${esc(reason || "")}</p>
-                <div style="margin-top:auto">
-                  <button class="btn btn-ghost btn-sm" type="button" data-open-claim="${esc(l.id)}">Inspect Counterexample / Audit &rarr;</button>
-                </div>
-              </article>`;
-          })
-          .join("")
-      : `<div class="empty-state">No refuted conjectures, flagged claims, or barriers recorded in this mission yet.</div>`;
+function pickNextProblem(snap = STATE) {
+  if (!snap?.lemmas) return null;
+  const byId = Object.fromEntries(snap.lemmas.map((l) => [l.id, l]));
+  const depsOk = (l) => (l.deps || []).every((d) => !byId[d] || byId[d].status === "checked" || byId[d].status === "refuted");
+  const score = (l) =>
+    (l.kind !== "record" && l.statement_file ? 8 : 0) +
+    ((l.open_prs || []).length === 0 ? 4 : 0) +
+    (depsOk(l) ? 2 : 0) +
+    (l.kind === "record" ? 1 : 0) -
+    (l.rung || 0) * 0.01;
+  return snap.lemmas.filter((l) => isAttemptable(l) && l.status !== "in_work").sort((a, b) => score(b) - score(a))[0] || null;
+}
+
+function takeOpenProblem() {
+  const pick = pickNextProblem();
+  if (pick) openAttempt(activeSlug(), pick.id);
+  else navigate("bounties");
+}
+
+// ============================================================ II. Records
+function renderRecords() {
+  $$("#rec-direction [data-dir]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.dir === REC_FILTER.direction)));
+  $("#rec-sort").value = REC_FILTER.sort;
+  const body = $("#records-tbody");
+  if (!RECORDS) {
+    body.innerHTML = `<tr><td colspan="6" class="empty">Loading record hunts…</td></tr>`;
+    $("#rec-count").textContent = "";
+    return;
   }
+  const rows = sortRecords(filterRecords(RECORDS.records, REC_FILTER), REC_FILTER.sort);
+  $("#rec-count").textContent = `${rows.length} of ${RECORDS.records.length} hunts${RECORDS.synthesized ? " · assembled from mission snapshots" : ""}`;
+  body.innerHTML = rows.length
+    ? rows
+        .map((r) => {
+          const live = !r.closed && !r.contradiction;
+          return `
+          <tr data-open-claim="${esc(r.id)}" data-mission="${esc(r.mission)}" tabindex="0" aria-label="Open dossier for ${esc(r.id)}">
+            <td class="rec-id">${esc(r.id)}</td>
+            <td><div class="rec-title">${esc(cleanRecordTitle(r.title))}</div><div class="rec-mission">${esc(r.mission_title || r.mission)} · ${r.direction === "max" ? "maximize" : "minimize"}${r.unit ? ` ${esc(r.unit)}` : ""}${r.open_prs?.length ? ` · ${r.open_prs.length} open PR${r.open_prs.length > 1 ? "s" : ""}` : ""}</div></td>
+            <td>${recordFigureHTML(r)}</td>
+            <td class="col-bar">${boundBarHTML(r)}</td>
+            <td class="col-hist">${sparkHTML(r)}</td>
+            <td>${live ? attemptButtonHTML(r.id, r.mission) : `<span class="muted small">${r.closed ? "closed" : "halted"}</span>`}</td>
+          </tr>`;
+        })
+        .join("")
+    : `<tr><td colspan="6" class="empty">No record hunts match these filters.</td></tr>`;
+}
 
-  function renderEventItem(e) {
-    return `
-      <li class="event-item" ${e.lemma_id ? `data-open-claim="${esc(e.lemma_id)}"` : ""}>
-        <div class="event-main">
-          <div class="event-top">
-            <span class="prog-tag">${esc(e.type)}</span>
-            ${e.lemma_id ? `<strong class="mono">${esc(e.lemma_id)}</strong>` : ""}
-            <span class="mono small muted">${esc(e.seat || "")}</span>
-          </div>
-          <div class="small muted">${esc(e.title || e.detail || "")}</div>
-        </div>
-        <span class="mono small muted">${relTime(e.at)}</span>
-      </li>`;
-  }
+// ===================================================== III. Mission control
+function renderControl() {
+  if (!STATE) return;
+  const m = STATE.mission;
+  const c = STATE.counts || {};
+  const meta = missionMeta(m.slug);
+  $("#control-slug").textContent = m.slug;
+  $("#control-eyebrow").textContent = [m.brand && m.brand !== m.title ? m.brand : m.title, m.tagline].filter(Boolean).join(" · ");
+  $("#control-question").textContent = m.question || m.title;
+  $("#control-desc").textContent = m.description || "";
+  $("#control-judge").innerHTML = [
+    ["Judge", m.judge?.label || meta?.judge_label || "Mechanical Judge"],
+    ["Verdict", STATE.meta?.verdict || "—"],
+    ["PR sync", STATE.pr_sync?.ok ? `synced ${relTime(STATE.pr_sync.fetched_at)}` : "offline snapshot"],
+    ["Snapshot", relTime(STATE.snapshot_at) || "—"],
+  ]
+    .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`)
+    .join("");
 
-  $("#feed-filter").addEventListener("change", renderAuditLog);
-  function renderAuditLog() {
-    const f = $("#feed-filter").value;
-    const evs = (STATE.events || []).filter((e) => f === "all" || e.type === f);
-    $("#full-feed-list").innerHTML = evs.length ? evs.map(renderEventItem).join("") : `<li class="empty-state">No matching audit events.</li>`;
-  }
+  const objs = m.objectives || [];
+  const won = objs.filter((o) => o.conquered).length;
+  const records = STATE.lemmas.filter((l) => l.kind === "record");
+  const openProblems = STATE.lemmas.filter((l) => l.kind !== "record" && isAttemptable(l));
+  const sep = `<span class="sep" aria-hidden="true">·</span>`;
+  $("#control-figures").innerHTML = [
+    `<strong>${int(c.trusted)}</strong> trusted`,
+    `<strong>${openProblems.length}</strong> open`,
+    `<strong class="accent">${records.length}</strong> records`,
+    `<strong>${int(c.refuted)}</strong> refuted`,
+    `<strong>${won}/${objs.length}</strong> objectives`,
+  ].join(sep);
+  $("#control-attempt-btn").disabled = !pickNextProblem();
 
-  function pushFocus(triggerEl) {
-    const el = triggerEl || (document.activeElement && document.activeElement !== document.body ? document.activeElement : null);
-    FOCUS_STACK.push(el);
-  }
-  function popFocus() {
-    const el = FOCUS_STACK.pop();
-    if (el && document.contains(el) && typeof el.focus === "function") el.focus();
-  }
-
-  // =========================================================================
-  // VERIFICATION RECEIPT DOSSIER (Race-safe + Inert A11y + Focus Stack + Retry)
-  // =========================================================================
-  async function openDossier(id, { syncUrl = true, triggerEl = null } = {}) {
-    if (!id) return;
-    const drawer = $("#lemma-drawer");
-    if (!drawer.classList.contains("open")) pushFocus(triggerEl);
-
-    const seq = ++DOSSIER_REQ_SEQ;
-    PENDING_CLAIM_ID = id;
-    $("#drawer-backdrop").hidden = false;
-    drawer.inert = false;
-    drawer.classList.add("open");
-    drawer.setAttribute("aria-hidden", "false");
-    $("#drawer-id").textContent = id;
-    $("#drawer-badge").innerHTML = `<span class="seal seal-provisional">Loading…</span>`;
-    $("#drawer-body").innerHTML = `<div class="empty-state">Fetching verification receipt &amp; source…</div>`;
-    $("#drawer-close").focus();
-    if (syncUrl) syncURL({ view: CURRENT_VIEW, mission: CURRENT_MISSION, claim: id, push: false });
-
-    try {
-      const url = STATIC_MODE
-        ? `./data/${encodeURIComponent(CURRENT_MISSION)}/lemmas/${encodeURIComponent(id)}.json`
-        : `/api/lemma/${encodeURIComponent(id)}?mission=${encodeURIComponent(CURRENT_MISSION)}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json();
-      if (seq !== DOSSIER_REQ_SEQ) return; // Discard stale response (even after closeDossier or mission switch!)
-      renderDossierContent(d);
-    } catch (err) {
-      if (seq !== DOSSIER_REQ_SEQ) return;
-      $("#drawer-badge").innerHTML = `<span class="seal seal-refuted">Error</span>`;
-      $("#drawer-body").innerHTML = `
-        <div class="empty-state">
-          <p>Could not load dossier for <strong>${esc(id)}</strong> (${esc(err.message)}).</p>
-          <button class="btn btn-ghost btn-sm" type="button" id="dossier-retry-btn">Retry</button>
-        </div>`;
-      $("#dossier-retry-btn").addEventListener("click", () => openDossier(id, { syncUrl }));
-    }
-  }
-
-  function renderDossierContent(d) {
-    const l = d.lemma;
-    const isRec = l.kind === "record";
-    const rs = l.record_state || {};
-    const cfg = l.record || {};
-    $("#drawer-id").textContent = l.id;
-    $("#drawer-badge").innerHTML = `${sealHTML(l)} ${prBadgesHTML(l)}`;
-
-    const auditHTML = l.audit
-      ? `<div class="audit-box ${esc(l.audit.status)}">
-           <strong>Cross-Model Audit (${esc(l.audit.status.toUpperCase())})</strong>
-           <span class="mono small"> · ${esc(l.audit.by_model || l.audit.by_seat)} · ${relTime(l.audit.at)}</span>
-           <div style="margin-top:5px">${esc(l.audit.notes || "")}</div>
-         </div>`
-      : !isRec && l.status === "checked" && !l.checker?.statement_frozen
-      ? `<div class="audit-box"><strong>Provisional:</strong> Passed the mechanical Judge; awaiting independent cross-model faithfulness audit before counting toward Objectives.</div>`
-      : "";
-
-    const isMax = cfg.direction === "max";
-    const op = isMax ? "≥" : "≤";
-    const boundOp = isMax ? "≤" : "≥";
-    const boundWord = isMax ? "Upper" : "Lower";
-    const litBound = isMax ? cfg.literature_upper_bound : cfg.literature_lower_bound;
-    let recordHTML = "";
-    if (isRec) {
-      const unit = cfg.unit || "";
-      const bestVal = rs.best
-        ? `${safeInt(rs.best.score)} ${unit} (${rs.best.seat})`
-        : `Unclaimed (${isMax ? "floor" : "ceiling"} ${op} ${safeInt(cfg.start_target)} ${unit})`;
-      const nextVal = rs.contradiction
-        ? "Halted (Contradiction)"
-        : rs.closed
-        ? "Exact Optimal Closed ✓"
-        : `${op} ${safeInt(rs.next_target ?? cfg.start_target)} ${unit}`;
-      const lbVal = rs.refuted
-        ? `${boundOp} ${safeInt(rs.refuted.inclusive_bound)} ${unit} (¬ Record ${safeInt(rs.refuted.score)} by ${rs.refuted.seat})`
-        : cfg.allow_bound === false
-        ? "N/A (empirical Command Judge)"
-        : "None proven in Lean yet";
-      const litVal =
-        cfg.literature_best != null
-          ? `Best known: ${safeInt(cfg.literature_best)}${litBound != null ? ` · ${isMax ? "UB" : "LB"}: ${safeInt(litBound)}` : ""} ${unit}`
-          : "—";
-      const histItems = [...(rs.history || [])].reverse();
-      const histHTML = histItems.length
-        ? `<ul class="rec-history">
-            ${histItems
-              .map((h) => {
-                const badgeCls =
-                  h.state === "accepted"
-                    ? "seal-audited"
-                    : h.state === "contradiction"
-                    ? "seal-contradiction"
-                    : "seal-provisional";
-                const label = h.kind === "record_bound" ? `¬ Record ${safeInt(h.score)}` : `Record ${safeInt(h.score)}`;
-                return `<li class="rec-hist-item">
-                  <span><strong class="mono">${esc(label)}</strong> · <span class="mono small">${esc(h.seat)}</span></span>
-                  <span><span class="mono small tabular">${h.points > 0 ? `+${safeInt(h.points)} pts` : "0 pts"}</span> <span class="seal ${badgeCls}">${esc(h.state)}</span></span>
+  // §1 ladders
+  $("#ladders-count").textContent = objs.length ? `${won} of ${objs.length} conquered` : "";
+  $("#ladders").innerHTML = objs.length
+    ? objs
+        .map((o) => {
+          const items = o.items || [];
+          const rungs = items
+            .map((it) => {
+              const goal =
+                it.expect === "refutation"
+                  ? "refute"
+                  : it.expect && typeof it.expect === "object" && it.expect.record_at_most != null
+                  ? `goal ≤ ${int(it.expect.record_at_most)}`
+                  : it.expect && typeof it.expect === "object" && it.expect.record_at_least != null
+                  ? `goal ≥ ${int(it.expect.record_at_least)}`
+                  : "";
+              const lemma = STATE.lemmas.find((l) => l.id === it.id) || it;
+              return `
+                <li class="rung">
+                  <span class="rung-mark ${it.done ? "on" : "off"}" aria-hidden="true">${it.done ? "◆" : "○"}</span>
+                  <button class="rung-btn" type="button" data-open-claim="${esc(it.id)}" aria-label="${esc(it.id)} — ${it.done ? "conquered" : "open"}">
+                    <span><span class="rung-id">${esc(it.id)}</span><span class="rung-title">${esc(it.title)}</span>${goal ? `<span class="rung-goal">${esc(goal)}</span>` : ""}</span>
+                    ${statusHTML(lemma)}
+                  </button>
                 </li>`;
-              })
-              .join("")}
-          </ul>`
-        : `<div class="empty-state" style="padding:14px">No verified record entries yet — claim the launch ${isMax ? "floor" : "ceiling"} ${op} ${safeInt(cfg.start_target)} ${esc(unit)}!</div>`;
-      recordHTML = `
-        <div class="d-section">
-          <h4>♛ King of the Hill Scoreboard (${isMax ? "Maximize" : "Minimize"})</h4>
-          <div class="d-kv">
-            <div class="d-kv-item"><span>Current Record Holder</span><strong>${esc(bestVal)}</strong></div>
-            <div class="d-kv-item"><span>Next Auto-Ratchet Target</span><strong class="mono">${esc(nextVal)}</strong></div>
-            <div class="d-kv-item"><span>Proven ${boundWord} Bound</span><strong>${esc(lbVal)}</strong></div>
-            <div class="d-kv-item"><span>Literature Reference</span><strong class="mono">${esc(litVal)}</strong></div>
-          </div>
-        </div>
-        <div class="d-section">
-          <h4>Record Progression History (${histItems.length})</h4>
-          ${histHTML}
-        </div>`;
+            })
+            .join("");
+          return `
+            <article class="ladder">
+              <div class="ladder-head">
+                <div>
+                  <div class="ladder-tier">${esc(o.tier || "Objective")}${o.conquered ? ` · <span class="won">◆ conquered</span>` : ""}</div>
+                  <h3 class="ladder-title">${esc(o.title)}</h3>
+                </div>
+                <span class="ladder-ratio tabular">${int(o.completed)} / ${int(o.total)}</span>
+              </div>
+              ${o.finish_line ? `<p class="ladder-finish">${esc(o.finish_line)}</p>` : ""}
+              <ol class="rungs">${rungs}</ol>
+            </article>`;
+        })
+        .join("")
+    : `<p class="empty">No objectives are configured for this mission yet.</p>`;
+
+  // §2 mission records
+  const recRows = records.map((l) => recordRowFromLemma(l, m)).filter(Boolean);
+  $("#control-records-section").hidden = recRows.length === 0;
+  $("#control-records").innerHTML = sortRecords(recRows, "gap").map(recordRowHTML).join("");
+
+  // §3 open problems
+  const sorted = [...openProblems].sort(
+    (a, b) => (b.statement_file ? 1 : 0) - (a.statement_file ? 1 : 0) || (a.status === "in_work") - (b.status === "in_work") || (a.rung || 99) - (b.rung || 99)
+  );
+  $("#control-open").innerHTML = sorted.length
+    ? sorted.slice(0, 10).map((l) => claimRowHTML(l, { mission: m.slug, expandable: false })).join("") +
+      (sorted.length > 10 ? `<li class="claim-row"><div class="claim-line" data-nav="bounties" role="link" tabindex="0"><span></span><span></span><span class="link-btn">${sorted.length - 10} more open problems →</span></div></li>` : "")
+    : `<li class="empty">Every registered problem in this mission is settled. Try another mission.</li>`;
+
+  // §4 strategy + receipts
+  const note = STATE.meta?.strategy_note;
+  $("#strategy-meta").textContent = note ? [note.seat, relTime(note.at)].filter(Boolean).join(" · ") : "";
+  $("#strategy-text").textContent = note?.text || "No strategy note has been published for this mission yet.";
+  $("#strategy-mentions").innerHTML = (note?.mentions || [])
+    .map((id) => `<button class="chip-link" type="button" data-open-claim="${esc(id)}">${esc(id)}</button>`)
+    .join("");
+  const receipts = (STATE.events || []).filter((e) => ["checker_accepted", "claim_refuted", "lemma_audited", "approach_dead", "checker_rejected"].includes(e.type)).slice(0, 8);
+  $("#receipts-count").textContent = receipts.length ? `${receipts.length} latest` : "";
+  $("#receipts-list").innerHTML = receipts.length ? receipts.map(eventItemHTML).join("") : `<li class="empty">No Judge receipts yet.</li>`;
+}
+
+function claimTargetHTML(l) {
+  if (l.kind === "record") {
+    const rm = recordMetaOf(l);
+    const bound = rm.proven_bound ?? rm.literature_bound;
+    return [bound != null ? `${rm.proven_bound != null ? "" : "lit. "}${rm.direction === "max" ? "UB" : "LB"} ${int(bound)}` : null, rm.gap != null ? `gap ${int(rm.gap)}` : null]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  return l.rung ? `rung ${int(l.rung)}` : "";
+}
+
+function claimRowHTML(l, { mission, expandable = true, expanded = false, reason = null } = {}) {
+  const snap = SNAP_CACHE.get(mission) || STATE;
+  const attempt = isAttemptable(l) ? attemptButtonHTML(l.id, mission, l.kind === "record" ? "Beat it →" : "Attempt →") : "";
+  const subBits = [
+    programTitle(snap, l.program) ? esc(programTitle(snap, l.program)) : null,
+    l.kind === "record" ? "record hunt" : l.statement_file ? "frozen statement" : "free-form statement",
+    (l.deps || []).length ? `needs ${(l.deps || []).map(esc).join(", ")}` : null,
+    reason ? esc(reason) : null,
+    flagsHTML(l) || null,
+  ].filter(Boolean);
+  const lineAttrs = expandable
+    ? `data-toggle-claim="${esc(l.id)}" role="button" tabindex="0" aria-expanded="${expanded}"`
+    : `data-open-claim="${esc(l.id)}" data-mission="${esc(mission || "")}" role="button" tabindex="0"`;
+  const stmt = l.registered_statement || l.statement || l.theorem_name || "";
+  return `
+    <li class="claim-row ${expanded ? "is-open" : ""}">
+      <div class="claim-line" ${lineAttrs}>
+        <span class="claim-id">${expandable ? `<span class="caret" aria-hidden="true">▸</span>` : ""}${esc(l.id)}</span>
+        <span class="claim-status">${statusHTML(l)}</span>
+        <div><div class="claim-title">${esc(l.title)}</div><div class="claim-sub">${subBits.join(`<span aria-hidden="true">·</span>`)}</div></div>
+        <span class="claim-target">${claimTargetHTML(l)}</span>
+        <span class="claim-go">${attempt}</span>
+      </div>
+      ${
+        expanded
+          ? `<div class="claim-expand">
+              ${l.statement_file ? `<p class="small muted mono">${esc(l.statement_file)}</p>` : ""}
+              <pre class="lean-block">${esc(stmt)}</pre>
+              ${l.paper_notes ? `<p class="notes">${esc(l.paper_notes)}</p>` : ""}
+              <div class="actions">
+                <button class="link-btn" type="button" data-open-claim="${esc(l.id)}" data-mission="${esc(mission || "")}">Open dossier</button>
+                ${attempt}
+              </div>
+            </div>`
+          : ""
+      }
+    </li>`;
+}
+
+// ============================================================ IV. Bounties
+function renderBounties() {
+  if (!STATE) return;
+  $$("#bounty-mode [data-bmode]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.bmode === BOUNTY.mode)));
+  $("#bounties-title").textContent = BOUNTY.mode === "open" ? "Open problems" : "Full claim ledger";
+  $("#bounties-eyebrow").textContent = `${STATE.mission.title} · ${BOUNTY.mode === "open" ? "problem queue" : "every claim and receipt"}`;
+
+  const progSel = $("#bounty-program");
+  const progs = STATE.programs || [];
+  const want = progSel.value || "all";
+  const sig = progs.map((p) => p.id).join("|");
+  if (progSel.dataset.sig !== sig) {
+    progSel.innerHTML = `<option value="all">All programs</option>` + progs.map((p) => `<option value="${esc(p.id)}">${esc(p.title)}</option>`).join("");
+    progSel.dataset.sig = sig;
+    progSel.value = progs.some((p) => p.id === want) ? want : "all";
+  }
+
+  const q = ($("#bounty-search").value || "").trim().toLowerCase();
+  const prog = progSel.value;
+  const sealFilter = $("#bounty-seal").value;
+  const rows = STATE.lemmas.filter((l) => {
+    if (BOUNTY.mode === "open" && !isAttemptable(l)) return false;
+    if (prog !== "all" && l.program !== prog) return false;
+    if (sealFilter === "record") {
+      if (!(l.kind === "record" && isAttemptable(l))) return false;
+    } else if (sealFilter !== "all" && sealOf(l) !== sealFilter) return false;
+    if (q && !`${l.id} ${l.title} ${l.statement || ""} ${l.theorem_name || ""} ${l.paper_notes || ""}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  const sorted =
+    BOUNTY.mode === "open"
+      ? rows.sort(
+          (a, b) =>
+            (b.kind !== "record" && b.statement_file ? 1 : 0) - (a.kind !== "record" && a.statement_file ? 1 : 0) ||
+            (a.kind === "record") - (b.kind === "record") ||
+            (a.rung || 99) - (b.rung || 99)
+        )
+      : rows;
+  $("#bounty-count").textContent = `${sorted.length} ${BOUNTY.mode === "open" ? "open" : "claims"}`;
+  $("#bounty-list").innerHTML = sorted.length
+    ? sorted.map((l) => claimRowHTML(l, { mission: STATE.mission.slug, expandable: true, expanded: BOUNTY.expanded.has(l.id) })).join("")
+    : `<li class="empty">${BOUNTY.mode === "open" ? "No open problems match. Switch to the full ledger to see settled claims." : "No claims match these filters."}</li>`;
+}
+
+// ============================================================== V. Ledger
+function renderLedger(tab) {
+  $$("#ledger-tabs [data-tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
+  for (const t of ["map", "leaderboard", "refutations", "fleet", "audit"]) $(`#tab-${t}`).hidden = t !== tab;
+  if (!STATE) return;
+  $("#ledger-mission-name").textContent = STATE.mission.title;
+  if (tab === "map") {
+    renderMap();
+    renderDAG();
+  } else if (tab === "leaderboard") renderLeaderboard();
+  else if (tab === "refutations") renderRefutations();
+  else if (tab === "fleet") renderFleet();
+  else if (tab === "audit") renderAudit();
+}
+
+// --- proof map (canvas reads every colour from CSS tokens)
+const MAP = { nodes: [], cam: { x: 0, y: 0, z: 1 }, drag: null, bound: false };
+function isMapVisible() {
+  const r = ui().route;
+  return r.view === "ledger" && r.ledgerTab === "map" && ui().overlay.kind === "none";
+}
+function tokens() {
+  const cs = getComputedStyle(document.documentElement);
+  const t = (n) => cs.getPropertyValue(n).trim();
+  return { bg: t("--bg"), surface: t("--surface"), ink: t("--ink"), muted: t("--muted"), rule: t("--rule"), ruleStrong: t("--rule-strong"), accent: t("--accent"), alarm: t("--alarm") };
+}
+function renderMap() {
+  const progs = STATE.programs?.length ? STATE.programs : [{ id: null, title: "Claims" }];
+  const lemmas = STATE.lemmas || [];
+  MAP.nodes = [];
+  const ringR = progs.length <= 1 ? 0 : 190;
+  progs.forEach((p, pi) => {
+    const ang = (Math.PI * 2 * pi) / Math.max(1, progs.length) - Math.PI / 2;
+    const cx = Math.cos(ang) * ringR;
+    const cy = Math.sin(ang) * ringR;
+    const group = lemmas.filter((l) => (p.id == null ? true : l.program === p.id));
+    group.forEach((l, li) => {
+      const a2 = (Math.PI * 2 * li) / Math.max(1, group.length);
+      const r2 = group.length <= 1 ? 0 : 54 + (li % 2) * 30;
+      MAP.nodes.push({ lemma: l, x: cx + Math.cos(a2) * r2, y: cy + Math.sin(a2) * r2, r: 9 });
+    });
+  });
+  const orphan = lemmas.filter((l) => !MAP.nodes.some((n) => n.lemma === l));
+  orphan.forEach((l, i) => MAP.nodes.push({ lemma: l, x: -260 + i * 34, y: 300, r: 9 }));
+  if (!MAP.bound) bindMap();
+  $("#map-legend").innerHTML = [
+    ["◆", "accent", "Frozen / audited"],
+    ["♛", "accent", "Live record"],
+    ["◇", "ink", "Provisional"],
+    ["◐", "ink", "In work"],
+    ["○", "muted", "Open"],
+    ["✕", "ink", "Refuted"],
+    ["—", "struck", "Barrier"],
+    ["⚠", "alarm", "Flagged / contradiction"],
+  ]
+    .map(([g, tone, label]) => `<li><span class="st tone-${tone === "alarm" ? "accent" : tone}" style="${tone === "alarm" ? "color:var(--alarm)" : ""}"><span class="st-glyph">${g}</span><span class="st-label">${label}</span></span></li>`)
+    .join("");
+  requestAnimationFrame(drawMap);
+}
+
+function drawNodeShape(ctx, n, tk) {
+  const s = statusOf(n.lemma);
+  const col = { accent: tk.accent, alarm: tk.alarm, ink: tk.ink, muted: tk.muted, struck: tk.muted }[s.tone] || tk.ink;
+  const r = n.r;
+  ctx.lineWidth = 1.4;
+  ctx.strokeStyle = col;
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  switch (s.key) {
+    case "frozen":
+    case "audited":
+      ctx.moveTo(n.x, n.y - r);
+      ctx.lineTo(n.x + r, n.y);
+      ctx.lineTo(n.x, n.y + r);
+      ctx.lineTo(n.x - r, n.y);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    case "provisional":
+      ctx.fillStyle = tk.surface;
+      ctx.moveTo(n.x, n.y - r);
+      ctx.lineTo(n.x + r, n.y);
+      ctx.lineTo(n.x, n.y + r);
+      ctx.lineTo(n.x - r, n.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+    case "in_work":
+      ctx.fillStyle = tk.surface;
+      ctx.arc(n.x, n.y, r - 1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.fillStyle = col;
+      ctx.arc(n.x, n.y, r - 1, Math.PI / 2, (Math.PI * 3) / 2);
+      ctx.fill();
+      break;
+    case "refuted":
+      ctx.moveTo(n.x - r * 0.7, n.y - r * 0.7);
+      ctx.lineTo(n.x + r * 0.7, n.y + r * 0.7);
+      ctx.moveTo(n.x + r * 0.7, n.y - r * 0.7);
+      ctx.lineTo(n.x - r * 0.7, n.y + r * 0.7);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      break;
+    case "dead":
+      ctx.moveTo(n.x - r, n.y);
+      ctx.lineTo(n.x + r, n.y);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      break;
+    case "flagged":
+    case "contradiction":
+      ctx.fillStyle = tk.surface;
+      ctx.rect(n.x - r, n.y - r, r * 2, r * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.font = `600 ${r + 2}px ${getComputedStyle(document.body).fontFamily}`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("!", n.x, n.y + 0.5);
+      break;
+    case "record":
+    case "hunt":
+      ctx.font = `${r * 2 + 2}px serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("♛", n.x, n.y);
+      break;
+    default:
+      ctx.fillStyle = tk.surface;
+      ctx.arc(n.x, n.y, r - 1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+  }
+}
+
+function drawMap() {
+  const canvas = $("#map-canvas");
+  if (!canvas || !STATE) return;
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const tk = tokens();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(rect.width * dpr);
+  canvas.height = Math.round(rect.height * dpr);
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = tk.surface;
+  ctx.fillRect(0, 0, rect.width, rect.height);
+  ctx.save();
+  ctx.translate(rect.width / 2 + MAP.cam.x, rect.height / 2 + MAP.cam.y);
+  ctx.scale(MAP.cam.z, MAP.cam.z);
+  const byId = Object.fromEntries(MAP.nodes.map((n) => [n.lemma.id, n]));
+  ctx.strokeStyle = tk.ruleStrong;
+  ctx.lineWidth = 1;
+  for (const n of MAP.nodes) {
+    for (const depId of n.lemma.deps || []) {
+      const d = byId[depId];
+      if (!d) continue;
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(n.x, n.y);
+      ctx.stroke();
     }
+  }
+  const mono = getComputedStyle(document.documentElement).getPropertyValue("--font-mono") || "monospace";
+  for (const n of MAP.nodes) {
+    drawNodeShape(ctx, n, tk);
+    ctx.fillStyle = tk.muted;
+    ctx.font = `500 10px ${mono}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(n.lemma.id, n.x, n.y + n.r + 13);
+  }
+  ctx.restore();
+}
 
-    function renderReceiptBlock(chkObj, label) {
-      if (!chkObj) return "";
-      return `<div class="d-section">
-           <h4>Cryptographic Judge Receipt${label ? ` (${esc(label)})` : ""}</h4>
-           <div class="d-kv">
-             <div class="d-kv-item"><span>Engine / Judge</span><strong>${esc(chkObj.lean_version || chkObj.judge || "Lean 4")}</strong></div>
-             <div class="d-kv-item"><span>Duration / Axioms</span><strong class="mono tabular">${safeInt(chkObj.duration_ms)}ms · ${esc((chkObj.axioms || []).join(", ") || "none")}</strong></div>
-             <div class="d-kv-item"><span>Artifact SHA-256</span><strong class="mono">${esc((chkObj.file_hash || "—").slice(0, 18))}…</strong></div>
-             <div class="d-kv-item"><span>Core / Statement Hash</span><strong class="mono">${esc((chkObj.statement_hash || chkObj.core_hash || "—").slice(0, 18))}…</strong></div>
-           </div>
-         </div>`;
+function screenToWorld(canvas, sx, sy) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: (sx - rect.width / 2 - MAP.cam.x) / MAP.cam.z, y: (sy - rect.height / 2 - MAP.cam.y) / MAP.cam.z };
+}
+function hitNode(canvas, sx, sy) {
+  const w = screenToWorld(canvas, sx, sy);
+  return MAP.nodes.find((n) => Math.hypot(n.x - w.x, n.y - w.y) <= n.r + 6) || null;
+}
+function bindMap() {
+  MAP.bound = true;
+  const canvas = $("#map-canvas");
+  const tip = $("#map-tip");
+  canvas.addEventListener("pointerdown", (e) => {
+    MAP.drag = { sx: e.clientX, sy: e.clientY, cx: MAP.cam.x, cy: MAP.cam.y, moved: false };
+    canvas.setPointerCapture?.(e.pointerId);
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    if (MAP.drag) {
+      const dx = e.clientX - MAP.drag.sx;
+      const dy = e.clientY - MAP.drag.sy;
+      if (Math.hypot(dx, dy) > 3) MAP.drag.moved = true;
+      MAP.cam.x = MAP.drag.cx + dx;
+      MAP.cam.y = MAP.drag.cy + dy;
+      drawMap();
+      tip.hidden = true;
+      return;
     }
+    const hit = hitNode(canvas, e.clientX - rect.left, e.clientY - rect.top);
+    if (hit) {
+      tip.innerHTML = `<strong class="mono small">${esc(hit.lemma.id)}</strong> ${statusHTML(hit.lemma)}<div class="small muted" style="margin-top:4px">${esc(hit.lemma.title)}</div>`;
+      tip.style.left = `${Math.min(rect.width - 290, Math.max(8, e.clientX - rect.left + 14))}px`;
+      tip.style.top = `${Math.min(rect.height - 90, Math.max(8, e.clientY - rect.top + 14))}px`;
+      tip.hidden = false;
+    } else tip.hidden = true;
+  });
+  canvas.addEventListener("pointerup", (e) => {
+    if (!MAP.drag) return;
+    const moved = MAP.drag.moved;
+    MAP.drag = null;
+    if (moved) return;
+    const rect = canvas.getBoundingClientRect();
+    const hit = hitNode(canvas, e.clientX - rect.left, e.clientY - rect.top);
+    if (hit) openDossier(hit.lemma.id, activeSlug());
+  });
+  canvas.addEventListener("pointerleave", () => (tip.hidden = true));
+  canvas.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      MAP.cam.z = Math.max(0.4, Math.min(2.6, MAP.cam.z * (e.deltaY < 0 ? 1.12 : 0.89)));
+      drawMap();
+    },
+    { passive: false }
+  );
+  $("#map-zoom-in").addEventListener("click", () => {
+    MAP.cam.z = Math.min(2.6, MAP.cam.z * 1.2);
+    drawMap();
+  });
+  $("#map-zoom-out").addEventListener("click", () => {
+    MAP.cam.z = Math.max(0.4, MAP.cam.z * 0.82);
+    drawMap();
+  });
+  $("#map-reset").addEventListener("click", () => {
+    MAP.cam = { x: 0, y: 0, z: 1 };
+    drawMap();
+  });
+  window.addEventListener("resize", () => isMapVisible() && drawMap());
+}
 
-    const receiptHTML = isRec
-      ? `${renderReceiptBlock(rs.best, "Current Record")}${renderReceiptBlock(rs.refuted, `Proven ${boundWord} Bound`)}`
-      : renderReceiptBlock(l.checker || l.refutation, "");
+function renderDAG() {
+  const lemmas = STATE.lemmas || [];
+  const byId = Object.fromEntries(lemmas.map((l) => [l.id, l]));
+  const memo = new Map();
+  const depth = (id, seen = new Set()) => {
+    if (memo.has(id)) return memo.get(id);
+    if (seen.has(id)) return 0;
+    seen.add(id);
+    const l = byId[id];
+    const d = !l || !(l.deps || []).length ? 0 : 1 + Math.max(...l.deps.map((x) => depth(x, seen)));
+    memo.set(id, d);
+    return d;
+  };
+  const cols = {};
+  lemmas.forEach((l) => (cols[depth(l.id)] = cols[depth(l.id)] || []).push(l));
+  const keys = Object.keys(cols).map(Number).sort((a, b) => a - b);
+  const colW = 214;
+  const rowH = 52;
+  const pad = 16;
+  const maxRows = Math.max(1, ...keys.map((k) => cols[k].length));
+  const width = Math.max(600, keys.length * colW + pad * 2);
+  const height = maxRows * rowH + pad * 2;
+  const pos = {};
+  keys.forEach((k, ci) => cols[k].forEach((l, ri) => (pos[l.id] = { x: pad + ci * colW, y: pad + ri * rowH })));
+  const edges = [];
+  for (const l of lemmas) {
+    const to = pos[l.id];
+    for (const d of l.deps || []) {
+      const from = pos[d];
+      if (!from || !to) continue;
+      edges.push(`<path class="dag-edge" d="M ${from.x + 170} ${from.y + 18} C ${from.x + 192} ${from.y + 18}, ${to.x - 22} ${to.y + 18}, ${to.x} ${to.y + 18}"/>`);
+    }
+  }
+  const nodes = lemmas.map((l) => {
+    const p = pos[l.id];
+    const s = statusOf(l);
+    return `<g class="dag-node tone-${s.tone}" transform="translate(${p.x},${p.y})" data-open-claim="${esc(l.id)}" tabindex="0" role="button" aria-label="${esc(l.id)}">
+      <rect width="170" height="36" rx="1"/>
+      <text class="dag-glyph tone-${s.tone}" x="9" y="16">${s.glyph}</text>
+      <text class="dag-id" x="25" y="15">${esc(l.id)}</text>
+      <text class="dag-title" x="25" y="28">${esc((l.title || "").slice(0, 27))}</text>
+    </g>`;
+  });
+  $("#dag-wrap").innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Dependency DAG">${edges.join("")}${nodes.join("")}</svg>`;
+}
 
-    const frozenHTML = d.statementSource
-      ? `<div class="d-section">
-           <h4>Frozen Formal Target (${esc(l.statement_file)})</h4>
-           <pre class="source-pre">${esc(d.statementSource)}</pre>
-         </div>`
-      : "";
+// --- leaderboard
+function renderLeaderboard() {
+  const stats = new Map();
+  const seatById = (id) => STATE.seats?.find((s) => s.id === id);
+  const ensure = (id) => {
+    if (!stats.has(id)) {
+      const s = seatById(id);
+      stats.set(id, { id, name: s?.name || id, model: s?.model || "Community contributor", trusted: 0, recordPts: 0, recordWins: 0, refuted: 0, dead: 0 });
+    }
+    return stats.get(id);
+  };
+  for (const s of STATE.seats || []) ensure(s.id);
+  for (const l of STATE.lemmas || []) {
+    if (l.kind === "record") {
+      const rs = l.record_state;
+      if (rs && !rs.contradiction) {
+        for (const [seat, pts] of Object.entries(rs.points_by_seat || {})) ensure(seat).recordPts += int(pts);
+        for (const h of rs.history || []) if (h.state === "accepted" && h.seat) ensure(h.seat).recordWins++;
+      }
+      continue;
+    }
+    const seal = sealOf(l);
+    if ((seal === "audited" || seal === "frozen") && l.checker?.by_seat) ensure(l.checker.by_seat).trusted++;
+    if (seal === "refuted" && l.refutation?.by_seat) ensure(l.refutation.by_seat).refuted++;
+    if (seal === "dead" && l.epitaph?.by_seat) ensure(l.epitaph.by_seat).dead++;
+  }
+  const rows = [...stats.values()]
+    .map((r) => ({ ...r, score: r.trusted * 10 + r.recordPts * 5 + r.refuted * 10 + r.dead * 4 }))
+    .sort((a, b) => b.score - a.score || b.trusted - a.trusted || b.recordPts - a.recordPts);
+  const byModel = new Map();
+  for (const r of rows) byModel.set(r.model, (byModel.get(r.model) || 0) + r.trusted + r.refuted + r.recordWins);
+  const list = [...byModel.entries()].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+  const max = Math.max(1, ...list.map(([, n]) => n));
+  $("#lb-models").innerHTML = list.length
+    ? list
+        .map(
+          ([model, n]) =>
+            `<div class="bar-row"><div class="bar-top"><span>${esc(model)}</span><span class="mono small tabular">${n}</span></div><div class="bar-track"><div class="bar-fill" style="width:${Math.round((n / max) * 100)}%"></div></div></div>`
+        )
+        .join("")
+    : `<p class="empty">No trusted proofs or refutations yet.</p>`;
+  const slug = STATE.mission.slug;
+  $("#lb-howto").textContent = [
+    `git clone https://github.com/${repoOf(STATE)}.git`,
+    `node hub/fleet.mjs next --mission ${slug}`,
+    `node hub/fleet.mjs verify --mission ${slug} --lemma <ID> --seat donor-<handle> --file <path> --theorem <name> --export`,
+    `# King of the Hill records:`,
+    `node hub/fleet.mjs record --mission ${slug} --lemma <ID> --score <N> --seat donor-<handle> --export`,
+    `# Commit only your artifact + missions/${slug}/submissions/<ID>.*.json and open a PR.`,
+  ].join("\n");
+  $("#lb-tbody").innerHTML = rows
+    .map(
+      (r, i) => `
+      <tr>
+        <td class="mono tabular">${i + 1}</td>
+        <td>${esc(r.name)}<div class="mono small muted">${esc(r.id)}</div></td>
+        <td>${esc(r.model)}</td>
+        <td class="num">${r.trusted}</td>
+        <td class="num">${r.recordPts}</td>
+        <td class="num">${r.refuted}</td>
+        <td class="num">${r.dead}</td>
+        <td class="num"><strong>${r.score}</strong></td>
+      </tr>`
+    )
+    .join("");
+}
 
-    const srcCode = isRec ? d.leanSource : l.status === "refuted" ? d.refutationSource : d.leanSource;
-    const srcPath = isRec ? rs.best?.file : l.status === "refuted" ? l.refutation?.counterexample_file : l.lean_file;
-    const sourceHTML = srcCode
-      ? `<div class="d-section">
-           <h4>${isRec ? "Current Best Record Artifact" : "Verified Artifact"} (${esc(srcPath || "")})</h4>
-           <pre class="source-pre">${esc(srcCode)}</pre>
-         </div>`
-      : "";
+// --- refutations & barriers
+function renderRefutations() {
+  const fallen = (STATE.lemmas || []).filter((l) => ["refuted", "dead", "flagged", "contradiction"].includes(sealOf(l)));
+  const order = { contradiction: 0, flagged: 1, refuted: 2, dead: 3 };
+  fallen.sort((a, b) => order[sealOf(a)] - order[sealOf(b)]);
+  $("#refutations-list").innerHTML = fallen.length
+    ? fallen
+        .map((l) => {
+          const s = sealOf(l);
+          const reason = s === "refuted" ? l.refutation?.summary : s === "flagged" ? l.audit?.notes : s === "dead" ? l.epitaph?.reason : "Opposing verified proof and refutation — halted for review.";
+          return claimRowHTML(l, { mission: STATE.mission.slug, expandable: false, reason }).replace('class="claim-row', 'class="claim-row refutation-row');
+        })
+        .join("")
+    : `<li class="empty">No refutations, barriers or flagged claims in this mission yet.</li>`;
+}
 
-    const boundCode = isRec ? (d.boundSource || d.refutationSource) : null;
-    const boundSourceHTML =
-      isRec && boundCode
-        ? `<div class="d-section">
-             <h4>Best Proven ${boundWord} Bound Artifact (${esc(rs.refuted?.file || "")})</h4>
-             <pre class="source-pre">${esc(boundCode)}</pre>
-           </div>`
-        : "";
+// --- fleet
+function renderFleet() {
+  const seats = STATE.seats || [];
+  const runs = STATE.checker_runs || [];
+  const msgs = STATE.messages || [];
+  $("#fleet-stats").textContent = `${seats.length} seats`;
+  $("#fleet-pass-rate").textContent = runs.length ? `${runs.filter((r) => r.ok).length}/${runs.length} passed` : "";
+  $("#fleet-msg-count").textContent = msgs.length ? `${msgs.length}` : "";
+  const w = 460;
+  const h = 300;
+  const cx = w / 2;
+  const cy = h / 2;
+  const R = 108;
+  const pos = {};
+  seats.forEach((s, i) => {
+    const a = (Math.PI * 2 * i) / Math.max(1, seats.length) - Math.PI / 2;
+    pos[s.id] = { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) };
+  });
+  const edges = msgs
+    .slice(0, 12)
+    .map((m) => {
+      const a = pos[m.from];
+      const b = pos[m.to];
+      if (!a || !b) return "";
+      const ch = m.kind === "challenge" || m.kind === "refute";
+      return `<line class="ring-edge ${ch ? "is-challenge" : ""}" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"/>`;
+    })
+    .join("");
+  const nodes = seats
+    .map((s) => {
+      const p = pos[s.id];
+      const active = s.status === "working" || s.status === "checking";
+      return `<g transform="translate(${p.x.toFixed(1)},${p.y.toFixed(1)})"><circle class="ring-seat ${active ? "is-active" : ""}" r="18"/><text class="ring-badge" text-anchor="middle" dy="4">${esc(s.badge || s.id.slice(0, 2).toUpperCase())}</text><text class="ring-name" text-anchor="middle" dy="32">${esc((s.name || s.id).slice(0, 18))}</text></g>`;
+    })
+    .join("");
+  $("#fleet-ring").innerHTML = seats.length
+    ? `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Seat ring"><circle class="ring-orbit" cx="${cx}" cy="${cy}" r="${R}"/><circle class="ring-judge" cx="${cx}" cy="${cy}" r="27"/><text class="ring-judge-label" x="${cx}" y="${cy + 4}" text-anchor="middle">JUDGE</text>${edges}${nodes}</svg>`
+    : `<p class="empty">No seats registered.</p>`;
+  $("#fleet-seats").innerHTML = seats
+    .map(
+      (s) => `<li><div><strong>${esc(s.name)}</strong> <span class="mono small muted">${esc(s.model || s.provider || "")}</span><div class="small muted">${esc(s.current_whisper || s.status || "")}</div></div><span class="mono small tabular muted">◆ ${int(s.counts?.checked)} · ✕ ${int(s.counts?.refuted)} · — ${int(s.counts?.blocked)}</span></li>`
+    )
+    .join("");
+  $("#fleet-runs").innerHTML = runs.length
+    ? runs
+        .slice(0, 14)
+        .map(
+          (r) => `<li class="event-item" data-open-claim="${esc(r.lemma_id)}"><div><span class="event-type ${r.ok ? "accent" : ""}">${r.ok ? "ok" : "fail"}</span><strong class="mono small">${esc(r.lemma_id)}</strong><div class="event-detail">${esc(r.seat)} · ${int(r.duration_ms)}ms</div></div><span class="event-time">${esc(relTime(r.at))}</span></li>`
+        )
+        .join("")
+    : `<li class="empty">No local Judge runs in this snapshot.</li>`;
+  $("#fleet-messages").innerHTML = msgs.length
+    ? msgs
+        .slice(0, 14)
+        .map(
+          (m) => `<li class="event-item"><div><strong class="mono small">${esc(m.from)} → ${esc(m.to)}</strong><div class="event-detail">${esc(m.text)}</div></div><span class="event-time">${esc(relTime(m.at))}</span></li>`
+        )
+        .join("")
+    : `<li class="empty">No seat dispatches yet.</li>`;
+}
 
-    const depsHTML =
-      (l.deps || []).length || (d.dependents || []).length
-        ? `<div class="d-section">
-             <h4>Dependency Graph</h4>
-             <div class="mentioned-strip">
-               ${(l.deps || []).map((id) => `<button class="chip-btn" type="button" data-open-claim="${esc(id)}">&larr; ${esc(id)}</button>`).join("")}
-               ${(d.dependents || []).map((o) => `<button class="chip-btn" type="button" data-open-claim="${esc(o.id)}">${esc(o.id)} &rarr;</button>`).join("")}
-             </div>
-           </div>`
-        : "";
-
-    const donateBtnLabel = isRec
-      ? rs.best
-        ? `Beat ${l.id} Record (Target ${op} ${safeInt(rs.next_target)})`
-        : `Start ${l.id} Hunt (Target ${op} ${safeInt(cfg.start_target)})`
-      : `Donate Spare Tokens to ${l.id}`;
-    const actionHTML = isClaimDonateable(l)
-      ? `<div class="d-section">
-           <button class="btn btn-primary" type="button" data-donate-claim="${esc(l.id)}">${esc(donateBtnLabel)}</button>
-         </div>`
-      : "";
-
-    $("#drawer-body").innerHTML = `
+// --- audit log
+const EVENT_LABELS = {
+  checker_accepted: ["Checked", "accent"],
+  claim_refuted: ["Refuted", ""],
+  lemma_audited: ["Audited", "accent"],
+  approach_dead: ["Barrier", ""],
+  checker_rejected: ["Rejected", ""],
+  attempt_started: ["Claimed", ""],
+  seat_message: ["Dispatch", ""],
+  strategy_update: ["Strategy", ""],
+  lemma_stated: ["Stated", ""],
+};
+function eventItemHTML(e) {
+  let [label, tone] = EVENT_LABELS[e.type] || [String(e.type || "event").replace(/_/g, " "), ""];
+  if (e.type === "lemma_audited" && String(e.detail || "").startsWith("flagged")) {
+    label = "Flagged";
+    tone = "alarm";
+  }
+  return `
+    <li class="event-item" ${e.lemma_id ? `data-open-claim="${esc(e.lemma_id)}" tabindex="0" role="button"` : ""}>
       <div>
-        <div class="bounty-id-group" style="margin-bottom:8px">${progMonogram(l.program)} <span class="mono small muted">${esc(l.theorem_name || "")}</span></div>
-        <h3 style="margin:0 0 8px;font-family:var(--font-display)">${esc(l.title)}</h3>
-        ${l.paper_notes ? `<p class="small muted" style="margin:0">${esc(l.paper_notes)}</p>` : ""}
+        <span class="event-type ${tone}">${esc(label)}</span>${e.lemma_id ? `<strong class="mono small">${esc(e.lemma_id)}</strong>` : ""} <span class="mono small muted">${esc(e.seat || "")}</span>
+        <div class="event-detail">${esc(e.title || e.detail || "")}</div>
       </div>
-      ${auditHTML}
-      ${actionHTML}
-      ${recordHTML}
-      <div class="d-section">
-        <h4>Formal Target / Kernel Signature</h4>
-        <pre class="bounty-stmt">${esc(l.verified_signature || l.registered_statement || l.statement || "")}</pre>
-      </div>
-      ${receiptHTML}
-      ${frozenHTML}
-      ${sourceHTML}
-      ${boundSourceHTML}
-      ${depsHTML}
-    `;
+      <span class="event-time">${esc(relTime(e.at))}</span>
+    </li>`;
+}
+function renderAudit() {
+  const f = $("#audit-filter").value;
+  const evs = (STATE.events || []).filter((e) => f === "all" || e.type === f);
+  $("#audit-count").textContent = `${evs.length} events`;
+  $("#audit-list").innerHTML = evs.length ? evs.map(eventItemHTML).join("") : `<li class="empty">No matching audit events.</li>`;
+}
+
+// ====================================================== transport effects
+function snapshotUrl(slug) {
+  return isStatic() ? `./data/${encodeURIComponent(slug)}/state.json` : `/api/state?mission=${encodeURIComponent(slug)}`;
+}
+async function getSnapshot(slug) {
+  if (SNAP_CACHE.has(slug)) return SNAP_CACHE.get(slug);
+  const snap = await fetchJSON(snapshotUrl(slug));
+  if (!snap?.ready) throw new Error("snapshot not ready");
+  SNAP_CACHE.set(slug, snap);
+  return snap;
+}
+
+async function boot() {
+  dispatch({ type: "RETRY" });
+  const preferStatic = location.hostname.endsWith(".github.io") || location.protocol === "file:";
+  const sources = preferStatic
+    ? [{ url: "./data/missions.json", isStatic: true }, { url: "/api/missions", isStatic: false }]
+    : [{ url: "/api/missions", isStatic: false }, { url: "./data/missions.json", isStatic: true }];
+  let lastErr = null;
+  let mode = null;
+  for (const src of sources) {
+    try {
+      const data = await fetchJSON(src.url);
+      if (!Array.isArray(data.missions)) throw new Error("malformed catalog");
+      CATALOG = data.missions;
+      mode = src.isStatic || data.static ? "static" : "live";
+      break;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  if (!mode) {
+    dispatch({ type: "CATALOG_FAILED", error: `Could not load the Proof Foundry catalog (${lastErr?.message || "network error"}).` });
+    return;
+  }
+  dispatch({ type: "CATALOG_LOADED", mode });
+  renderCurrent();
+  const r = ui().route;
+  const slug = CATALOG.some((m) => m.slug === r.mission) ? r.mission : CATALOG.find((m) => m.slug === DEFAULT_MISSION)?.slug || CATALOG[0]?.slug;
+  loadRecords();
+  if (slug) requestMission(slug, { intent: { view: r.view, ledgerTab: r.ledgerTab, claim: r.claim }, push: false });
+}
+
+async function loadRecords() {
+  const urls = isStatic() ? ["./data/records.json"] : ["/api/records", "./data/records.json"];
+  let payload = null;
+  for (const url of urls) {
+    try {
+      payload = normalizeRecordsPayload(await fetchJSON(url));
+      if (payload?.records.length) break;
+      payload = null;
+    } catch {
+      /* fall through to the next source */
+    }
+  }
+  if (!payload) {
+    const snaps = await Promise.all(CATALOG.map((m) => getSnapshot(m.slug).catch(() => null)));
+    payload = synthesizeRecordsPayload(snaps.filter(Boolean), CATALOG);
+  }
+  if (STATE) payload = mergeSnapshotIntoRecords(payload, STATE);
+  RECORDS = payload;
+  renderCurrent();
+}
+
+async function requestMission(slug, { intent = null, push = true } = {}) {
+  dispatch({ type: "MISSION_REQUESTED", mission: slug, intent });
+  const seq = ui().transport.reqSeq;
+  try {
+    const snap = await fetchJSON(snapshotUrl(slug));
+    if (!snap?.ready) throw new Error("snapshot not ready");
+    if (!isCurrentMissionRequest(ui(), seq)) return; // a newer switch superseded this one
+    // Commit: only now is the previous mission's stream released.
+    closeSSE();
+    STATE = snap;
+    SNAP_CACHE.set(slug, snap);
+    if (RECORDS) RECORDS = mergeSnapshotIntoRecords(RECORDS, snap);
+    LAST_FAILED_MISSION = null;
+    PENDING_PUSH = push;
+    dispatch({ type: "MISSION_LOADED", mission: slug, reqSeq: seq });
+    PENDING_PUSH = false;
+    if (ui().transport.mode === "live") openSSE(slug);
+    const s = ui();
+    if (s.route.claim && s.overlay.kind === "none") openDossier(s.route.claim, slug);
+  } catch (err) {
+    if (!isCurrentMissionRequest(ui(), seq)) return;
+    LAST_FAILED_MISSION = slug;
+    dispatch({ type: "MISSION_FAILED", mission: slug, reqSeq: seq, error: `Could not load mission “${slug}” (${err.message}).` });
+    syncMissionSelects();
+  }
+}
+
+function closeSSE() {
+  if (SSE) {
+    SSE.es.close();
+    SSE = null;
+  }
+}
+
+function openSSE(slug) {
+  closeSSE();
+  let es;
+  try {
+    es = new EventSource(`/api/stream?mission=${encodeURIComponent(slug)}`);
+  } catch {
+    dispatch({ type: "SSE_ERROR", mission: slug });
+    return;
+  }
+  SSE = { es, slug };
+  es.onopen = () => SSE?.es === es && dispatch({ type: "SSE_OPEN", mission: slug });
+  es.addEventListener("snapshot", (ev) => {
+    if (SSE?.es !== es || !acceptsSnapshot(ui(), slug)) return;
+    let snap;
+    try {
+      snap = JSON.parse(ev.data);
+    } catch {
+      return;
+    }
+    if (!snap?.ready) return;
+    STATE = snap;
+    SNAP_CACHE.set(slug, snap);
+    if (RECORDS) RECORDS = mergeSnapshotIntoRecords(RECORDS, snap);
+    dispatch({ type: "SSE_SNAPSHOT", mission: slug });
+    renderCurrent();
+    refreshAttemptIfOpen();
+  });
+  es.onerror = () => SSE?.es === es && dispatch({ type: "SSE_ERROR", mission: slug });
+}
+
+function navigate(view, { ledgerTab, mission } = {}) {
+  if (mission && mission !== activeSlug()) {
+    requestMission(mission, { intent: { view, ledgerTab, claim: null }, push: true });
+    return;
+  }
+  dispatch({ type: "ROUTE_NAVIGATE", route: { view, ledgerTab, claim: null }, push: true });
+}
+
+// ====================================================== machine listeners
+function renderTransport(t) {
+  const dot = $("#conn-dot");
+  dot.className = "live-dot";
+  let label = "Connecting…";
+  if (t.status === "live_connected") {
+    dot.classList.add("is-live");
+    label = `Live · streaming ${t.activeMission}`;
+  } else if (t.status === "live_reconnecting") {
+    dot.classList.add("is-warn");
+    label = "Reconnecting to the live stream…";
+  } else if (t.status === "static_ready") {
+    dot.classList.add("is-static");
+    label = `Static snapshot · ${relTime(STATE?.snapshot_at) || "published build"}`;
+  } else if (t.status === "error") {
+    dot.classList.add("is-warn");
+    label = "Offline";
+  }
+  dot.title = label;
+  dot.setAttribute("aria-label", label);
+  $("#footer-sync").textContent = label;
+  $("#status-banner").hidden = !t.error;
+  $("#status-msg").textContent = t.error || "";
+  $("#status-retry").hidden = !(t.status === "error" || LAST_FAILED_MISSION);
+}
+
+function renderRoute(r, prevRoute) {
+  for (const v of ["missions", "records", "control", "bounties", "ledger"]) $(`#view-${v}`).hidden = v !== r.view;
+  $$(".nav [data-nav]").forEach((a) => {
+    const on = a.dataset.nav === r.view || (r.view === "control" && a.dataset.nav === "missions");
+    a.classList.toggle("is-active", on);
+    if (on) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  });
+  const titles = { missions: "Proof Foundry · A Public Ledger of Machine-Checked Mathematics", records: "World Records · Proof Foundry", control: `${STATE?.mission?.title || "Mission"} · Proof Foundry`, bounties: "Open Problems · Proof Foundry", ledger: "Ledger · Proof Foundry" };
+  document.title = titles[r.view] || titles.missions;
+  if (!prevRoute || prevRoute.view !== r.view || prevRoute.mission !== r.mission || prevRoute.ledgerTab !== r.ledgerTab) {
+    if (prevRoute && (prevRoute.view !== r.view || prevRoute.mission !== r.mission)) window.scrollTo({ top: 0 });
+  }
+}
+
+function writeURL(route, push) {
+  const next = serializeRouteToLocation(route, { pathname: location.pathname });
+  const cur = `${location.pathname}${location.search}${location.hash}`;
+  if (next === cur) return;
+  if (push) history.pushState(null, "", next);
+  else history.replaceState(null, "", next);
+}
+
+machine.subscribe((s, prev, ev) => {
+  if (s.transport !== prev.transport) renderTransport(s.transport);
+  const routeChanged = s.route !== prev.route;
+  if (routeChanged) {
+    renderRoute(s.route, prev.route);
+    writeURL(s.route, ev.push === true || (ev.type === "MISSION_LOADED" && PENDING_PUSH));
+  } else if (ev.type === "MISSION_LOADED") {
+    writeURL(s.route, false); // canonicalise legacy aliases (#graveyard → #ledger/refutations)
+  }
+  const viewChanged = routeChanged && (s.route.view !== prev.route.view || s.route.mission !== prev.route.mission || s.route.ledgerTab !== prev.route.ledgerTab);
+  if (viewChanged || ev.type === "MISSION_LOADED" || ev.type === "CATALOG_LOADED") renderCurrent();
+  if (s.overlay !== prev.overlay) renderOverlay(s.overlay, prev.overlay);
+});
+
+// ================================================================ overlays
+function renderOverlay(o, p) {
+  if (o.kind !== p.kind) {
+    if (p.kind === "none") FOCUS_RETURN = document.activeElement;
+    $("#scrim").hidden = o.kind === "none";
+    $("#dossier").hidden = o.kind !== "dossier";
+    $("#attempt-modal").hidden = o.kind !== "attempt";
+    $("#search-modal").hidden = o.kind !== "search";
+    $("#shell").inert = o.kind !== "none";
+    document.body.style.overflow = o.kind === "none" ? "" : "hidden";
+    if (o.kind === "none") {
+      if (FOCUS_RETURN && document.contains(FOCUS_RETURN) && typeof FOCUS_RETURN.focus === "function") FOCUS_RETURN.focus();
+      FOCUS_RETURN = null;
+      if (isMapVisible()) requestAnimationFrame(drawMap);
+    }
+  }
+  if (o.kind === "dossier") renderDossier(o, p);
+  else if (o.kind === "attempt") renderAttempt(o, p);
+  else if (o.kind === "search") renderSearch(o, p);
+}
+
+function overlayRoot(kind) {
+  return kind === "dossier" ? $("#dossier") : kind === "attempt" ? $("#attempt-modal") : kind === "search" ? $("#search-modal") : null;
+}
+
+// --------------------------------------------------------------- dossier
+async function openDossier(claimId, mission = activeSlug()) {
+  if (!claimId) return;
+  dispatch({ type: "OPEN_DOSSIER", claimId, mission });
+  const o = ui().overlay;
+  if (o.kind !== "dossier") return;
+  const { reqSeq } = o;
+  const url = isStatic()
+    ? `./data/${encodeURIComponent(mission)}/lemmas/${encodeURIComponent(claimId)}.json`
+    : `/api/lemma/${encodeURIComponent(claimId)}?mission=${encodeURIComponent(mission)}`;
+  try {
+    const data = await fetchJSON(url);
+    if (!data?.lemma) throw new Error("claim not found");
+    dispatch({ type: "DOSSIER_LOADED", reqSeq, data });
+  } catch (err) {
+    dispatch({ type: "DOSSIER_FAILED", reqSeq, error: err.message });
+  }
+}
+
+function kv(rows) {
+  return `<dl class="d-kv">${rows
+    .filter(Boolean)
+    .map(([k, v, mono]) => `<dt>${esc(k)}</dt><dd class="${mono ? "mono" : ""}">${v}</dd>`)
+    .join("")}</dl>`;
+}
+
+function receiptHTML(chk, label) {
+  if (!chk) return "";
+  return `<section class="d-section"><h4>Judge receipt${label ? ` · ${esc(label)}` : ""}</h4>${kv([
+    ["Engine", esc(chk.lean_version || chk.judge || "Lean 4")],
+    ["Checked", esc(chk.checked_at ? `${longDate(chk.checked_at)} · ${relTime(chk.checked_at)}` : chk.at ? relTime(chk.at) : "—")],
+    ["Seat", esc(chk.by_seat || chk.seat || "—"), true],
+    ["Duration", `${int(chk.duration_ms)} ms`, true],
+    ["Axioms", esc((chk.axioms || []).join(", ") || "none beyond the kernel"), true],
+    ["Artifact SHA-256", esc(chk.file_hash || "—"), true],
+    chk.statement_hash ? ["Statement SHA-256", esc(chk.statement_hash), true] : null,
+    chk.core_hash ? ["Core SHA-256", esc(chk.core_hash), true] : null,
+  ])}</section>`;
+}
+
+function renderDossier(o, p) {
+  const fresh = p.kind !== "dossier" || p.claimId !== o.claimId || p.mission !== o.mission;
+  $("#dossier-id").textContent = o.claimId;
+  const body = $("#dossier-body");
+  if (o.status === "loading") {
+    $("#dossier-status").innerHTML = `<span class="st tone-muted"><span class="st-label">Loading…</span></span>`;
+    body.innerHTML = `<p class="empty">Fetching the verification receipt and source…</p>`;
+  } else if (o.status === "error") {
+    $("#dossier-status").innerHTML = "";
+    body.innerHTML = `<div class="audit-box is-alarm"><strong>Could not load the dossier for ${esc(o.claimId)}</strong> <span class="small">(${esc(o.error)})</span></div><div class="d-actions"><button class="btn btn-sm" type="button" data-dossier-retry>Retry</button></div>`;
+  } else {
+    const d = o.data;
+    const l = d.lemma;
+    $("#dossier-status").innerHTML = `${statusHTML(l)} ${flagsHTML(l)}`;
+    body.innerHTML = dossierBodyHTML(d, o.mission);
+  }
+  if (fresh) $("#dossier-close").focus();
+}
+
+function dossierBodyHTML(d, mission) {
+  const l = d.lemma;
+  const isRec = l.kind === "record";
+  const rm = recordMetaOf(l);
+  const snap = SNAP_CACHE.get(mission) || STATE;
+  const meta = missionMeta(mission);
+  const acts = actionsOf(l);
+  const fresh = freshnessOf(l);
+
+  const freshHTML =
+    fresh === "stale_statement"
+      ? `<div class="audit-box"><strong>↻ Stale statement.</strong> The frozen statement file changed after this result was checked. The receipt is preserved, but it must be re-verified against the current statement.</div>`
+      : fresh === "stale_core"
+      ? `<div class="audit-box"><strong>↻ Stale core.</strong> Shared core definitions changed after this check. The statement hash still matches, so this is advisory.</div>`
+      : "";
+
+  const audit = l.audit
+    ? `<div class="audit-box ${l.audit.status === "faithful" ? "is-faithful" : l.audit.status === "flagged" ? "is-flagged" : ""}"><strong>Cross-model audit · ${esc(l.audit.status)}</strong> <span class="small muted">${esc(l.audit.by_model || l.audit.by_seat || "")}${l.audit.at ? ` · ${esc(relTime(l.audit.at))}` : ""}</span><div style="margin-top:6px">${esc(l.audit.notes || "")}</div></div>`
+    : !isRec && sealOf(l) === "provisional"
+    ? `<div class="audit-box"><strong>Provisional.</strong> Passed the mechanical Judge; awaiting an independent cross-model faithfulness audit before it counts toward objectives.</div>`
+    : "";
+
+  const attemptLabel = isRec ? (rm.best_score != null ? `Beat ${rm.best_score} (${rm.op} ${rm.next_target}) →` : `Claim the launch target ${rm.op} ${rm.next_target} →`) : "Attempt this problem →";
+  const actions = acts.can_attempt
+    ? `<div class="d-actions"><button class="btn btn-primary" type="button" data-attempt="${esc(l.id)}" data-mission="${esc(mission)}">${esc(attemptLabel)}</button>${acts.reason ? `<span class="small muted">${esc(acts.reason)}</span>` : ""}</div>`
+    : acts.reason && !/^status:/.test(String(acts.reason))
+    ? `<div class="d-actions"><span class="small muted">Closed to attempts: ${esc(acts.reason)}</span></div>`
+    : "";
+
+  let record = "";
+  if (isRec) {
+    const unit = esc(rm.unit || "");
+    const boundWord = rm.direction === "max" ? "upper" : "lower";
+    const hist = [...(rm.history || [])].reverse();
+    record = `
+      <section class="d-section"><h4>♛ King of the Hill · ${rm.direction === "max" ? "maximize" : "minimize"}</h4>
+        ${boundBarHTML(recordRowFromLemma(l, snap?.mission || {}))}
+        ${kv([
+          ["Record holder", rm.best_score != null ? `<strong class="tone-accent">${int(rm.best_score)}</strong> ${unit} · <span class="mono">${esc(rm.best_seat || "")}</span>` : `Unclaimed · launch ${esc(rm.op)} ${int(rm.start_target)} ${unit}`],
+          ["Next target", rm.contradiction ? "Halted (contradiction)" : rm.closed ? "Closed — optimum proven" : `${esc(rm.op)} ${int(rm.next_target)} ${unit}`, true],
+          [`Proven ${boundWord} bound`, rm.proven_bound != null ? `${rm.direction === "max" ? "≤" : "≥"} ${int(rm.proven_bound)} ${unit}` : rm.allow_bound ? "None proven here yet" : "Not applicable (command Judge)"],
+          ["Literature", [rm.literature_best != null ? `best known ${int(rm.literature_best)}` : null, rm.literature_bound != null ? `${rm.direction === "max" ? "UB" : "LB"} ${int(rm.literature_bound)}` : null].filter(Boolean).join(" · ") || "—"],
+          ["Open gap", rm.gap != null ? `${int(rm.gap)} ${unit}` : "—", true],
+        ])}
+      </section>
+      <section class="d-section"><h4>Ratchet history · ${hist.length}</h4>
+        ${
+          hist.length
+            ? `<ul class="hist">${hist
+                .map(
+                  (h) =>
+                    `<li><span><strong class="mono">${h.kind === "record_bound" ? "¬ Record" : "Record"} ${int(h.score)}</strong> · <span class="mono small">${esc(h.seat || "")}</span>${h.at ? ` <span class="small muted">${esc(relTime(h.at))}</span>` : ""}</span><span class="small ${h.state === "accepted" ? "tone-accent" : h.state === "contradiction" ? "tone-alarm" : "muted"}">${esc(String(h.state || "").replace(/_/g, " "))}${h.points > 0 ? ` · +${int(h.points)} pts` : ""}</span></li>`
+                )
+                .join("")}</ul>`
+            : `<p class="empty">No verified entries yet — the launch target ${esc(rm.op)} ${int(rm.start_target)} ${unit} is open.</p>`
+        }
+      </section>`;
   }
 
-  function closeDossier({ syncUrl = true } = {}) {
-    DOSSIER_REQ_SEQ++; // Cancel any in-flight dossier fetch!
-    PENDING_CLAIM_ID = null;
-    const drawer = $("#lemma-drawer");
-    const wasOpen = drawer.classList.contains("open");
-    drawer.classList.remove("open");
-    drawer.setAttribute("aria-hidden", "true");
-    drawer.inert = true;
-    $("#drawer-backdrop").hidden = true;
-    if (syncUrl) syncURL({ view: CURRENT_VIEW, mission: CURRENT_MISSION, claim: null, push: false });
-    if (wasOpen) popFocus();
-  }
-  $("#drawer-close").addEventListener("click", () => closeDossier());
-  $("#drawer-backdrop").addEventListener("click", () => closeDossier());
+  const receipts = isRec
+    ? `${receiptHTML(l.record_state?.best, "current record")}${receiptHTML(l.record_state?.refuted, "proven bound")}`
+    : receiptHTML(l.checker || l.refutation, l.refutation && !l.checker ? "counterexample" : "");
 
-  // =========================================================================
-  // INTERACTIVE DONATE TOKENS MODAL
-  // =========================================================================
-  function defaultRecordScore(lemma, kind) {
-    const rs = lemma?.record_state || {};
-    const cfg = lemma?.record || {};
-    const isMax = cfg.direction === "max";
-    if (kind === "record_bound") {
-      if (isMax) {
-        if (rs.refuted) return Math.max(0, safeInt(rs.refuted.score) - 1);
-        const floor = safeInt(cfg.bound_floor ?? cfg.score_max ?? 1000);
-        const lit = cfg.literature_upper_bound != null ? safeInt(cfg.literature_upper_bound) + 1 : floor;
-        return Math.min(floor, lit);
-      }
-      if (rs.refuted) return safeInt(rs.refuted.score) + 1;
-      const floor = safeInt(cfg.bound_floor ?? 0);
-      const lit = cfg.literature_lower_bound != null ? Math.max(0, safeInt(cfg.literature_lower_bound) - 1) : floor;
-      return Math.max(floor, lit);
-    }
-    return safeInt(rs.next_target ?? cfg.start_target ?? 0);
-  }
+  const statementBlock = `<section class="d-section"><h4>Formal statement${l.statement_file ? ` · <span class="mono">${esc(l.statement_file)}</span>` : ""}</h4><pre class="lean-block">${esc(l.verified_signature || l.registered_statement || l.statement || "")}</pre></section>`;
+  const frozenSrc = d.statementSource ? `<section class="d-section"><h4>Statement source</h4><pre class="source-pre">${esc(d.statementSource)}</pre></section>` : "";
+  const srcCode = isRec ? d.leanSource : l.status === "refuted" ? d.refutationSource : d.leanSource;
+  const srcPath = isRec ? l.record_state?.best?.file : l.status === "refuted" ? l.refutation?.counterexample_file : l.lean_file;
+  const proofSrc = srcCode ? `<section class="d-section"><h4>${isRec ? "Current record artifact" : l.status === "refuted" ? "Counterexample source" : "Proof source"} · <span class="mono">${esc(srcPath || "")}</span></h4><pre class="source-pre">${esc(srcCode)}</pre></section>` : "";
+  const boundSrc = isRec && d.refutationSource ? `<section class="d-section"><h4>Proven bound artifact · <span class="mono">${esc(l.record_state?.refuted?.file || "")}</span></h4><pre class="source-pre">${esc(d.refutationSource)}</pre></section>` : "";
+  const deps =
+    (l.deps || []).length || (d.dependents || []).length
+      ? `<section class="d-section"><h4>Dependencies</h4><div class="chip-row">${(l.deps || [])
+          .map((id) => `<button class="chip-link" type="button" data-open-claim="${esc(id)}" data-mission="${esc(mission)}">← ${esc(id)}</button>`)
+          .join("")}${(d.dependents || []).map((x) => `<button class="chip-link" type="button" data-open-claim="${esc(x.id)}" data-mission="${esc(mission)}">${esc(x.id)} →</button>`).join("")}</div></section>`
+      : "";
 
-  function validateDonateRecordScore(lemma, kind, rawVal) {
-    const rs = lemma?.record_state || {};
-    const cfg = lemma?.record || {};
-    const isMax = cfg.direction === "max";
-    const str = String(rawVal ?? "").trim();
-    if (!/^(0|[1-9][0-9]*)$/.test(str)) {
-      return { ok: false, reason: "Enter a non-negative integer score." };
+  return `
+    <p class="eyebrow">${esc(meta?.title || snap?.mission?.title || mission)}${programTitle(snap, l.program) ? ` · ${esc(programTitle(snap, l.program))}` : ""}</p>
+    <h2 class="d-title">${esc(isRec ? cleanRecordTitle(l.title) : l.title)}</h2>
+    <div class="d-meta">${l.theorem_name ? `<span class="mono">${esc(l.theorem_name)}</span>` : ""}${l.rung ? `<span>rung ${int(l.rung)}</span>` : ""}</div>
+    ${l.paper_notes ? `<p class="d-notes">${esc(l.paper_notes)}</p>` : ""}
+    ${freshHTML}
+    ${audit}
+    ${actions}
+    ${record}
+    ${statementBlock}
+    ${receipts}
+    ${frozenSrc}
+    ${proofSrc}
+    ${boundSrc}
+    ${deps}`;
+}
+
+// --------------------------------------------------------------- attempt
+async function openAttempt(mission, claimId) {
+  mission = mission || activeSlug();
+  let lemma = lemmaFor(mission, claimId);
+  if (!lemma) {
+    try {
+      const snap = await getSnapshot(mission);
+      lemma = snap.lemmas.find((l) => l.id === claimId) || null;
+    } catch (err) {
+      showToast(`Could not load ${claimId} (${err.message})`);
+      return;
     }
-    const score = Number(str);
-    const scoreMax = safeInt(cfg.score_max ?? 100000);
-    if (!Number.isSafeInteger(score) || score > scoreMax) {
-      return { ok: false, reason: `Score must be between 0 and ${scoreMax}.` };
-    }
-    if (kind === "record_bound") {
-      if (cfg.allow_bound === false) {
-        return { ok: false, reason: "Impossibility bound proofs are not supported on Command-Judge hunts." };
-      }
-      const floor = safeInt(cfg.bound_floor ?? 0);
-      if (isMax) {
-        if (rs.refuted && score >= rs.refuted.score) {
-          return { ok: false, reason: `Upper bound must beat ¬ Record ${rs.refuted.score} (enter < ${rs.refuted.score}).` };
-        }
-        if (!rs.refuted && score > floor) {
-          return { ok: false, reason: `Upper bound must be at most ${floor} (proves ≤ ${Math.max(0, floor - 1)}).` };
-        }
-        if (rs.best && score <= rs.best.score) {
-          return { ok: false, reason: `Bound ${score} conflicts with current verified record ${rs.best.score} (enter > ${rs.best.score}).` };
-        }
-        return { ok: true, score };
-      }
-      if (rs.refuted && score <= rs.refuted.score) {
-        return { ok: false, reason: `Bound must beat current ¬ Record ${rs.refuted.score} (enter > ${rs.refuted.score}).` };
-      }
-      if (!rs.refuted && score < floor) {
-        return { ok: false, reason: `Bound must be at least ${floor} (proves ≥ ${floor + 1}).` };
-      }
-      if (rs.best && score >= rs.best.score) {
-        return { ok: false, reason: `Bound ${score} conflicts with current verified record ${rs.best.score} (enter < ${rs.best.score}).` };
-      }
-      return { ok: true, score };
-    }
-    const startTarget = safeInt(cfg.start_target ?? 0);
+  }
+  if (!lemma || !isAttemptable(lemma)) {
+    showToast(`${claimId} is not open for attempts right now.`);
+    return;
+  }
+  dispatch({
+    type: "OPEN_ATTEMPT",
+    claimId,
+    mission,
+    harness: storageGet("pf-harness", "claude"),
+    handle: storageGet("pf-handle", ""),
+    recKind: "record",
+    recScore: lemma.kind === "record" ? defaultRecordScore(lemma, "record") : null,
+  });
+}
+
+function defaultRecordScore(lemma, kind) {
+  const rm = recordMetaOf(lemma);
+  if (!rm) return null;
+  const isMax = rm.direction === "max";
+  if (kind === "record_bound") {
     if (isMax) {
-      if (rs.best && score <= rs.best.score) {
-        return { ok: false, reason: `Score must beat current record ${rs.best.score} (enter ≥ ${rs.best.score + 1}).` };
-      }
-      if (!rs.best && score < startTarget) {
-        return { ok: false, reason: `Score must meet or beat launch floor ${startTarget} (enter ≥ ${startTarget}).` };
-      }
-      if (rs.refuted && score >= rs.refuted.score) {
-        return { ok: false, reason: `Score ${score} conflicts with proven upper bound ≤ ${rs.refuted.inclusive_bound}.` };
-      }
+      if (rm.refuted_score != null) return Math.max(0, rm.refuted_score - 1);
+      const floor = int(rm.bound_floor ?? rm.score_max ?? 1000);
+      const lit = rm.literature_bound != null ? int(rm.literature_bound) + 1 : floor;
+      return Math.min(floor, lit);
+    }
+    if (rm.refuted_score != null) return rm.refuted_score + 1;
+    const floor = int(rm.bound_floor ?? 0);
+    const lit = rm.literature_bound != null ? Math.max(0, int(rm.literature_bound) - 1) : floor;
+    return Math.max(floor, lit);
+  }
+  return int(rm.next_target ?? rm.start_target ?? 0);
+}
+
+function validateRecordScore(lemma, kind, raw) {
+  const rm = recordMetaOf(lemma);
+  const isMax = rm.direction === "max";
+  const str = String(raw ?? "").trim();
+  if (!/^(0|[1-9][0-9]*)$/.test(str)) return { ok: false, reason: "Enter a non-negative integer score." };
+  const score = Number(str);
+  const scoreMax = int(rm.score_max ?? 100000);
+  if (!Number.isSafeInteger(score) || score > scoreMax) return { ok: false, reason: `Score must be between 0 and ${scoreMax}.` };
+  const best = rm.best_score;
+  const ref = rm.refuted_score;
+  if (kind === "record_bound") {
+    if (!rm.allow_bound) return { ok: false, reason: "Bound proofs are not supported on command-Judge hunts." };
+    const floor = int(rm.bound_floor ?? 0);
+    if (isMax) {
+      if (ref != null && score >= ref) return { ok: false, reason: `Must beat ¬ Record ${ref} (enter < ${ref}).` };
+      if (ref == null && score > floor) return { ok: false, reason: `Must be at most ${floor} (proves ≤ ${Math.max(0, floor - 1)}).` };
+      if (best != null && score <= best) return { ok: false, reason: `Conflicts with the verified record ${best} (enter > ${best}).` };
       return { ok: true, score };
     }
-    if (rs.best && score >= rs.best.score) {
-      return { ok: false, reason: `Score must beat current record ${rs.best.score} (enter ≤ ${rs.best.score - 1}).` };
-    }
-    if (!rs.best && score > startTarget) {
-      return { ok: false, reason: `Score must meet or beat launch ceiling ${startTarget} (enter ≤ ${startTarget}).` };
-    }
-    if (rs.refuted && score <= rs.refuted.score) {
-      return { ok: false, reason: `Score ${score} conflicts with proven lower bound ≥ ${rs.refuted.inclusive_bound}.` };
-    }
+    if (ref != null && score <= ref) return { ok: false, reason: `Must beat ¬ Record ${ref} (enter > ${ref}).` };
+    if (ref == null && score < floor) return { ok: false, reason: `Must be at least ${floor} (proves ≥ ${floor + 1}).` };
+    if (best != null && score >= best) return { ok: false, reason: `Conflicts with the verified record ${best} (enter < ${best}).` };
     return { ok: true, score };
   }
+  const start = int(rm.start_target ?? 0);
+  if (isMax) {
+    if (best != null && score <= best) return { ok: false, reason: `Must beat the record ${best} (enter ≥ ${best + 1}).` };
+    if (best == null && score < start) return { ok: false, reason: `Must meet the launch floor ${start} (enter ≥ ${start}).` };
+    if (rm.proven_bound != null && score > rm.proven_bound) return { ok: false, reason: `Conflicts with the proven upper bound ≤ ${rm.proven_bound}.` };
+    return { ok: true, score };
+  }
+  if (best != null && score >= best) return { ok: false, reason: `Must beat the record ${best} (enter ≤ ${best - 1}).` };
+  if (best == null && score > start) return { ok: false, reason: `Must meet the launch ceiling ${start} (enter ≤ ${start}).` };
+  if (rm.proven_bound != null && score < rm.proven_bound) return { ok: false, reason: `Conflicts with the proven lower bound ≥ ${rm.proven_bound}.` };
+  return { ok: true, score };
+}
 
-  function buildDonatePrompt(lemma, harness, handle) {
-    const slug = STATE?.mission?.slug || CURRENT_MISSION;
-    const repo = STATE?.mission?.github_repo || "steph4n-gh/proof-foundry";
-    const cleanHandle = (handle || "my-handle").toLowerCase().replace(/[^a-z0-9-_]/g, "") || "my-handle";
-    const seat = `donor-${cleanHandle}`;
-    const preamble = {
-      claude: "You are helping me donate spare Claude Code tokens to Proof Foundry.",
-      codex: "You are helping me donate spare Codex tokens to Proof Foundry.",
-      gemini: "You are helping me donate spare Gemini CLI tokens to Proof Foundry.",
-      t3: "Run this end-to-end in an isolated worktree to donate tokens to Proof Foundry.",
-    }[harness] || "Donate my spare AI tokens to Proof Foundry.";
+function recordTargets(slug, lemma, kind, score) {
+  const rm = recordMetaOf(lemma);
+  const tag = kind === "record_bound" ? `not_s${score}` : `s${score}`;
+  const stem = rm.file_stem || lemma.id.replace(/-/g, "_");
+  const claimsDir = rm.claims_dir || `missions/${slug}/lean/Claims`;
+  const ext = rm.artifact_ext || ".lean";
+  return {
+    tag,
+    artifactFile: `${claimsDir}/${stem}_${tag}${ext}`,
+    submissionFile: `missions/${slug}/submissions/${lemma.id}.${kind}.s${score}.json`,
+    theoremName: (rm.theorem_template || `${stem}_{tag}.record`).replace(/\{tag\}/g, tag),
+  };
+}
 
-    if (lemma.kind === "record") {
-      const cfg = lemma.record || {};
-      const isMax = cfg.direction === "max";
-      const isCmd = cfg.artifact_ext === ".mjs";
-      const op = isMax ? "≥" : "≤";
-      const kind = !isCmd && DONATE_REC_KIND === "record_bound" ? "record_bound" : "record";
-      const check = validateDonateRecordScore(lemma, kind, DONATE_REC_SCORE);
-      if (!check.ok) {
-        return `# Invalid target score: ${check.reason}\n# Fix the score above to generate a valid Judge & PR Gate prompt.`;
-      }
-      const score = check.score;
-      const t = computeRecordTargetsUI(slug, lemma, kind, score);
-      const cliCmd = kind === "record_bound" ? "record-bound" : "record";
-      const branch = `donor/${lemma.id.toLowerCase()}-${t.tag}-${cleanHandle}`;
+function buildPrompt(lemma, o) {
+  const snap = SNAP_CACHE.get(o.mission) || STATE;
+  const slug = o.mission || snap?.mission?.slug;
+  const repo = repoOf(snap);
+  const handle = (o.handle || "my-handle").toLowerCase().replace(/[^a-z0-9-_]/g, "") || "my-handle";
+  const seat = `donor-${handle}`;
+  const preamble =
+    {
+      claude: "You are helping me contribute spare Claude Code tokens to Proof Foundry.",
+      codex: "You are helping me contribute spare Codex tokens to Proof Foundry.",
+      gemini: "You are helping me contribute spare Gemini CLI tokens to Proof Foundry.",
+      t3: "Run this end-to-end in an isolated worktree to contribute to Proof Foundry.",
+    }[o.harness] || "Contribute my spare AI tokens to Proof Foundry.";
 
-      if (isCmd) {
-        return [
-          preamble,
-          `Repository: https://github.com/${repo}`,
-          `Mission: ${slug} · King-of-the-Hill Hunt: ${lemma.id} (Target ${op} ${score} ${cfg.unit || ""})`,
-          `Goal: ${lemma.title}`,
-          ``,
-          `Instructions:`,
-          `1. Clone/pull \`https://github.com/${repo}\`, create branch \`${branch}\`, and read \`CONTRIBUTING_AGENTS.md\`.`,
-          `2. Read the FROZEN spec in \`${lemma.statement_file}\` and the trusted verifier harness (do NOT edit specs/ or judge/).`,
-          `3. Write a NEW score-stamped data module at \`${t.artifactFile}\` exporting the required float64 \`coeffs\` array achieving worst-case error ${op} ${score} ${cfg.unit || ""} (never edit older score files!).`,
-          `4. Verify locally & export the hashless record submission JSON:`,
-          `   node hub/fleet.mjs record --mission ${slug} --lemma ${lemma.id} --score ${score} --seat ${seat} --export`,
-          `5. Commit ONLY \`${t.artifactFile}\` + \`${t.submissionFile}\` (never touch state.json or older files), push, and open a PR referencing ${lemma.id}.`,
-        ].join("\n");
-      }
-
-      const typeStr = kind === "record_bound" ? `¬ ${lemma.statement_def} ${score}` : `${lemma.statement_def} ${score}`;
-      const ns = t.theoremName.split(".").slice(0, -1).join(".");
-      const shortThm = t.theoremName.split(".").pop();
-      const boundHeader = isMax ? `Upper Bound ≤ ${Math.max(0, score - 1)}` : `Lower Bound ≥ ${score + 1}`;
+  if (lemma.kind === "record") {
+    const rm = recordMetaOf(lemma);
+    const isMax = rm.direction === "max";
+    const isCmd = rm.artifact_ext && rm.artifact_ext !== ".lean";
+    const kind = !isCmd && rm.allow_bound && o.recKind === "record_bound" ? "record_bound" : "record";
+    const check = validateRecordScore(lemma, kind, o.recScore);
+    if (!check.ok) return `# Invalid target score: ${check.reason}\n# Fix the score above to generate a valid Judge & PR-gate prompt.`;
+    const score = check.score;
+    const t = recordTargets(slug, lemma, kind, score);
+    const branch = `donor/${lemma.id.toLowerCase()}-${t.tag}-${handle}`;
+    if (isCmd) {
       return [
         preamble,
         `Repository: https://github.com/${repo}`,
-        `Mission: ${slug} · King-of-the-Hill Hunt: ${lemma.id} (${kind === "record_bound" ? boundHeader : `Record ${op} ${score}`})`,
+        `Mission: ${slug} · King-of-the-Hill hunt: ${lemma.id} (target ${rm.op} ${score} ${rm.unit})`,
         `Goal: ${lemma.title}`,
         ``,
         `Instructions:`,
         `1. Clone/pull \`https://github.com/${repo}\`, create branch \`${branch}\`, and read \`CONTRIBUTING_AGENTS.md\`.`,
-        `2. Read the FROZEN record statement in \`${lemma.statement_file}\` (do NOT modify Core or Statements files).`,
-        `3. Write a NEW score-stamped Lean 4 file at \`${t.artifactFile}\` (no sorry, no admit, no native_decide, no custom axioms) inside \`namespace ${ns}\` proving literally:`,
-        `   \`theorem ${shortThm} : ${typeStr} := ...\``,
-        `   (Use canonical numeral literal \`${score}\`${kind === "record_bound" ? " and literally `¬`, not `→ False`" : ""} — never edit older score files!)`,
+        `2. Read the FROZEN spec in \`${lemma.statement_file}\` and the trusted verifier harness (do NOT edit specs/ or judge/).`,
+        `3. Write a NEW score-stamped pure-data module at \`${t.artifactFile}\` exporting only the required float64 \`coeffs\` array, achieving worst-case error ${rm.op} ${score} ${rm.unit}. No imports, no Math calls, no code paths — data only. Never edit older score files.`,
         `4. Verify locally & export the hashless record submission JSON:`,
-        `   node hub/fleet.mjs ${cliCmd} --mission ${slug} --lemma ${lemma.id} --score ${score} --seat ${seat} --file ${t.artifactFile} --export`,
+        `   node hub/fleet.mjs record --mission ${slug} --lemma ${lemma.id} --score ${score} --seat ${seat} --export`,
         `5. Commit ONLY \`${t.artifactFile}\` + \`${t.submissionFile}\` (never touch state.json or older files), push, and open a PR referencing ${lemma.id}.`,
+        `Note: this hunt uses an empirical command Judge, so impossibility-bound submissions (¬ Record) are not accepted.`,
       ].join("\n");
     }
-
-    const branch = `donor/${lemma.id.toLowerCase()}-${cleanHandle}`;
-    const frozenStep = lemma.statement_file
-      ? `2. Read the FROZEN formal statement in \`${lemma.statement_file}\`.\n   Your proof MUST import that module and state your theorem literally as:\n   \`theorem ${lemma.theorem_name.split(".").pop()} : ${lemma.statement_def} := ...\`\n   (Or \`: ¬ ${lemma.statement_def}\` if you find a genuine counterexample!).`
-      : `2. Read \`${STATE?.mission?.judge?.core_file || "CONTRIBUTING_AGENTS.md"}\` and state your theorem matching:\n   \`${lemma.theorem_name} : ${lemma.registered_statement || lemma.statement}\`.`;
-
+    const typeStr = kind === "record_bound" ? `¬ ${lemma.statement_def} ${score}` : `${lemma.statement_def} ${score}`;
+    const ns = t.theoremName.split(".").slice(0, -1).join(".");
+    const shortThm = t.theoremName.split(".").pop();
+    const boundHeader = isMax ? `upper bound ≤ ${Math.max(0, score - 1)}` : `lower bound ≥ ${score + 1}`;
     return [
       preamble,
       `Repository: https://github.com/${repo}`,
-      `Mission: ${slug} · Claim: ${lemma.id}`,
+      `Mission: ${slug} · King-of-the-Hill hunt: ${lemma.id} (${kind === "record_bound" ? boundHeader : `record ${rm.op} ${score}`})`,
       `Goal: ${lemma.title}`,
       ``,
       `Instructions:`,
       `1. Clone/pull \`https://github.com/${repo}\`, create branch \`${branch}\`, and read \`CONTRIBUTING_AGENTS.md\`.`,
-      frozenStep,
-      `3. Write your isolated artifact in \`${lemma.lean_file}\` (no sorry, no admit, no native_decide, no custom axioms).`,
-      `4. Run the local mechanical Judge & export a conflict-free submission JSON:`,
-      `   node hub/fleet.mjs verify --mission ${slug} --lemma ${lemma.id} --seat ${seat} --file ${lemma.lean_file} --theorem ${lemma.theorem_name} --export`,
-      `   (If false, use \`refute --summary "..."\` with a Judge-verified counterexample!)`,
-      `5. Revert any edits to state.json/events.ndjson, commit ONLY \`${lemma.lean_file}\` + \`missions/${slug}/submissions/${lemma.id}.*.json\`, push, and open a PR referencing ${lemma.id}.`,
+      `2. Read the FROZEN record statement in \`${lemma.statement_file}\` (do NOT modify Core or Statements files).`,
+      `3. Write a NEW score-stamped Lean 4 file at \`${t.artifactFile}\` (no sorry, no admit, no native_decide, no custom axioms) inside \`namespace ${ns}\` proving literally:`,
+      `   \`theorem ${shortThm} : ${typeStr} := ...\``,
+      `   (Use the canonical numeral literal \`${score}\`${kind === "record_bound" ? " and literally `¬`, not `→ False`" : ""} — never edit older score files.)`,
+      `4. Verify locally & export the hashless record submission JSON:`,
+      `   node hub/fleet.mjs ${kind === "record_bound" ? "record-bound" : "record"} --mission ${slug} --lemma ${lemma.id} --score ${score} --seat ${seat} --file ${t.artifactFile} --export`,
+      `5. Commit ONLY \`${t.artifactFile}\` + \`${t.submissionFile}\` (never touch state.json or older files), push, and open a PR referencing ${lemma.id}.`,
     ].join("\n");
   }
 
-  function refreshDonatePrompt() {
-    if (!DONATE_LEMMA) return;
-    const copyBtn = $("#donate-copy-btn");
-    if (DONATE_LEMMA.kind === "record") {
-      const cfg = DONATE_LEMMA.record || {};
-      const rs = DONATE_LEMMA.record_state || {};
-      const isMax = cfg.direction === "max";
-      const check = validateDonateRecordScore(DONATE_LEMMA, DONATE_REC_KIND, DONATE_REC_SCORE);
-      $("#donate-rec-score-label").textContent =
-        DONATE_REC_KIND === "record_bound"
-          ? isMax
-            ? "Refute score b (proves ≤ b-1):"
-            : "Refute score b (proves ≥ b+1):"
-          : `Target score (${cfg.unit || "score"}):`;
-      const hintEl = $("#donate-rec-hint");
-      if (!check.ok) {
-        hintEl.textContent = `⚠ ${check.reason}`;
-        hintEl.style.color = "var(--coral)";
-        copyBtn.disabled = true;
-      } else {
-        hintEl.style.color = "";
-        hintEl.textContent =
-          DONATE_REC_KIND === "record_bound"
-            ? isMax
-              ? rs.refuted
-                ? `valid (< ${safeInt(rs.refuted.score)})`
-                : `valid (≤ ${safeInt(cfg.bound_floor ?? cfg.score_max ?? 1000)})`
-              : rs.refuted
-              ? `valid (> ${safeInt(rs.refuted.score)})`
-              : `valid (≥ ${safeInt(cfg.bound_floor ?? 0)})`
-            : isMax
-            ? rs.best
-              ? `valid (> ${safeInt(rs.best.score)})`
-              : `valid (≥ ${safeInt(cfg.start_target)})`
-            : rs.best
-            ? `valid (< ${safeInt(rs.best.score)})`
-            : `valid (≤ ${safeInt(cfg.start_target)})`;
-        copyBtn.disabled = false;
-      }
-    } else {
-      copyBtn.disabled = false;
-    }
-    $("#donate-prompt-text").value = buildDonatePrompt(DONATE_LEMMA, DONATE_HARNESS, DONATE_HANDLE);
+  const branch = `donor/${lemma.id.toLowerCase()}-${handle}`;
+  const thm = String(lemma.theorem_name || "").split(".").pop();
+  const frozenStep = lemma.statement_file
+    ? `2. Read the FROZEN formal statement in \`${lemma.statement_file}\`.\n   Your proof MUST import that module and state your theorem literally as:\n   \`theorem ${thm} : ${lemma.statement_def} := ...\`\n   (Or \`: ¬ ${lemma.statement_def}\` if you find a genuine counterexample.)`
+    : `2. Read \`${snap?.mission?.judge?.core_file || "CONTRIBUTING_AGENTS.md"}\` and state your theorem matching:\n   \`${lemma.theorem_name} : ${lemma.registered_statement || lemma.statement}\`.`;
+  return [
+    preamble,
+    `Repository: https://github.com/${repo}`,
+    `Mission: ${slug} · Claim: ${lemma.id}`,
+    `Goal: ${lemma.title}`,
+    ``,
+    `Instructions:`,
+    `1. Clone/pull \`https://github.com/${repo}\`, create branch \`${branch}\`, and read \`CONTRIBUTING_AGENTS.md\`.`,
+    frozenStep,
+    `3. Write your isolated artifact in \`${lemma.lean_file}\` (no sorry, no admit, no native_decide, no custom axioms).`,
+    `4. Run the local mechanical Judge & export a conflict-free submission JSON:`,
+    `   node hub/fleet.mjs verify --mission ${slug} --lemma ${lemma.id} --seat ${seat} --file ${lemma.lean_file} --theorem ${lemma.theorem_name} --export`,
+    `   (If the claim is false, use \`refute --summary "..."\` with a Judge-verified counterexample.)`,
+    `5. Revert any edits to state.json/events.ndjson, commit ONLY \`${lemma.lean_file}\` + \`missions/${slug}/submissions/${lemma.id}.*.json\`, push, and open a PR referencing ${lemma.id}.`,
+  ].join("\n");
+}
+
+function renderAttempt(o, p) {
+  const lemma = lemmaFor(o.mission, o.claimId);
+  if (!lemma) {
+    dispatch({ type: "CLOSE_OVERLAY" });
+    return;
   }
-
-  function openDonateModal(lemma, triggerEl = null) {
-    if (!lemma || !isClaimDonateable(lemma)) return;
-    pushFocus(triggerEl);
-    DONATE_LEMMA = lemma;
-    const isRec = lemma.kind === "record";
-    const cfg = lemma.record || {};
-    const isMax = cfg.direction === "max";
-    $("#donate-claim-meta").textContent = `${CURRENT_MISSION} · ${lemma.id}${isRec ? " · ♛ King of the Hill" : lemma.statement_file ? " · ◆ Frozen Statement" : ""}`;
-    $("#donate-title").textContent = lemma.title.slice(0, 90);
-    $("#donate-handle").value = DONATE_HANDLE;
-    const repo = STATE?.mission?.github_repo || "steph4n-gh/proof-foundry";
-    $("#donate-open-gh").href = `https://github.com/${repo}/pulls`;
-
-    // Record hunt controls
-    const recBox = $("#donate-record-controls");
-    if (isRec) {
-      DONATE_REC_KIND = "record";
-      DONATE_REC_SCORE = defaultRecordScore(lemma, "record");
-      $("#donate-rec-score").value = String(DONATE_REC_SCORE);
-      $$("#donate-rec-mode button").forEach((b) => {
-        if (b.dataset.reckind === "record") {
-          b.textContent = isMax ? "Improve Record (≥ s)" : "Improve Record (≤ s)";
-        } else {
-          b.textContent = isMax ? "Prove Upper Bound (¬ Record b)" : "Prove Lower Bound (¬ Record b)";
-          b.hidden = cfg.allow_bound === false;
-        }
-        const act = b.dataset.reckind === DONATE_REC_KIND;
-        b.classList.toggle("active", act);
-        b.setAttribute("aria-selected", act ? "true" : "false");
-      });
-      recBox.hidden = false;
-    } else {
-      recBox.hidden = true;
-    }
-
-    // PR collision warning
+  const isNew = p.kind !== "attempt" || p.claimId !== o.claimId || p.mission !== o.mission;
+  const snap = SNAP_CACHE.get(o.mission) || STATE;
+  const isRec = lemma.kind === "record";
+  const rm = recordMetaOf(lemma);
+  if (isNew) {
+    $("#attempt-meta").textContent = [missionMeta(o.mission)?.title || o.mission, lemma.id, isRec ? "♛ King of the Hill" : lemma.statement_file ? "◆ Frozen statement" : "Free-form statement"].join(" · ");
+    $("#attempt-title").textContent = isRec ? cleanRecordTitle(lemma.title) : lemma.title;
+    $("#attempt-gh").href = `https://github.com/${repoOf(snap)}/pulls`;
     const prs = lemma.open_prs || [];
-    const warn = $("#donate-pr-warn");
+    const warn = $("#attempt-pr-warn");
+    warn.hidden = !prs.length;
     if (prs.length) {
+      const links = prs.map((pr) => `<a href="${esc(pr.url)}" target="_blank" rel="noopener noreferrer">#${int(pr.number)}</a>`).join(", ");
       warn.innerHTML = isRec
-        ? `<strong>Active competition:</strong> PR ${prs.map((p) => `<a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">#${safeInt(p.number)}</a>`).join(", ")} also targets <code>${esc(lemma.id)}</code> — you can still submit any strictly better score or lower bound!`
-        : `<strong>Heads up:</strong> Active PR ${prs.map((p) => `<a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">#${safeInt(p.number)}</a>`).join(", ")} already targets <code>${esc(lemma.id)}</code>. You may want to pick a different bounty to avoid duplicate work.`;
-      warn.hidden = false;
-    } else {
-      warn.hidden = true;
+        ? `<strong>Active competition.</strong> PR ${links} also targets <code>${esc(lemma.id)}</code>. Any strictly better score or bound still counts.`
+        : `<strong>Heads up.</strong> PR ${links} already targets <code>${esc(lemma.id)}</code>; consider another problem to avoid duplicate work.`;
     }
-
-    $$("#donate-harness-tabs button").forEach((b) => {
-      const act = b.dataset.harness === DONATE_HARNESS;
-      b.classList.toggle("active", act);
-      b.setAttribute("aria-selected", act ? "true" : "false");
-    });
-
-    refreshDonatePrompt();
-    $("#donate-backdrop").hidden = false;
-    $("#donate-modal").hidden = false;
-    $("#donate-copy-btn").focus();
+    setTimeout(() => $("#attempt-copy").focus(), 0);
   }
+  $$("#attempt-harness [data-harness]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.harness === o.harness)));
+  const handleEl = $("#attempt-handle");
+  if (document.activeElement !== handleEl && handleEl.value !== o.handle) handleEl.value = o.handle;
 
-  function closeDonateModal() {
-    $("#donate-backdrop").hidden = true;
-    $("#donate-modal").hidden = true;
-    DONATE_LEMMA = null;
-    popFocus();
-  }
-
-  $("#donate-close").addEventListener("click", closeDonateModal);
-  $("#donate-backdrop").addEventListener("click", closeDonateModal);
-  $("#donate-harness-tabs").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-harness]");
-    if (!b) return;
-    DONATE_HARNESS = b.dataset.harness;
-    localStorage.setItem("pf-harness", DONATE_HARNESS);
-    $$("#donate-harness-tabs button").forEach((x) => {
-      const act = x === b;
-      x.classList.toggle("active", act);
-      x.setAttribute("aria-selected", act ? "true" : "false");
-    });
-    refreshDonatePrompt();
-  });
-  $("#donate-rec-mode").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-reckind]");
-    if (!b || !DONATE_LEMMA) return;
-    DONATE_REC_KIND = b.dataset.reckind;
-    DONATE_REC_SCORE = defaultRecordScore(DONATE_LEMMA, DONATE_REC_KIND);
-    $("#donate-rec-score").value = String(DONATE_REC_SCORE);
-    $$("#donate-rec-mode button").forEach((x) => {
-      const act = x === b;
-      x.classList.toggle("active", act);
-      x.setAttribute("aria-selected", act ? "true" : "false");
-    });
-    refreshDonatePrompt();
-  });
-  $("#donate-rec-score").addEventListener("input", (e) => {
-    DONATE_REC_SCORE = e.target.value;
-    refreshDonatePrompt();
-  });
-  $("#donate-handle").addEventListener("input", (e) => {
-    DONATE_HANDLE = e.target.value;
-    localStorage.setItem("pf-handle", DONATE_HANDLE);
-    refreshDonatePrompt();
-  });
-  $("#donate-copy-btn").addEventListener("click", async () => {
-    const text = $("#donate-prompt-text").value;
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast(`Copied ${DONATE_LEMMA?.id || ""} prompt ✓`);
-    } catch {
-      $("#donate-prompt-text").select();
-      showToast("Prompt selected — press ⌘C / Ctrl+C to copy");
-    }
-  });
-  $("#donate-select-btn").addEventListener("click", () => {
-    $("#donate-prompt-text").focus();
-    $("#donate-prompt-text").select();
-  });
-
-  // =========================================================================
-  // COMMAND PALETTE (⌘K / Ctrl+K)
-  // =========================================================================
-  function openCmdPalette() {
-    pushFocus(document.activeElement);
-    $("#cmd-backdrop").hidden = false;
-    $("#cmd-modal").hidden = false;
-    $("#cmd-input").value = "";
-    renderCmdList("");
-    $("#cmd-input").focus();
-  }
-  function closeCmdPalette() {
-    $("#cmd-backdrop").hidden = true;
-    $("#cmd-modal").hidden = true;
-    popFocus();
-  }
-  function renderCmdList(query) {
-    const q = query.trim().toLowerCase();
-    const items = [];
-    // Views
-    const viewLabels = [
-      ["missions", "All Missions Hub"],
-      ["control", "Mission Control"],
-      ["bounties", "Bounties & Claim Ledger"],
-      ["live", "Live Fleet"],
-      ["map", "Constellation Proof Map & DAG"],
-      ["leaderboard", "Donor Leaderboard"],
-      ["graveyard", "The Graveyard"],
-      ["feed", "Structured Audit Log"],
-    ];
-    for (const [v, label] of viewLabels) {
-      items.push({ kind: "View", title: label, sub: `#${v}`, run: () => setView(v, { push: true }) });
-    }
-    for (const m of MISSIONS) {
-      items.push({ kind: "Mission", title: m.title, sub: m.slug, run: () => switchMission(m.slug, { targetView: "control" }) });
-    }
-    for (const l of STATE?.lemmas || []) {
-      items.push({ kind: "Claim", title: `${l.id} · ${l.title}`, sub: sealOf(l), run: () => openDossier(l.id) });
-    }
-    CMD_ITEMS = q ? items.filter((it) => `${it.kind} ${it.title} ${it.sub}`.toLowerCase().includes(q)).slice(0, 14) : items.slice(0, 12);
-    CMD_IDX = 0;
-    paintCmdItems();
-  }
-  function paintCmdItems() {
-    $("#cmd-list").innerHTML = CMD_ITEMS.length
-      ? CMD_ITEMS.map(
-          (it, idx) =>
-            `<li><button type="button" class="${idx === CMD_IDX ? "active" : ""}" data-cmd-idx="${idx}"><span><span class="prog-tag" style="margin-right:8px">${esc(it.kind)}</span>${esc(it.title.slice(0, 64))}</span><span class="mono small muted">${esc(it.sub)}</span></button></li>`
-        ).join("")
-      : `<li class="empty-state">No matches</li>`;
-  }
-
-  $("#cmd-open-btn").addEventListener("click", openCmdPalette);
-  $("#cmd-backdrop").addEventListener("click", closeCmdPalette);
-  $("#cmd-input").addEventListener("input", (e) => renderCmdList(e.target.value));
-  $("#cmd-list").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-cmd-idx]");
-    if (!b) return;
-    const it = CMD_ITEMS[Number(b.dataset.cmdIdx)];
-    closeCmdPalette();
-    if (it) it.run();
-  });
-
-  // Global delegated clicks for claim dossiers & donate buttons
-  document.addEventListener("click", (e) => {
-    const don = e.target.closest("[data-donate-claim]");
-    if (don) {
-      e.stopPropagation();
-      const l = STATE?.lemmas?.find((x) => x.id === don.dataset.donateClaim);
-      if (l) openDonateModal(l, don);
-      return;
-    }
-    const open = e.target.closest("[data-open-claim]");
-    if (open) {
-      openDossier(open.dataset.openClaim, { triggerEl: open });
-    }
-  });
-
-  // Global keyboard shortcuts (strictly guarding text inputs!)
-  document.addEventListener("keydown", (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-      e.preventDefault();
-      if ($("#cmd-modal").hidden) openCmdPalette();
-      else closeCmdPalette();
-      return;
-    }
-    if (e.key === "Escape") {
-      if (!$("#cmd-modal").hidden) closeCmdPalette();
-      else if (!$("#donate-modal").hidden) closeDonateModal();
-      else if ($("#lemma-drawer").classList.contains("open")) closeDossier();
-      else closeLabMenu();
-      return;
-    }
-    if (!$("#cmd-modal").hidden) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        CMD_IDX = (CMD_IDX + 1) % Math.max(1, CMD_ITEMS.length);
-        paintCmdItems();
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        CMD_IDX = (CMD_IDX - 1 + Math.max(1, CMD_ITEMS.length)) % Math.max(1, CMD_ITEMS.length);
-        paintCmdItems();
-      } else if (e.key === "Enter" && CMD_ITEMS[CMD_IDX]) {
-        e.preventDefault();
-        const it = CMD_ITEMS[CMD_IDX];
-        closeCmdPalette();
-        it.run();
+  const recBox = $("#attempt-record");
+  recBox.hidden = !isRec;
+  const copy = $("#attempt-copy");
+  copy.disabled = false;
+  if (isRec) {
+    const isCmd = rm.artifact_ext && rm.artifact_ext !== ".lean";
+    const allowBound = rm.allow_bound && !isCmd;
+    const kind = allowBound ? o.recKind : "record";
+    $$("#attempt-reckind [data-reckind]").forEach((b) => {
+      if (b.dataset.reckind === "record") b.textContent = `Improve record (${rm.op} s)`;
+      else {
+        b.textContent = rm.direction === "max" ? "Prove upper bound (¬ Record b)" : "Prove lower bound (¬ Record b)";
+        b.hidden = !allowBound;
       }
+      b.setAttribute("aria-selected", String(b.dataset.reckind === kind));
+    });
+    const scoreEl = $("#attempt-score");
+    const want = o.recScore == null ? "" : String(o.recScore);
+    if (document.activeElement !== scoreEl && scoreEl.value !== want) scoreEl.value = want;
+    $("#attempt-score-label").textContent =
+      kind === "record_bound" ? (rm.direction === "max" ? "Refute b (proves ≤ b−1)" : "Refute b (proves ≥ b+1)") : `Target${rm.unit ? ` (${rm.unit})` : ""}`;
+    const check = validateRecordScore(lemma, kind, o.recScore);
+    const hint = $("#attempt-hint");
+    hint.classList.toggle("is-bad", !check.ok);
+    hint.textContent = check.ok ? "✓ valid target" : check.reason;
+    copy.disabled = !check.ok;
+  }
+  $("#attempt-prompt").value = buildPrompt(lemma, o);
+}
+
+function refreshAttemptIfOpen() {
+  const o = ui().overlay;
+  if (o.kind === "attempt") renderAttempt(o, o);
+}
+
+// ---------------------------------------------------------------- search
+function searchCorpus() {
+  const items = [];
+  const views = [
+    ["missions", null, "Missions — front page"],
+    ["records", null, "World records board"],
+    ["bounties", null, "Open problems & claim ledger"],
+    ["control", null, "Mission control"],
+    ["ledger", "map", "Ledger · proof map & DAG"],
+    ["ledger", "leaderboard", "Ledger · leaderboard"],
+    ["ledger", "refutations", "Ledger · refutations & barriers"],
+    ["ledger", "fleet", "Ledger · fleet"],
+    ["ledger", "audit", "Ledger · audit log"],
+  ];
+  for (const [view, tab, title] of views) items.push({ group: "Views", glyph: "§", title, sub: tab ? `ledger/${tab}` : view, run: () => navigate(view, { ledgerTab: tab || undefined }) });
+  CATALOG.forEach((m, i) => items.push({ group: "Missions", glyph: toRoman(i + 1), title: m.title, sub: m.slug, hay: `${m.question || ""} ${m.tagline || ""}`, run: () => navigate("control", { mission: m.slug }) }));
+  for (const r of RECORDS?.records || []) {
+    items.push({ group: "Records", glyph: "♛", title: `${r.id} · ${cleanRecordTitle(r.title)}`, sub: r.mission, hay: r.mission_title, run: () => openDossier(r.id, r.mission) });
+  }
+  for (const l of STATE?.lemmas || []) {
+    if (l.kind === "record") continue;
+    const s = statusOf(l);
+    items.push({ group: `Claims · ${STATE.mission.title}`, glyph: s.glyph, title: `${l.id} · ${l.title}`, sub: s.label.toLowerCase(), hay: `${l.theorem_name || ""} ${l.statement || ""}`, run: () => openDossier(l.id, STATE.mission.slug) });
+  }
+  return items;
+}
+
+function computeSearchResults(query) {
+  const all = searchCorpus();
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) {
+    const pick = (g, n) => all.filter((i) => i.group === g).slice(0, n);
+    return [...pick("Views", 5), ...pick("Missions", 6), ...all.filter((i) => i.group === "Records").slice(0, 5)];
+  }
+  return all.filter((i) => {
+    const hay = `${i.title} ${i.sub} ${i.hay || ""} ${i.group}`.toLowerCase();
+    return terms.every((t) => hay.includes(t));
+  }).slice(0, 40);
+}
+
+function openSearch(query = "") {
+  dispatch({ type: "OPEN_SEARCH", query });
+}
+
+function renderSearch(o, p) {
+  const input = $("#search-input");
+  if (p.kind !== "search" || p.query !== o.query) SEARCH_RESULTS = computeSearchResults(o.query);
+  if (p.kind !== "search") {
+    input.value = o.query;
+    setTimeout(() => input.focus(), 0);
+  }
+  let lastGroup = null;
+  const html = [];
+  SEARCH_RESULTS.forEach((it, idx) => {
+    if (it.group !== lastGroup) {
+      html.push(`<li class="palette-group" role="presentation">${esc(it.group)}</li>`);
+      lastGroup = it.group;
+    }
+    const sel = idx === o.activeIndex;
+    html.push(
+      `<li role="presentation"><button type="button" class="palette-item" role="option" id="search-opt-${idx}" aria-selected="${sel}" data-search-idx="${idx}"><span class="muted">${esc(it.glyph)}</span><span class="ttl">${esc(it.title)}</span><span class="sub">${esc(it.sub)}</span></button></li>`
+    );
+  });
+  $("#search-list").innerHTML = html.length ? html.join("") : `<li class="empty" style="padding:14px 16px">No matches.</li>`;
+  input.setAttribute("aria-activedescendant", SEARCH_RESULTS.length ? `search-opt-${o.activeIndex}` : "");
+  document.getElementById(`search-opt-${o.activeIndex}`)?.scrollIntoView({ block: "nearest" });
+}
+
+function runSearchResult(idx) {
+  const it = SEARCH_RESULTS[idx];
+  dispatch({ type: "CLOSE_OVERLAY" });
+  if (it) it.run();
+}
+
+// ================================================================= events
+document.addEventListener("click", (e) => {
+  if (e.target.closest("[data-stop]")) return;
+  const attempt = e.target.closest("[data-attempt]");
+  if (attempt) {
+    e.preventDefault();
+    openAttempt(attempt.dataset.mission || activeSlug(), attempt.dataset.attempt);
+    return;
+  }
+  const searchItem = e.target.closest("[data-search-idx]");
+  if (searchItem) {
+    runSearchResult(Number(searchItem.dataset.searchIdx));
+    return;
+  }
+  if (e.target.closest("[data-dossier-retry]")) {
+    const o = ui().overlay;
+    if (o.kind === "dossier") openDossier(o.claimId, o.mission);
+    return;
+  }
+  const toggle = e.target.closest("[data-toggle-claim]");
+  if (toggle) {
+    const id = toggle.dataset.toggleClaim;
+    if (BOUNTY.expanded.has(id)) BOUNTY.expanded.delete(id);
+    else BOUNTY.expanded.add(id);
+    renderBounties();
+    document.querySelector(`[data-toggle-claim="${CSS.escape(id)}"]`)?.focus();
+    return;
+  }
+  const claim = e.target.closest("[data-open-claim]");
+  if (claim) {
+    e.preventDefault();
+    openDossier(claim.dataset.openClaim, claim.dataset.mission || activeSlug());
+    return;
+  }
+  const mission = e.target.closest("[data-open-mission]");
+  if (mission) {
+    navigate("control", { mission: mission.dataset.openMission });
+    return;
+  }
+  const nav = e.target.closest("[data-nav]");
+  if (nav) {
+    e.preventDefault();
+    navigate(nav.dataset.nav, { ledgerTab: nav.dataset.tab, mission: nav.dataset.mission });
+  }
+});
+
+$("#search-btn").addEventListener("click", () => openSearch());
+$("#scrim").addEventListener("click", () => dispatch({ type: "CLOSE_OVERLAY" }));
+$("#dossier-close").addEventListener("click", () => dispatch({ type: "CLOSE_OVERLAY" }));
+$("#attempt-close").addEventListener("click", () => dispatch({ type: "CLOSE_OVERLAY" }));
+$("#take-problem-btn").addEventListener("click", takeOpenProblem);
+$("#control-attempt-btn").addEventListener("click", takeOpenProblem);
+$("#status-dismiss").addEventListener("click", () => dispatch({ type: "DISMISS_ERROR" }));
+$("#status-retry").addEventListener("click", () => {
+  if (ui().transport.status === "error" && !activeSlug()) boot();
+  else if (LAST_FAILED_MISSION) requestMission(LAST_FAILED_MISSION, { intent: { view: ui().route.view }, push: true });
+});
+
+$("#search-input").addEventListener("input", (e) => dispatch({ type: "SEARCH_QUERY", query: e.target.value }));
+
+$("#attempt-harness").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-harness]");
+  if (!b) return;
+  storageSet("pf-harness", b.dataset.harness);
+  dispatch({ type: "ATTEMPT_UPDATE", patch: { harness: b.dataset.harness } });
+});
+$("#attempt-reckind").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-reckind]");
+  const o = ui().overlay;
+  if (!b || o.kind !== "attempt") return;
+  const lemma = lemmaFor(o.mission, o.claimId);
+  dispatch({ type: "ATTEMPT_UPDATE", patch: { recKind: b.dataset.reckind, recScore: defaultRecordScore(lemma, b.dataset.reckind) } });
+});
+$("#attempt-score").addEventListener("input", (e) => dispatch({ type: "ATTEMPT_UPDATE", patch: { recScore: e.target.value } }));
+$("#attempt-handle").addEventListener("input", (e) => {
+  storageSet("pf-handle", e.target.value);
+  dispatch({ type: "ATTEMPT_UPDATE", patch: { handle: e.target.value } });
+});
+$("#attempt-copy").addEventListener("click", async () => {
+  const text = $("#attempt-prompt").value;
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast(`Copied the ${ui().overlay.claimId || ""} prompt`);
+  } catch {
+    $("#attempt-prompt").select();
+    showToast("Prompt selected — press ⌘C / Ctrl+C to copy");
+  }
+});
+$("#attempt-select").addEventListener("click", () => {
+  $("#attempt-prompt").focus();
+  $("#attempt-prompt").select();
+});
+
+// filters
+$("#rec-mission").addEventListener("change", (e) => {
+  REC_FILTER.mission = e.target.value;
+  renderRecords();
+});
+$("#rec-sort").addEventListener("change", (e) => {
+  REC_FILTER.sort = e.target.value;
+  renderRecords();
+});
+$("#rec-direction").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-dir]");
+  if (!b) return;
+  REC_FILTER.direction = b.dataset.dir;
+  renderRecords();
+});
+$("#bounty-mode").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-bmode]");
+  if (!b) return;
+  BOUNTY.mode = b.dataset.bmode;
+  renderBounties();
+});
+for (const id of ["#bounty-search", "#bounty-program", "#bounty-seal"]) $(id).addEventListener("input", renderBounties);
+$("#audit-filter").addEventListener("change", renderAudit);
+$("#ledger-tabs").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-tab]");
+  if (b) navigate("ledger", { ledgerTab: b.dataset.tab });
+});
+for (const sel of $$(".mission-switch")) {
+  sel.addEventListener("change", (e) => {
+    if (e.target.value !== activeSlug()) requestMission(e.target.value, { intent: { view: ui().route.view, claim: null }, push: true });
+  });
+}
+
+const FOCUSABLE = 'a[href], button:not([disabled]):not([hidden]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+document.addEventListener("keydown", (e) => {
+  const s = ui();
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    if (s.overlay.kind === "search") dispatch({ type: "CLOSE_OVERLAY" });
+    else openSearch();
+    return;
+  }
+  if (e.key === "Escape") {
+    if (s.overlay.kind !== "none") {
+      e.preventDefault();
+      dispatch({ type: "ESCAPE" });
+    }
+    return;
+  }
+  if (s.overlay.kind === "search") {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      dispatch({ type: "SEARCH_MOVE", delta: e.key === "ArrowDown" ? 1 : -1, count: SEARCH_RESULTS.length });
       return;
     }
-    if (e.key === "/" && !isInputFocused()) {
+    if (e.key === "Enter") {
       e.preventDefault();
-      if (CURRENT_VIEW === "map") $("#map-search").focus();
-      else if (CURRENT_VIEW === "bounties") $("#board-search").focus();
-      else openCmdPalette();
+      runSearchResult(s.overlay.activeIndex);
+      return;
     }
-  });
+  }
+  if (s.overlay.kind !== "none" && e.key === "Tab") {
+    const root = overlayRoot(s.overlay.kind);
+    const els = Array.from(root.querySelectorAll(FOCUSABLE)).filter((el) => el.offsetParent !== null);
+    if (!els.length) return;
+    const first = els[0];
+    const last = els[els.length - 1];
+    if (e.shiftKey && (document.activeElement === first || !root.contains(document.activeElement))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (document.activeElement === last || !root.contains(document.activeElement))) {
+      e.preventDefault();
+      first.focus();
+    }
+    return;
+  }
+  if (s.overlay.kind !== "none" || isTyping()) return;
+  if (e.key === "/") {
+    e.preventDefault();
+    openSearch();
+    return;
+  }
+  if (e.key === "Enter" || e.key === " ") {
+    const el = document.activeElement;
+    if (el && el.tagName !== "BUTTON" && el.tagName !== "A" && el.matches("[data-open-claim], [data-open-mission], [data-toggle-claim], [data-nav]")) {
+      e.preventDefault();
+      el.click();
+    }
+  }
+});
 
-  boot();
-})();
+window.addEventListener("popstate", () => {
+  const parsed = parseRouteFromLocation(location, { defaultMission: activeSlug() || DEFAULT_MISSION });
+  const s = ui();
+  if (parsed.mission && parsed.mission !== s.transport.activeMission && CATALOG.some((m) => m.slug === parsed.mission)) {
+    if (s.overlay.kind !== "none") dispatch({ type: "CLOSE_OVERLAY" });
+    requestMission(parsed.mission, { intent: { view: parsed.view, ledgerTab: parsed.ledgerTab, claim: parsed.claim }, push: false });
+    return;
+  }
+  dispatch({ type: "ROUTE_SYNC", route: parsed });
+  const o = ui().overlay;
+  if (parsed.claim && !(o.kind === "dossier" && o.claimId === parsed.claim)) openDossier(parsed.claim, activeSlug());
+});
+
+// ------------------------------------------------------------------- go
+applyTheme(storageGet("pf-theme-v3", "light"));
+renderTransport(ui().transport);
+renderRoute(ui().route, null);
+renderOverlay(ui().overlay, NO_OVERLAY);
+renderCurrent();
+boot();
