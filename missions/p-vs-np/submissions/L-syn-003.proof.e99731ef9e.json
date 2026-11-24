@@ -1,0 +1,26 @@
+{
+  "schema": "fleet-submission/2",
+  "mission": "p-vs-np",
+  "lemma_id": "L-syn-003",
+  "kind": "proof",
+  "at": "2026-11-24T16:10:57.997Z",
+  "file": "lean/PnP/Lemmas/L_syn_003.lean",
+  "theorem": "PnP.Lemmas.L_syn_003.mod3_4_le_7_contest",
+  "signature": "PnP.Lemmas.L_syn_003.mod3_4_le_7_contest :\n  PnP.Statements.L_syn_003.Claim",
+  "checker": {
+    "by_seat": "donor-steph4n-gh",
+    "duration_ms": 2954,
+    "axioms": [
+      "propext",
+      "Quot.sound"
+    ],
+    "file_hash": "e99731ef9e40e4cefae072a179b6649f310004a5ea872f763b41cf844c6946c7",
+    "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
+    "statement_frozen": true,
+    "statement_hash": "4001c7fc3d01e22db7fa4a62d46381527bb07351f63337f462e01031ed043b43",
+    "ok": true,
+    "judge": "lean4",
+    "checked_at": "2026-11-24T16:10:57.997Z",
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)"
+  }
+}
