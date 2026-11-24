@@ -509,7 +509,7 @@ for (const [a, evA] of Object.entries(OPENERS)) {
 // --- adapters against the real six missions
 console.log("\n— Snapshot adapters (real mission data) —");
 {
-  const { sealOf, statusOf, actionsOf, recordMetaOf, freshnessOf, prStateOf, normalizeRecordsPayload, synthesizeRecordsPayload, sortRecords, pickHotRecords, boundIntervalGeometry, ratchetSeries, computeGap, mergeSnapshotIntoRecords, toRoman } = mod;
+  const { sealOf, statusOf, actionsOf, recordMetaOf, freshnessOf, prStateOf, normalizeRecordsPayload, synthesizeRecordsPayload, sortRecords, pickHotRecords, needsOptimalityBound, recommendedRecordAction, recordFrontierPhase, boundIntervalGeometry, ratchetSeries, computeGap, mergeSnapshotIntoRecords, toRoman } = mod;
 
   assert(sealOf({ status: "checked", seal: "flagged", audit: { status: "faithful" } }) === "flagged", "sealOf trusts backend lemma.seal over local derivation");
   assert(sealOf({ status: "checked", checker: { statement_frozen: true } }) === "frozen", "sealOf minimal fallback for older snapshots");
@@ -562,7 +562,52 @@ console.log("\n— Snapshot adapters (real mission data) —");
   }
   const sorted = sortRecords(synth.records, "gap").filter((r) => r.gap != null);
   assert(sorted.every((r, i) => i === 0 || sorted[i - 1].gap <= r.gap), "sortRecords('gap') orders by smallest open gap");
-  assert(pickHotRecords(synth.records, 5).length === Math.min(5, expectedRecords), "pickHotRecords returns the 5 hottest hunts");
+  const hot = pickHotRecords(synth.records, 5);
+  assert(hot.length === Math.min(5, expectedRecords), "pickHotRecords returns the 5 hottest hunts");
+  // Hunts that already hit literature_bound (e.g. E-rec-gol11=72, L-rec-maj5=10) route to optimality bounds and do not jump ahead of open construction hunts!
+  const gol11 = synth.records.find((r) => r.id === "E-rec-gol11");
+  const maj5 = synth.records.find((r) => r.id === "L-rec-maj5");
+  if (gol11 && gol11.best_score === 72 && gol11.proven_bound == null) {
+    assert(needsOptimalityBound(gol11) === true, "E-rec-gol11 at best=72 is flagged as needing an optimality bound");
+    const recAct = recommendedRecordAction(gol11);
+    assert(recAct.kind === "record_bound" && recAct.score === 71, "E-rec-gol11 defaults Attempt to record_bound (¬ Record 71)", JSON.stringify(recAct));
+    assert(recordFrontierPhase(gol11).phase === "needs_bound", "E-rec-gol11 frontier phase is needs_bound");
+    assert(!hot.slice(0, 2).some((r) => r.id === "E-rec-gol11"), "E-rec-gol11 does not take top-2 construction slots on front page");
+  }
+  if (maj5 && maj5.best_score === 10 && maj5.proven_bound == null) {
+    assert(needsOptimalityBound(maj5) === true, "L-rec-maj5 at best=10 is flagged as needing an optimality bound");
+    const recAct = recommendedRecordAction(maj5);
+    assert(recAct.kind === "record_bound" && recAct.score === 9, "L-rec-maj5 defaults Attempt to record_bound (¬ Record 9)", JSON.stringify(recAct));
+  }
+  const r55 = synth.records.find((r) => r.id === "E-rec-r55");
+  if (r55 && r55.best_score == null) {
+    assert(recordFrontierPhase(r55).phase === "match_literature" || recordFrontierPhase(r55).phase === "world_record", "E-rec-r55 classifies frontier phase");
+  }
+  // Regression checks for the 3 UI state-machine edge-case fixes discovered by Track 4 formal verification
+  {
+    const { initialUIState, reduceUI } = mod;
+    // (1) Closing search/attempt clears any dangling route.claim
+    let s1 = initialUIState({ route: { view: "control", mission: "erdos-combinatorics", claim: "E-ram-001" } });
+    s1 = reduceUI(s1, { type: "OPEN_SEARCH", query: "" });
+    s1 = reduceUI(s1, { type: "ROUTE_SYNC", route: { view: "control", claim: "E-ram-001" } });
+    s1 = reduceUI(s1, { type: "ESCAPE" });
+    assert(s1.overlay.kind === "none" && s1.route.claim === null, "closing search clears dangling route.claim", JSON.stringify(s1.route));
+    // (2) Switching missions without intent.claim does not leak old mission's route.claim
+    let s2 = initialUIState({ route: { view: "control", mission: "erdos-combinatorics", claim: null } });
+    s2 = reduceUI(s2, { type: "CATALOG_LOADED", mode: "live" });
+    s2 = reduceUI(s2, { type: "MISSION_REQUESTED", mission: "erdos-combinatorics" });
+    s2 = reduceUI(s2, { type: "MISSION_LOADED", mission: "erdos-combinatorics", reqSeq: 1 });
+    s2 = reduceUI(s2, { type: "OPEN_DOSSIER", claimId: "E-ram-001", mission: "erdos-combinatorics" });
+    s2 = reduceUI(s2, { type: "MISSION_REQUESTED", mission: "p-vs-np", intent: { view: "control" } });
+    s2 = reduceUI(s2, { type: "MISSION_LOADED", mission: "p-vs-np", reqSeq: 2 });
+    assert(s2.route.mission === "p-vs-np" && s2.route.claim === null && s2.overlay.kind === "none", "cross-mission switch without intent.claim clears route.claim", JSON.stringify(s2.route));
+    // (3) Unprojected legacy contradiction record fallback agrees with sealOf and blocks attempts
+    const legacyContra = { kind: "record", status: "contradiction", record: { direction: "min" }, record_state: { contradiction: false, closed: false } };
+    assert(recordMetaOf(legacyContra).contradiction === true && actionsOf(legacyContra).can_attempt === false, "legacy contradiction record blocks attempts in fallback path");
+    // (4) CATALOG_FAILED never drops an already-committed healthy mission into error
+    const s4 = reduceUI(s2, { type: "CATALOG_FAILED", error: "transient" });
+    assert(s4.transport.status !== "error" && s4.transport.activeMission === "p-vs-np", "CATALOG_FAILED preserves already-committed activeMission");
+  }
   const byMission = sortRecords(synth.records, "mission");
   assert(byMission.every((r, i) => i === 0 || byMission[i - 1].mission <= r.mission), "sortRecords('mission') groups by mission");
   const normalized = normalizeRecordsPayload({ records: synth.records, totals: synth.totals, latest_verified: synth.latest_verified });

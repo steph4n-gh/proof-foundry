@@ -1092,21 +1092,23 @@ function expectThrows(fn, label) {
       }),
     "mutation #4c: negative gap in record_meta"
   );
-  // Also verifies real legacy pre-projection discrepancy: status='contradiction' with record_state.contradiction=false
-  expectThrows(
-    () =>
-      assertAdapterInvariants({
-        id: "R-legacy-unrepaired",
-        kind: "record",
-        status: "contradiction",
-        record: { direction: "min", start_target: 10 },
-        record_state: { contradiction: false, closed: false },
-      }),
-    "mutation #4d: unprojected legacy record with status='contradiction' & record_state.contradiction=false"
+  // Fixed regression check 1: unprojected legacy record with status='contradiction' & record_state.contradiction=false
+  // now agrees with sealOf and blocks attempts cleanly (and a corrupted override still throws!).
+  const legacyContra = {
+    id: "R-legacy-repaired",
+    kind: "record",
+    status: "contradiction",
+    record: { direction: "min", start_target: 10 },
+    record_state: { contradiction: false, closed: false },
+  };
+  assertAdapterInvariants(legacyContra);
+  check(
+    recordMetaOf(legacyContra).contradiction === true && actionsOf(legacyContra).can_attempt === false,
+    "fixed regression: unprojected legacy contradiction record blocks attempts"
   );
-  // Real edge-case reproducer A: closing 'search' or 'attempt' via ESCAPE after route.claim was
-  // repopulated mid-overlay (e.g. boot deep-link MISSION_LOADED intent.claim or raw ROUTE_SYNC)
-  // leaves route.claim non-null in ui_machine.js:370 — verify our step oracle catches it!
+
+  // Fixed regression check 2: ESCAPE on search after mid-flight deep-link MISSION_LOADED clears route.claim
+  // (and a synthetic mutant that leaves route.claim dangling is caught by assertStepInvariants!).
   {
     let s0 = initialUIState({ route: { view: "control", mission: "erdos-combinatorics", claim: "E-ram-001" } });
     s0 = reduceUI(s0, { type: "CATALOG_LOADED", mode: "live" });
@@ -1119,9 +1121,14 @@ function expectThrows(fn, label) {
     const sMid = reduceUI(s0, { type: "MISSION_LOADED", mission: "erdos-combinatorics", reqSeq: s0.transport.reqSeq });
     const escEv = { type: "ESCAPE" };
     const sAfterEsc = reduceUI(sMid, escEv);
+    assertStepInvariants(sMid, escEv, sAfterEsc);
+    check(
+      sAfterEsc.overlay.kind === "none" && sAfterEsc.route.claim === null,
+      "fixed regression: ESCAPE on search after mid-flight deep-link MISSION_LOADED clears route.claim"
+    );
     expectThrows(
-      () => assertStepInvariants(sMid, escEv, sAfterEsc),
-      "real edge-case witness: ESCAPE on search after mid-flight deep-link MISSION_LOADED leaves dangling route.claim"
+      () => assertStepInvariants(sMid, escEv, { ...sAfterEsc, route: { ...sAfterEsc.route, claim: "E-ram-001" } }),
+      "mutation #4d: corrupted ESCAPE leaving dangling route.claim"
     );
   }
 }

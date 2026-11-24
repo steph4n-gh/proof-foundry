@@ -4,6 +4,27 @@ import crypto from "node:crypto";
 
 export const ROOT = path.resolve(import.meta.dirname, "..");
 
+const _frozenBodyCache = new Map();
+
+export function extractFrozenStatementBody(relPath, statementDef = null) {
+  if (!relPath || !String(relPath).endsWith(".lean")) return null;
+  const key = `${relPath}::${statementDef || ""}`;
+  if (_frozenBodyCache.has(key)) return _frozenBodyCache.get(key);
+  const abs = path.isAbsolute(relPath) ? relPath : path.resolve(ROOT, relPath);
+  if (!fs.existsSync(abs)) {
+    _frozenBodyCache.set(key, null);
+    return null;
+  }
+  const src = fs.readFileSync(abs, "utf8");
+  const shortName = statementDef ? String(statementDef).split(".").pop() : null;
+  const escaped = shortName ? shortName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : "Claim|Record";
+  const re = new RegExp(`^((?:def|abbrev)\\s+(?:${escaped})\\b[\\s\\S]*?)(?=\\n(?:end\\s+|def\\s+|theorem\\s+|lemma\\s+|/--|$))`, "m");
+  const m = src.match(re);
+  const body = m ? m[1].trim() : null;
+  _frozenBodyCache.set(key, body);
+  return body;
+}
+
 export function sha256RelFile(relPath) {
   if (!relPath) return null;
   const abs = path.isAbsolute(relPath) ? relPath : path.resolve(ROOT, relPath);
@@ -283,7 +304,8 @@ function transitionRecord(lemma, event, { statementHash, coreHash, opposingScore
     if (!record) next.refuted.inclusive_bound = Math.max(0, score - step);
     if (!contradiction) {
       points = margin + (rs[field] ? 0 : 1);
-      next.points_by_seat = { ...rs.points_by_seat, [entry.seat]: (rs.points_by_seat[entry.seat] || 0) + points };
+      const prevPoints = Object.hasOwn(rs.points_by_seat, entry.seat) ? rs.points_by_seat[entry.seat] : 0;
+      next.points_by_seat = { ...rs.points_by_seat, [entry.seat]: prevPoints + points };
     }
   }
 
@@ -422,12 +444,14 @@ export function projectClaimView(mission, lemma, currentCoreHash) {
     : lemma.status === "dead" ? "An editorial barrier closed this approach."
     : "This claim already has a verdict.";
 
+  const frozenBody = lemma.statement_file ? extractFrozenStatementBody(lemma.statement_file, lemma.statement_def) : null;
   return {
     ...lemma,
     seal,
     freshness: computeClaimFreshness(mission, lemma, currentCoreHash),
     pr_state: prState,
     actions: { can_attempt: canAttempt, can_bound: canBound, can_refute: canRefute, can_audit: canAudit, reason },
+    ...(frozenBody && { frozen_statement_body: frozenBody }),
     ...(recordMeta && { record_meta: recordMeta }),
   };
 }
@@ -617,9 +641,14 @@ export function projectGlobalRecords(snapshots, generatedAt = snapshots.at(-1)?.
       const at = (best ? best.at : lemma.checker?.checked_at) || lemma.updated_at;
       const file = best?.file || lemma.lean_file;
       if (!at || !file || (latestVerified && at <= latestVerified.at)) continue;
+      const baseStatement = lemma.verified_signature || lemma.registered_statement || lemma.statement || "";
+      const unfoldedStatement =
+        lemma.frozen_statement_body && baseStatement && !baseStatement.includes(":=")
+          ? `${baseStatement}\n\n${lemma.frozen_statement_body}`
+          : baseStatement || lemma.frozen_statement_body || "";
       latestVerified = {
         ...identity,
-        statement: lemma.verified_signature || lemma.registered_statement || lemma.statement || "",
+        statement: unfoldedStatement,
         seal: lemma.seal,
         judge_label: mission.judge?.label || mission.judge?.type || "Judge",
         by_seat: best?.seat || lemma.checker?.by_seat || null,

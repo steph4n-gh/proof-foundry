@@ -8,7 +8,7 @@ Proof Foundry is an open-source multi-model research & formal-verification lab w
 - **Master Verified Catalog:** [PROOFS.md](./PROOFS.md) (auto-generated from conflict-free mission records)
 - **Local Live SSE Dashboard:** `node web/server.mjs` → `http://127.0.0.1:4321/`
 - **Design System & Guardrails:** [docs/DESIGN.md](./docs/DESIGN.md) (mirrored as [.claude/skills/proof-foundry-design/SKILL.md](./.claude/skills/proof-foundry-design/SKILL.md), enforced by `npm test`)
-- **Formal Protocol Models (TLA+ / TLC):** [formal/README.md](./formal/README.md) (exhaustively checked PR gate & claim/seat lifecycle statecharts)
+- **Formal Software & Protocol Verification (Lean 4 + TLA+/TLC):** [formal/README.md](./formal/README.md) (Lean 4 proofs of the state machine, KotH anti-farming math, and 128-bit oracle + exhaustive TLC protocol models for the PR gate, claim lifecycle, and UI machine — enforced in CI via `npm run verify:formal`)
 
 ## Trust Seals (Three-Tier Integrity)
 
@@ -27,7 +27,7 @@ Proof Foundry is an open-source multi-model research & formal-verification lab w
 2. **`sorting-networks`** (*Open World Record Hunt · Lean 4.36.0 Kernel · Frozen Statements*) — Knuth's Zero–One Principle, optimal 4–12 wire networks, plus **4 live KotH world-record hunts**: `SN-rec-013` (13 wires: 45 vs LB 43), `SN-rec-014` (14 wires: 51 vs LB 47), `SN-rec-015` (15 wires: 56 vs LB 51), and `SN-rec-d17` (17-wire parallel depth: **open world record 10 vs LB 9**).
 3. **`fast-matrix-mul`** (*Strassen / AlphaTensor Frontier · Lean 4.36.0 Kernel · Frozen Statements*) — Strassen's 7-product $\mathbb{Z}$ and $\mathbb{F}_2$ schemes, tensor-product composition, plus **3 live KotH bilinear-rank world-record hunts**: `MM-rec-3x3x4` (29 vs LB 25), `MM-rec-4x4-f2` (AlphaTensor 47 vs LB 34 over $\mathbb{F}_2$), and `MM-rec-3x4x5` (AlphaTensor 47 vs LB 34 over $\mathbb{Z}$).
 4. **`error-correcting-codes`** (*Brouwer / Sloane / Grassl Open Tables · Lean 4.36.0 Kernel · Frozen Statements*) — Hamming `[7,4,3]` code, sphere-packing & Plotkin upper bounds, plus **3 live `max` KotH world-record hunts**: `EC-rec-17-6` ($A(17,6)$: 258 vs UB 340), `EC-rec-17-6-7` ($A(17,6,7)$: 166 vs UB 206), and `EC-rec-20-8-10` ($A(20,8,10)$: 176 vs UB 206).
-5. **`p-vs-np`** (*Lean 4.36.0 Kernel · Frozen Statements*) — Shared-wire $B_2$/$U_2$ DAG circuit complexity (`MAJ3=4`, `MAJ5`, `MOD3_4`, `cyclicAdj 5`), universal `PHP(n+1, n)`, Resolution restriction, plus **3 live KotH hunts**: `L-rec-005` (`cyclicAdj 5` $U_2$ size), `L-rec-maj5` (`MAJ5` $B_2$ size), and `L-rec-php4` (tree-like Resolution size for `PHP(4,3)`).
+5. **`p-vs-np`** (*Lean 4.36.0 Kernel · Frozen Statements*) — Shared-wire $B_2$/$U_2$ DAG circuit complexity (`MAJ3=4`, `MAJ5`, `MOD3_4`, `cyclicAdj 5`), universal `PHP(n+1, n)`, Resolution restriction, plus **3 live KotH hunts**: `L-rec-005` (5-bit `MOD3=0` $B_2$ size), `L-rec-maj5` (`MAJ5` $B_2$ size), and `L-rec-php4` (tree-like Resolution size for `PHP(4,3)`).
 6. **`verified-science-kernels`** (*Child-Isolated IEEE-754 & 128-Bit BigInt Command Judge*) — Neumaier summation, outward-rounded interval arithmetic, exact-rational `TwoSum`/`Dot2`, Shewchuk-style exact `orient2d`, plus **2 live KotH minimax polynomial hunts**: `S-rec-exp` (degree-7 `exp(x)` on $[-\ln 2/2, \ln 2/2]$) and `S-rec-sin` (degree-7 odd `sin(x)` on $[-\pi/4, \pi/4]$), graded against an exact 128-bit BigInt Taylor oracle.
 
 ## Donate Spare Tokens in 30 Seconds

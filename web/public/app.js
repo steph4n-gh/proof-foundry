@@ -33,6 +33,9 @@ import {
   filterRecords,
   sortRecords,
   pickHotRecords,
+  needsOptimalityBound,
+  recommendedRecordAction,
+  recordFrontierPhase,
   boundIntervalGeometry,
   ratchetSeries,
   toRoman,
@@ -138,6 +141,7 @@ const dispatch = (ev) => machine.dispatch(ev);
 const ui = () => machine.getState();
 
 let CATALOG = []; // /api/missions summaries
+let GLOBAL_CLAIMS = []; // lightweight cross-mission claim stubs for global ⌘K search
 let STATE = null; // committed snapshot of transport.activeMission
 let RECORDS = null; // normalized records payload (all missions)
 const SNAP_CACHE = new Map(); // slug -> snapshot (read-only data for cross-mission lookups)
@@ -214,6 +218,10 @@ function recordFigureHTML(r) {
   const unit = esc(r.unit || "");
   if (r.contradiction) return `<span class="rec-figure"><span class="st tone-alarm"><span class="st-glyph">⛔</span><span class="st-label">Halted</span></span></span>`;
   if (r.closed && r.best_score != null) return `<span class="rec-figure">${int(r.best_score)}<span class="unit">${unit} · optimal, closed</span></span>`;
+  if (needsOptimalityBound(r)) {
+    const rec = recommendedRecordAction(r);
+    return `<span class="rec-figure">${int(r.best_score)}<span class="slash">/</span><span class="target">¬${esc(r.op)}${int(rec.score)}</span><span class="unit">${unit}${r.best_seat ? ` · ${esc(r.best_seat)}` : ""} · needs bound</span></span>`;
+  }
   if (r.best_score != null) {
     return `<span class="rec-figure">${int(r.best_score)}<span class="slash">/</span><span class="target">${esc(r.op)}${int(r.next_target)}</span><span class="unit">${unit}${r.best_seat ? ` · ${esc(r.best_seat)}` : ""}</span></span>`;
   }
@@ -276,13 +284,16 @@ function attemptButtonHTML(id, mission, label = "Attempt →") {
 function recordRowHTML(r) {
   const live = !r.closed && !r.contradiction;
   const dirLabel = r.direction === "max" ? "maximize" : "minimize";
+  const frontier = recordFrontierPhase(r);
+  const needsBound = frontier.phase === "needs_bound";
+  const ctaLabel = needsBound ? "Prove optimal →" : "Attempt →";
   return `
     <li class="rec-row" data-open-claim="${esc(r.id)}" data-mission="${esc(r.mission)}" tabindex="0" role="button" aria-label="Open dossier for ${esc(r.id)}">
       <span class="rec-id">${esc(r.id)}</span>
-      <div><div class="rec-title">${esc(cleanRecordTitle(r.title))}</div><div class="rec-mission">${esc(r.mission_title || r.mission)} · ${dirLabel}</div></div>
+      <div><div class="rec-title">${esc(cleanRecordTitle(r.title))}</div><div class="rec-mission">${esc(r.mission_title || r.mission)} · ${dirLabel} · ${esc(frontier.label)}</div></div>
       ${recordFigureHTML(r)}
       <div class="rec-bar">${boundBarHTML(r)}</div>
-      <span class="rec-go">${live ? attemptButtonHTML(r.id, r.mission) : ""}</span>
+      <span class="rec-go">${live ? attemptButtonHTML(r.id, r.mission, ctaLabel) : ""}</span>
     </li>`;
 }
 
@@ -483,14 +494,16 @@ function renderRecords() {
     ? rows
         .map((r) => {
           const live = !r.closed && !r.contradiction;
+          const frontier = recordFrontierPhase(r);
+          const ctaLabel = frontier.phase === "needs_bound" ? "Prove optimal →" : "Attempt →";
           return `
           <tr data-open-claim="${esc(r.id)}" data-mission="${esc(r.mission)}" tabindex="0" aria-label="Open dossier for ${esc(r.id)}">
             <td class="rec-id">${esc(r.id)}</td>
-            <td><div class="rec-title">${esc(cleanRecordTitle(r.title))}</div><div class="rec-mission">${esc(r.mission_title || r.mission)} · ${r.direction === "max" ? "maximize" : "minimize"}${r.unit ? ` ${esc(r.unit)}` : ""}${r.open_prs?.length ? ` · ${r.open_prs.length} open PR${r.open_prs.length > 1 ? "s" : ""}` : ""}</div></td>
+            <td><div class="rec-title">${esc(cleanRecordTitle(r.title))}</div><div class="rec-mission">${esc(r.mission_title || r.mission)} · ${r.direction === "max" ? "maximize" : "minimize"}${r.unit ? ` ${esc(r.unit)}` : ""} · ${esc(frontier.label)}${r.open_prs?.length ? ` · ${r.open_prs.length} open PR${r.open_prs.length > 1 ? "s" : ""}` : ""}</div></td>
             <td>${recordFigureHTML(r)}</td>
             <td class="col-bar">${boundBarHTML(r)}</td>
             <td class="col-hist">${sparkHTML(r)}</td>
-            <td>${live ? attemptButtonHTML(r.id, r.mission) : `<span class="muted small">${r.closed ? "closed" : "halted"}</span>`}</td>
+            <td>${live ? attemptButtonHTML(r.id, r.mission, ctaLabel) : `<span class="muted small">${r.closed ? "closed" : "halted"}</span>`}</td>
           </tr>`;
         })
         .join("")
@@ -623,7 +636,11 @@ function claimRowHTML(l, { mission, expandable = true, expanded = false, reason 
   const lineAttrs = expandable
     ? `data-toggle-claim="${esc(l.id)}" role="button" tabindex="0" aria-expanded="${expanded}"`
     : `data-open-claim="${esc(l.id)}" data-mission="${esc(mission || "")}" role="button" tabindex="0"`;
-  const stmt = l.registered_statement || l.statement || l.theorem_name || "";
+  const rawStmt = l.registered_statement || l.statement || l.theorem_name || "";
+  const stmt =
+    l.frozen_statement_body && rawStmt && !rawStmt.includes(":=")
+      ? `${rawStmt}\n\n${l.frozen_statement_body}`
+      : l.frozen_statement_body || rawStmt;
   return `
     <li class="claim-row ${expanded ? "is-open" : ""}">
       <div class="claim-line" ${lineAttrs}>
@@ -1193,6 +1210,7 @@ async function boot() {
       const data = await fetchJSON(src.url);
       if (!Array.isArray(data.missions)) throw new Error("malformed catalog");
       CATALOG = data.missions;
+      GLOBAL_CLAIMS = Array.isArray(data.claims) ? data.claims : [];
       mode = src.isStatic || data.static ? "static" : "live";
       break;
     } catch (err) {
@@ -1561,6 +1579,7 @@ async function openAttempt(mission, claimId) {
     showToast(`${claimId} is not open for attempts right now.`);
     return;
   }
+  const defaultRec = lemma.kind === "record" ? recommendedRecordAction(recordMetaOf(lemma)) : null;
   dispatch({
     type: "OPEN_ATTEMPT",
     claimId,
@@ -1568,8 +1587,8 @@ async function openAttempt(mission, claimId) {
     harness: storageGet("pf-harness", "claude"),
     handle: storageGet("pf-handle", ""),
     queueMode: storageGet("pf-queue-mode", "single"),
-    recKind: "record",
-    recScore: lemma.kind === "record" ? defaultRecordScore(lemma, "record") : null,
+    recKind: defaultRec ? defaultRec.kind : "record",
+    recScore: defaultRec ? defaultRec.score : null,
   });
 }
 
@@ -1827,10 +1846,33 @@ function searchCorpus() {
   for (const r of RECORDS?.records || []) {
     items.push({ group: "Records", glyph: "♛", title: `${r.id} · ${cleanRecordTitle(r.title)}`, sub: r.mission, hay: r.mission_title, run: () => openDossier(r.id, r.mission) });
   }
+  const seenClaims = new Set();
   for (const l of STATE?.lemmas || []) {
     if (l.kind === "record") continue;
+    seenClaims.add(`${STATE.mission.slug}/${l.id}`);
     const s = statusOf(l);
-    items.push({ group: `Claims · ${STATE.mission.title}`, glyph: s.glyph, title: `${l.id} · ${l.title}`, sub: s.label.toLowerCase(), hay: `${l.theorem_name || ""} ${l.statement || ""}`, run: () => openDossier(l.id, STATE.mission.slug) });
+    items.push({
+      group: `Claims · ${STATE.mission.title}`,
+      glyph: s.glyph,
+      title: `${l.id} · ${l.title}`,
+      sub: `${STATE.mission.slug} · ${s.label.toLowerCase()}`,
+      hay: `${l.theorem_name || ""} ${l.statement || ""} ${l.frozen_statement_body || ""}`,
+      run: () => openDossier(l.id, STATE.mission.slug),
+    });
+  }
+  for (const c of GLOBAL_CLAIMS) {
+    const key = `${c.mission}/${c.id}`;
+    if (seenClaims.has(key)) continue;
+    seenClaims.add(key);
+    const s = statusOf(c);
+    items.push({
+      group: `Claims · ${c.mission_title || c.mission}`,
+      glyph: s.glyph,
+      title: `${c.id} · ${c.title}`,
+      sub: `${c.mission} · ${s.label.toLowerCase()}`,
+      hay: `${c.theorem_name || ""} ${c.mission_title || ""}`,
+      run: () => openDossier(c.id, c.mission),
+    });
   }
   return items;
 }

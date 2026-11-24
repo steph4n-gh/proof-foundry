@@ -319,11 +319,12 @@ export function applySubmissionsPure(seedState, rawSubs, { gitAddedTs = new Map(
   }
 
   // Recompute per-seat counts (record_points kept distinct from checked proofs — zero double-counting!)
-  const recordPointsBySeat = {};
+  const recordPointsBySeat = Object.create(null);
   for (const l of state.lemmas || []) {
     if (l.kind === "record" && l.record_state && !l.record_state.contradiction && l.record_state.points_by_seat) {
       for (const [seatId, pts] of Object.entries(l.record_state.points_by_seat)) {
-        recordPointsBySeat[seatId] = (recordPointsBySeat[seatId] || 0) + pts;
+        const prev = Object.hasOwn(recordPointsBySeat, seatId) ? recordPointsBySeat[seatId] : 0;
+        recordPointsBySeat[seatId] = prev + pts;
       }
     }
   }
@@ -334,7 +335,7 @@ export function applySubmissionsPure(seedState, rawSubs, { gitAddedTs = new Map(
       checked: state.lemmas.filter((l) => l.kind !== "record" && l.status === "checked" && l.checker?.by_seat === s.id).length,
       refuted: state.lemmas.filter((l) => l.kind !== "record" && l.status === "refuted" && l.refutation?.by_seat === s.id).length,
       blocked: state.lemmas.filter((l) => l.kind !== "record" && l.status === "dead" && l.epitaph?.by_seat === s.id).length,
-      record_points: recordPointsBySeat[s.id] || 0,
+      record_points: Object.hasOwn(recordPointsBySeat, s.id) ? recordPointsBySeat[s.id] : 0,
     };
   }
 

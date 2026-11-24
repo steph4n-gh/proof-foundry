@@ -170,7 +170,7 @@ function reduceTransport(t, ev) {
       return patch(t, { mode, status: mode === "static" ? "static_loading" : "live_connecting", error: null });
     }
     case "CATALOG_FAILED":
-      return patch(t, { status: "error", error: String(ev.error || "Catalog unavailable") });
+      return patch(t, { status: t.activeMission ? t.status : "error", error: String(ev.error || "Catalog unavailable") });
     case "MISSION_REQUESTED": {
       const mission = sanitizeSlug(ev.mission);
       if (!mission) return t;
@@ -340,12 +340,13 @@ export function reduceUI(state, ev) {
     case "MISSION_LOADED": {
       if (transport === state.transport) break; // ignored (stale)
       const intent = state.transport.pendingIntent || {};
+      const sameMission = transport.activeMission === route.mission;
       const next = normalizeRoute(
         {
           view: intent.view ?? route.view,
           ledgerTab: intent.ledgerTab ?? route.ledgerTab,
           mission: transport.activeMission,
-          claim: intent.claim !== undefined ? intent.claim : route.claim,
+          claim: intent.claim !== undefined ? intent.claim : sameMission ? route.claim : null,
         },
         transport.activeMission
       );
@@ -367,7 +368,7 @@ export function reduceUI(state, ev) {
   if (overlay !== state.overlay && !routeOwnsClaim) {
     let claim = route.claim;
     if (overlay.kind === "dossier") claim = !overlay.mission || overlay.mission === route.mission ? overlay.claimId : null;
-    else if (state.overlay.kind === "dossier" || overlay.kind !== "none") claim = null;
+    else if (state.overlay.kind !== "none" || overlay.kind !== "none") claim = null;
     if (claim !== route.claim) route = { ...route, claim };
   }
 
@@ -468,7 +469,7 @@ export function recordMetaOf(lemma) {
     score_max: num(cfg.score_max),
     gap: null,
     closed: Boolean(rs.closed),
-    contradiction: Boolean(rs.contradiction),
+    contradiction: Boolean(rs.contradiction || lemma.status === "contradiction"),
     allow_bound: cfg.allow_bound !== false,
     artifact_ext: cfg.artifact_ext || ".lean",
     file_stem: cfg.file_stem || null,
@@ -485,6 +486,44 @@ export function recordMetaOf(lemma) {
 function refutedScoreFromBound(rm) {
   if (rm.proven_bound == null) return null;
   return rm.direction === "max" ? rm.proven_bound + 1 : rm.proven_bound - 1;
+}
+
+export function needsOptimalityBound(r) {
+  if (!r || r.closed || r.contradiction || !r.allow_bound) return false;
+  const best = num(r.best_score);
+  const litBound = num(r.literature_bound);
+  if (best == null || litBound == null || num(r.proven_bound) != null) return false;
+  return r.direction === "max" ? best >= litBound : best <= litBound;
+}
+
+export function recommendedRecordAction(r) {
+  if (!r) return { kind: "record", score: 0 };
+  if (needsOptimalityBound(r)) {
+    const best = num(r.best_score) ?? 0;
+    return {
+      kind: "record_bound",
+      score: r.direction === "max" ? best + 1 : Math.max(0, best - 1),
+    };
+  }
+  return {
+    kind: "record",
+    score: num(r.next_target) ?? num(r.start_target) ?? 0,
+  };
+}
+
+export function recordFrontierPhase(r) {
+  if (!r) return { phase: "open", label: "Open hunt" };
+  if (r.contradiction) return { phase: "contradiction", label: "Halted" };
+  if (r.closed) return { phase: "closed", label: "Exact optimum proven" };
+  if (needsOptimalityBound(r)) return { phase: "needs_bound", label: "Needs optimality bound" };
+  const litBest = num(r.literature_best);
+  const next = num(r.next_target) ?? num(r.start_target);
+  if (litBest != null && next != null) {
+    const beatsLit = r.direction === "max" ? next > litBest : next < litBest;
+    if (beatsLit) return { phase: "world_record", label: "World record shot" };
+    return { phase: "match_literature", label: "Formalize known record" };
+  }
+  return { phase: "open", label: "Open hunt" };
 }
 
 export function computeGap(rm) {
@@ -537,6 +576,10 @@ export function statusOf(lemma) {
   if (lemma?.kind === "record") {
     const rm = recordMetaOf(lemma);
     if (rm.closed) return { key: "frozen", glyph: "◆", label: "Optimal", tone: "accent" };
+    if (needsOptimalityBound(rm)) {
+      const rec = recommendedRecordAction(rm);
+      return { key: "record", glyph: "♛", label: `Record ${rm.best_score} · prove ¬ ${rm.op} ${rec.score}`, tone: "accent" };
+    }
     if (rm.best_score != null) return { key: "record", glyph: "♛", label: `Record ${rm.best_score} · next ${rm.op} ${rm.next_target}`, tone: "accent" };
     return { key: "hunt", glyph: "♛", label: `Open hunt · ${rm.op} ${rm.next_target ?? rm.start_target}`, tone: "ink" };
   }
@@ -740,7 +783,10 @@ export function sortRecords(rows, sort = "gap") {
 }
 
 export function pickHotRecords(rows, n = 5) {
-  return sortRecords(rows.filter((r) => !r.closed && !r.contradiction), "gap").slice(0, n);
+  const live = rows.filter((r) => !r.closed && !r.contradiction);
+  const openConstruction = sortRecords(live.filter((r) => !needsOptimalityBound(r)), "gap");
+  const needingBound = sortRecords(live.filter((r) => needsOptimalityBound(r)), "gap");
+  return [...openConstruction, ...needingBound].slice(0, n);
 }
 
 /** Geometry for the bound-interval bar, as percentages of the track. */

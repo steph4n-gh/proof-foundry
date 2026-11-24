@@ -1,136 +1,108 @@
-# Proof Foundry protocol checks
+# Proof Foundry Formal Verification Suite
 
-TLC exhaustively explored both finite models. Every configured invariant held, both queues emptied, and the built-in deadlock check passed. The merge result depends on the authorized head and current base still matching when the PR lands.
+Proof Foundry formally verifies its own critical software core across four complementary layers — combining **universally quantified Lean 4.36.0 proofs**, **exhaustive TLA+ / TLC protocol model checking**, **Lean-native AST & compiled `.olean` security auditing**, and **differential equivalence / trace verification** against the running Node.js & browser code.
 
-| Model | Generated states | Distinct states | TLC search depth | Reachability diameter (transitions) | Errors |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| PR gate and merge | 248 | 112 | 7 | 6 | 0 |
-| Claim and seat lifecycle | 174 | 36 | 5 | 4 | 0 |
-
-The diameter is the maximum shortest distance from an initial state. TLC reports initial states at depth one. Both models use one worker, breadth-first search, and the default deadlock check, with no search constraints or symmetry reduction. Neither protocol promises eventual progress. A contributor can keep changing the head, and a second verdict may never arrive.
-
-## PR gate and merge
-
-One run starts at head `H0` on base `B0`. The PR ref can move to a second commit or back at any stage. Main can advance once, independently, through an unrelated merge, a duplicate bounty, or a competing record. The modeled minimization candidate scores 7. It improves an incumbent of 8, ties 7, and loses to 6.
-
-The classifier and judge each compare the fetched head with the event SHA. Each successful step records the SHA it actually inspected. The eligibility job compares the fetched head to the successful run and evaluates the claim on its main snapshot. The merge job requests auto-merge with `--match-head-commit`. A separate transition represents the eventual landing. In a merged state, `mergedSHA` is the PR head included in the squash and `main` is the base immediately before the update. [Judge workflow](../.github/workflows/judge.yml) · [Auto-merge workflow](../.github/workflows/auto-merge.yml) · [Eligibility and score checks](../hub/pr_gate.mjs)
-
-- **NeverMergeUnjudgedCommit** requires the merged head to match both the successful donor classification and the successful judge receipt.
-- **NeverMergeStaleClaim** checks the claim again as an invariant against the base at landing. The merge action itself never calls the eligibility predicate.
-- **NoDeadlock** checks that every reachable state has a successor. A stopped or completed run has an explicit stuttering `Done` action.
-
-The run assumes a protected main without bypass. Under strict up-to-date checks, the original head cannot land once main has advanced beyond its parent. Updating the PR to contain the new base creates a new head and requires a fresh run. On 2026-11-23 the repository rules API returned `gate` with `strict_required_status_checks_policy: true`. The repository settings API returned `allow_auto_merge: false`. These settings can change. [Main branch rules](https://api.github.com/repos/steph4n-gh/proof-foundry/rules/branches/main)
-
-**Deferred merge assumption.** The model requires the final merge to consume authorization for the same head that passed eligibility. GitHub documents that a push by someone without write permission disables auto-merge. The documentation gives no equivalent guarantee for every writer. A synchronous merge with an expected-head condition can satisfy this assumption directly. The hosted deferred path for write-capable contributors remains unverified. [GitHub auto-merge behavior](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/automatically-merging-a-pull-request) · [GitHub CLI merge options](https://cli.github.com/manual/gh_pr_merge)
-
-Turning off one condition at a time produced these shortest model counterexamples. All other conditions remained enabled.
-
-| Condition disabled | Invariant violated | Shortest path | Observation |
-| --- | --- | ---: | --- |
-| `PinJudgeInputs` | NeverMergeUnjudgedCommit | 7 transitions | Classification and judging can observe different revisions even though the head matches the workflow event again at decision and merge. |
-| `RequireCurrentBase` | NeverMergeStaleClaim | 6 transitions | A competitor can land after eligibility and consume the same bounty before the authorized head merges. A tied or beaten record uses the same timing. |
-| `RequireAuthorizedHead` | NeverMergeUnjudgedCommit | 6 transitions | A matching request can succeed, then a different head can land if the old authorization survives the change. |
-
-At source revision `16e069d` the two judge workflow jobs independently fetched the moving PR ref. The checked configuration specifies the hardened contract. The model covers a single donor run and abstracts job failures into a stopped run. Judge soundness, Git conflicts, native queue internals, privileged overrides, and the behavior of a fresh run on a rebased head are outside its scope. The chart combines states by workflow phase and hides head and base changes that leave the phase unchanged.
-
-```mermaid
----
-title: "A donor submission from classification to merge"
----
-stateDiagram-v2
-  s0: Awaiting classification
-  s1: Donor diff classified
-  s2: Stopped
-  s3: Judge passed
-  s4: Eligible on sampled main
-  s5: Auto-merge requested
-  s6: Merged
-  [*] --> s0
-  s0 --> s1: classify donor diff
-  s0 --> s2: check fails
-  s1 --> s3: judge accepts submission
-  s1 --> s2: check fails
-  s3 --> s4: accept current bounty or score
-  s3 --> s2: head differs from run or competing claim already on main
-  s4 --> s5: match expected head
-  s4 --> s2: head differs from decision
-  s5 --> s6: merge PR
-  s5 --> s2: head changed or base advanced
-```
-
-## Claim and seat lifecycle
-
-Two seats can compete for either of two claims. Transferring a claim clears the previous seat's pointer. Moving a seat to another claim clears its previous claim's owner. One target receives judge verdicts and barrier rulings. Its `open` state corresponds to `conjecture` when unowned and `in_work` when assigned. A ruling or verdict releases both sides of the assignment.
-
-Proof and refutation events represent successful receipts at writeback or replay. Either one can arrive first, either can repeat, and a barrier can arrive between them. A receipt from an already running judge can arrive after a barrier. An independent set records which receipt kinds have arrived. The status transition reads the current verdict, while the convergence invariant reads the set. [Fleet commands](../hub/fleet.mjs) · [Submission replay](../hub/missions.mjs)
-
-- **ContradictionIsSticky** remembers whether an earlier state reached contradiction and checks subsequent deliveries.
-- **SingleSeatPerClaim** counts the seats pointing at each claim. **SeatClaimBijection** independently checks the domain of both maps and both directions of every seat–claim pair.
-- **ClosedClaimReleased** requires the target to have no owner after a verdict or barrier.
-- **BarrierNeverOverwritesVerdict** compares the status immediately before and after a barrier attempt.
-- **OrderIndependentContradiction** requires contradiction as soon as both receipt kinds have arrived.
-- **NoDeadlock** checks every state, including the terminal contradiction verdict, where `Done` stutters. Duplicate and late deliveries remain enabled to check stickiness.
-
-The model starts with consistent empty assignments and treats each reducer writeback as atomic. It covers ownership of both claims and the verdict lifecycle of the target. Preflight, worker scheduling, lock implementation, legacy data repair, receipt contents and record scoring are outside this model. The chart hides duplicate receipts, rejected barriers and ownership changes that leave the target's label unchanged.
-
-On `16e069d`, local checks against submission replay confirmed both receipt orders and preservation of all three verdicts under a barrier. The original CLI had separate ownership and verdict writers. A local check of the parallel unified reducer exercised simultaneous displacement of both old owners, release on verdict, barriers between opposite receipts, and duplicate deliveries after contradiction. Scratch mutations that retained the old seat pointer, overwrote a verdict with a barrier, or discarded the first refutation each violated the corresponding invariant.
-
-```mermaid
----
-title: "Ownership and verdicts for one claim"
----
-stateDiagram-v2
-  s0: Unclaimed
-  s1: Proof accepted
-  s2: Barrier recorded
-  s3: Refutation accepted
-  s4: Held by seat B
-  s5: Held by seat A
-  s6: Contradiction
-  [*] --> s0
-  s0 --> s1: proof arrives
-  s0 --> s2: record barrier
-  s0 --> s3: refutation arrives
-  s0 --> s4: seat claims work
-  s0 --> s5: seat claims work
-  s1 --> s6: refutation arrives
-  s2 --> s1: proof arrives
-  s2 --> s3: refutation arrives
-  s3 --> s6: proof arrives
-  s4 --> s1: proof arrives
-  s4 --> s2: record barrier
-  s4 --> s3: refutation arrives
-  s4 --> s0: owner takes other claim
-  s4 --> s5: transfer claim
-  s5 --> s1: proof arrives
-  s5 --> s2: record barrier
-  s5 --> s3: refutation arrives
-  s5 --> s4: transfer claim
-  s5 --> s0: owner takes other claim
-```
-
-## Reproduce
-
-Run from the repository root with the installed statechart skill. The checked run used Node 26.9.0, TLC 2.19 from the TLA+ tools 1.7.4 release, and Temurin 25.0.5.1+2. The runner can obtain TLC and Java through `mise`. For an existing installation, export `TLA2TOOLS` as the absolute path to `tla2tools.jar` and `JAVA` as the absolute path to the Java executable. [TLA+ tools 1.7.4](https://github.com/tlaplus/tlaplus/releases/tag/v1.7.4)
+Run the entire suite in one command:
 
 ```sh
-runner="${STATECHART_SKILL:-$HOME/.codex/skills/statechart}/scripts/statechart"
-out=$(mktemp -d)
-for model in pr_gate_merge claim_seat_lifecycle; do
-  "$runner" "formal/$model.tla" --config "formal/$model.cfg" \
-    --view "formal/$model.view.mjs" --out "$out/$model" || exit 1
-  cat "$out/$model/report.md"
-  rg 'states left on queue|depth of the complete state graph' "$out/$model/tlc.out"
-done
+npm run verify:formal
 ```
 
-The following commands reproduce the three PR counterexamples in the same scratch directory. The runner returns status 1 for a violated invariant. Each report names the rule and gives the shortest path.
+In CI (`.github/workflows/judge.yml`), `npm run verify:formal -- --require-tlc` runs on every maintainer PR and push to `main` inside the required `gate` check, using Lean 4.36.0, Java 21, and SHA-256-verified `tla2tools.jar` v1.7.4 (`936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88`).
+
+---
+
+## Summary Matrix
+
+| Layer | Covered Product Code | Formal Artifact | Verification Engine | Scope & Result |
+| :--- | :--- | :--- | :--- | :--- |
+| **1. Core State Machine & KotH** | [hub/state_machine.mjs](../hub/state_machine.mjs), [hub/missions.mjs](../hub/missions.mjs) | [PFFormal/StateMachine.lean](./lean/PFFormal/StateMachine.lean), [AxiomCheck.lean](./lean/PFFormal/AxiomCheck.lean), [verify_state_machine_equiv.mjs](./verify_state_machine_equiv.mjs) | Lean 4.36.0 + `pf_state_check` differential oracle | **30 named / 327 swept theorems** (`∀` scores, `∀` histories, arbitrary seat sets, zero `sorry`, standard axioms only) + **2,673 traces / 17,900 steps** exact JS equivalence + **8/8 mutants caught** |
+| **2a. Lean Judge Security Gate** | [hub/judges/lean4.mjs](../hub/judges/lean4.mjs) | Native `Init` pre-compile AST parser + Pass 2 `.olean` import/constant/dependency-closure audit + [hub/test_judge.mjs](../hub/test_judge.mjs) | Lean 4.36.0 parser & kernel environment | **99 judge tests** + **43/43 tracked Lean proofs** audited; zero elaboration before AST pass; blocks forbidden imports, unused axioms, `opaque`/`unsafe` helpers, and `ctorIdx._impl` spoofs |
+| **2b. PR Gate & KotH Concurrency** | [hub/pr_gate.mjs](../hub/pr_gate.mjs), [.github/workflows/judge.yml](../.github/workflows/judge.yml), [.github/workflows/auto-merge.yml](../.github/workflows/auto-merge.yml) | [pr_gate_merge.tla](./pr_gate_merge.tla), [pr_gate_koth.tla](./pr_gate_koth.tla), [claim_seat_lifecycle.tla](./claim_seat_lifecycle.tla) | TLA+ / TLC 2.19 (BFS, deadlock check) | `pr_gate_merge`: **248 gen / 112 distinct** (depth 7, 0 errors, 3 counterexamples)<br>`claim_seat_lifecycle`: **174 gen / 36 distinct** (depth 5, 0 errors)<br>`pr_gate_koth` (2-PR race): **9,462 gen / 2,597 distinct** (depth 11, 0 errors, 6 counterexamples) |
+| **3. 128-Bit BigInt Math Oracle** | [missions/verified-science-kernels/judge/verify.mjs](../missions/verified-science-kernels/judge/verify.mjs) | [PFOracle/MathOracle.lean](./oracle/PFOracle/MathOracle.lean), [AxiomCheck.lean](./oracle/PFOracle/AxiomCheck.lean), [verify_math_oracle.mjs](./verify_math_oracle.mjs) | Lean 4.36.0 + `pf_oracle_check` differential oracle | **28 theorems** (zero `sorry`, standard axioms only): exact dyadic `TwoSum`/`Dot2`/`orient2d`, `exp` total error `< 69/2¹²⁸` (`< 10⁻³⁶`), `sin` total error `< 41/2¹²⁸` (`< 10⁻³⁶`), exact ceiling score + **8,194/8,194 bit-for-bit grid matches** + `S-rec-exp = 405` certified (`> 6.7 × 10²²×` margin) |
+| **4. Frontend UI State Machine** | [web/public/ui_machine.js](../web/public/ui_machine.js) | [ui_machine.tla](./ui_machine.tla), [verify_ui_machine.mjs](./verify_ui_machine.mjs) | TLA+ / TLC 2.19 + JS trace/URL/adapter verifier | `ui_machine.tla`: **379,157 gen / 24,856 distinct** (depth 14, 0 errors, 4 counterexamples) + **11,099 fuzzer steps**, **23,296 URL round-trips**, **20,253 adapter states**, **8/8 mutants caught** |
+
+---
+
+## Real Software Bugs Found & Fixed by This Suite
+
+Formal verification was not rubber-stamping — building these proofs uncovered real defects in the codebase that unit tests had missed, all of which are now fixed and locked behind regression checks:
+
+1. **Points ledger prototype-property corruption (`hub/state_machine.mjs`, `hub/missions.mjs`)** — Found by Track 1 (Lean state machine differential audit): `(rs.points_by_seat[entry.seat] || 0) + points` read inherited `Object.prototype` keys on seat IDs like `"constructor"`, turning numeric totals into concatenated strings (`"function Object() { [native code] }22"`). Fixed with `Object.hasOwn` and null-prototype accumulation.
+2. **Fail-open catch & loose score type guard (`hub/pr_gate.mjs`)** — Found by Track 2 (PR gate audit): `classifyEntries` swallowed state-derivation exceptions when checking frozen-statement edits, and `evaluateAutoMergeDataOnly` accepted string score `"7"`. Hardened to fail closed on unreadable base state and require strict integer `typeof sub.score === "number"`.
+3. **Three UI async/edge-case state-machine bugs (`web/public/ui_machine.js`)** — Found by Track 4 (UI TLA+ / trace verification):
+   - Closing `search` or `attempt` via `ESCAPE` left a deep-linked `route.claim` stuck in the URL.
+   - Switching missions via `MISSION_LOADED` without an explicit `intent.claim` leaked the previous mission's `route.claim` onto the new mission.
+   - Unprojected legacy `contradiction` records checked only `record_state.contradiction` in `recordMetaOf` instead of matching `sealOf` (`status === "contradiction" || record_state.contradiction`), and `CATALOG_FAILED` did not preserve an already-committed healthy `activeMission`.
+4. **Command-Judge sandboxing (`missions/verified-science-kernels/judge/verify.mjs`)** — Functional kernel runs now execute under Node `--permission --allow-fs-read=<realArtifact>` (blocking filesystem writes, `/proc`, and `resultPath`), and `S-rec-exp`/`S-rec-sin` coefficient artifacts are parsed statically as pure data with **zero JS execution**.
+
+---
+
+## Pillar Details
+
+### 1. Lean 4 Core State Machine & King-of-the-Hill Proofs (`formal/lean/`)
+
+Proved in [formal/lean/PFFormal/StateMachine.lean](./lean/PFFormal/StateMachine.lean) for **all** natural-number scores, **all** replay histories, and **arbitrary** seat/claim counts:
+- **Monotonicity:** `koth_monotone_best`, `koth_monotone_best_replay`, `koth_monotone_refuted`, `koth_monotone_refuted_replay`.
+- **Anti-farming telescoping totals:** `koth_anti_farming_ledger`, `koth_anti_farming_record_points`, `koth_anti_farming_bound_points`, `koth_anti_farming_record_points_replay` — stepping 1 unit at a time yields the exact same total points as a single jump (`(best - startTarget) * step + 1`).
+- **Sticky & order-independent contradiction:** `koth_contradiction_sticky`, `koth_contradiction_reachable`, `koth_contradiction_order_independent`, `claim_contradiction_sticky`, `claim_order_independent_contradiction`.
+- **Exact optimal closure:** `koth_closed_exact_optimal`, `koth_closed_denies`.
+- **Barriers, arbitrary seat↔claim bijection, trust seals & conquest:** `barrier_never_overwrites_verdict`, `seat_claim_bijection_preserved`, `trust_seal_and_conquered_sound`, `conquered_false_of_bad_seal`, `conquered_replay_default`.
+
+[formal/lean/PFFormal/AxiomCheck.lean](./lean/PFFormal/AxiomCheck.lean) mechanically sweeps all 327 theorems in `PF` during `lake build` and fails compilation if any theorem uses `sorryAx` or non-standard axioms.
+
+### 2. Judge Security Boundary & PR-Gate TLA+ Models
+
+- **Three-layer Lean Judge ([hub/judges/lean4.mjs](../hub/judges/lean4.mjs)):**
+  1. Fast JS lexical pre-filter (blocks guillemets, raw strings, unclosed comments/strings, forbidden tokens).
+  2. **Lean 4.36 native `Init` pre-compile AST gate** (parses exact private source bytes with Lean's own parser before Pass 1; zero elaboration, zero user code execution; checks imports, commands, attributes, and `set_option` allowlist).
+  3. **Pass 2 compiled `.olean` environment audit** (verifies true direct module imports, every declared constant in `claimMod`, and full transitive local kernel dependencies of the target theorem; the sole `unsafe` exemption requires compiler-synthesized `<Ind>.ctorIdx._impl` owned by a same-module `.inductInfo`, matching the tag-intrinsic body and compiler `implemented_by` link, and unreachable from the target theorem).
+- **TLA+ / TLC protocol models:**
+  - [pr_gate_merge.tla](./pr_gate_merge.tla) (`248` generated / `112` distinct, depth `7`, 0 errors) — single donor PR under moving head & advancing `main`; 3 counterexamples (`PinJudgeInputs`, `RequireCurrentBase`, `RequireAuthorizedHead`).
+  - [claim_seat_lifecycle.tla](./claim_seat_lifecycle.tla) (`174` generated / `36` distinct, depth `5`, 0 errors) — seat bijection, sticky & order-independent contradiction, editorial barriers.
+  - [pr_gate_koth.tla](./pr_gate_koth.tla) (`9,462` generated / `2,597` distinct, depth `11`, 0 errors) — two competing donor PRs racing on a KotH hunt, crossing bounds, frozen-statement mutations, and non-100644/path escapes; 6 reproduced counterexamples.
+
+### 3. Lean 4 128-Bit Math Oracle Proofs (`formal/oracle/`)
+
+Proved in [formal/oracle/PFOracle/MathOracle.lean](./oracle/PFOracle/MathOracle.lean) (`28` audited theorems, zero `sorry`, standard axioms only):
+- Exact dyadic rational algebra (`dyadicAdd_sound`, `dyadicSub_sound`, `dyadicMul_sound`, `dyadicEq_iff`, `dyadicSign_sound`, `exactDot_sound`, `orient2d_sign_exact`).
+- Truncating BigInt division (`Int.tdiv`) error bound `< 1` ULP (`tdiv_error`).
+- `fixed128Exp` (34 terms, `|xFix| ≤ 2¹²⁷`): rounding `< 68/2¹²⁸`, Taylor tail `< 1/2¹²⁸`, combined `< 69/2¹²⁸ < 10⁻³⁶`.
+- `fixed128Sin` (20 terms, `|xFix| ≤ ⌊4·2¹²⁸/5⌋`): rounding `< 40/2¹²⁸`, Taylor tail `< 1/2¹²⁸`, combined `< 41/2¹²⁸ < 10⁻³⁶`.
+- Exact integer ceiling score (`ceilScore_spec`, `ceilScore_eq_ceil`, `ceilScore_decision_robustness`).
+- Differential harness ([verify_math_oracle.mjs](./verify_math_oracle.mjs)) verifies **bit-for-bit agreement on all 8,194 grid points** (`S-rec-exp` + `S-rec-sin`) plus `173` adversarial cases and certifies winning record `S-rec-exp = 405` (`6.7 × 10²²×` margin above the formal error bound).
+
+### 4. Frontend UI State Machine (`formal/ui_machine.*` & `formal/verify_ui_machine.mjs`)
+
+- [ui_machine.tla](./ui_machine.tla) (`379,157` generated / `24,856` distinct states, depth `14`, 0 errors, 0 deadlocks) verifies `SingleOverlayKind`, `HealthyStreamSurvivesFailedSwitch`, `RouteMissionTracksActiveMission`, `NoCrossMissionOverlayAfterCommit`, `StaleMissionResponseIgnored`, `StaleDossierResponseIgnored`, `DossierRouteClaimSync`, and reproduces 4 mutation counterexamples (`CheckMissionSeq`, `CheckDossierSeq`, `PreserveHealthyStream`, `ClearCrossMissionOverlay`).
+- [verify_ui_machine.mjs](./verify_ui_machine.mjs) runs `11,099` randomized/adversarial transitions, `23,296` Cartesian URL route round-trips + `90` legacy hash aliases, `20,253` snapshot adapter checks, and `8` negative mutation self-checks directly against [web/public/ui_machine.js](../web/public/ui_machine.js).
+
+---
+
+## Trusted Computing Base (What Stays Outside the Proofs)
+
+Formal verification proves Proof Foundry's logic **up to** the following platform boundary (explicitly assumed, not proved):
+- **Lean 4.36.0 kernel & compiler**, **TLC 2.19**, and **JVM**.
+- **Node.js / V8** (including `--permission` enforcement), **OS kernel**, **Git**, and **browser DOM/EventSource** implementations.
+- **GitHub hosted branch rules & merge enforcement:** `pr_gate_merge.tla` and `pr_gate_koth.tla` assume protected `main` without privileged bypass, `strict_required_status_checks_policy: true` on `gate`, and head-SHA-pinned merges (the hosted deferred auto-merge behavior for write-capable contributors remains an external GitHub platform assumption).
+- **Differential equivalence scope:** `verify_state_machine_equiv.mjs` and `verify_math_oracle.mjs` prove properties universally on the Lean executable specifications and verify exact equivalence to the JS implementations across large deterministic/adversarial suites rather than compiling JS via a verified compiler.
+
+---
+
+## Reproduce Locally
 
 ```sh
-for condition in PinJudgeInputs RequireCurrentBase RequireAuthorizedHead; do
-  sed "s/$condition = TRUE/$condition = FALSE/" formal/pr_gate_merge.cfg > "$out/$condition.cfg"
-  "$runner" formal/pr_gate_merge.tla --config "$out/$condition.cfg" \
-    --view formal/pr_gate_merge.view.mjs --out "$out/$condition" || test "$?" -eq 1 || exit 1
-  cat "$out/$condition/report.md"
-done
+# Full formal verification suite (Lean builds + differential checks + all 4 TLC models)
+npm run verify:formal
+
+# Require TLC even locally (same command CI enforces)
+TLA2TOOLS=/path/to/tla2tools.jar JAVA=/path/to/java npm run verify:formal -- --require-tlc
+
+# Individual layers
+node formal/verify_state_machine_equiv.mjs
+node formal/verify_math_oracle.mjs
+node formal/verify_ui_machine.mjs
+npm test
 ```
+
+To inspect TLA+ counterexamples or redraw statecharts interactively, use the `/statechart` skill on any `formal/*.tla` model, or see [.claude/skills/verify-proof-foundry/SKILL.md](../.claude/skills/verify-proof-foundry/SKILL.md) for the project-local maintenance workflow.

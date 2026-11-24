@@ -806,10 +806,7 @@ if (buildAndAudit()) {
   for (const fam of ["a", "b", "c"]) if (!caughtFamilies.has(fam)) fail(`no mutant of family (${fam}) was caught`);
 }
 
-// Known divergence (informational): seat names inherited from Object.prototype.
-// `points_by_seat[seat] || 0` reads an inherited property, such as `constructor`, so the ledger
-// concatenates strings. The Lean model reads own properties only, which is the intended
-// semantics. The generator therefore keeps such names out of the differential domain.
+// Regression check: prototype-key seat names (e.g. "constructor") must use own properties only.
 if (leanRun) {
   const lemma = { id: "R", kind: "record", status: "conjecture", statement_file: STMT_FILE, record: { direction: "min", start_target: 10 } };
   const c = { op: "replay", slug: "m", lemma, subs: [mkSub("m", lemma, "record", 9, { seat: "constructor" }), mkSub("m", lemma, "record", 7, { seat: "constructor" })].map(clone), gitAddedTs: [], currentHashes: { statementHashes: { [STMT_FILE]: "S1" }, coreHash: "C1" } };
@@ -817,7 +814,8 @@ if (leanRun) {
   const leanPts = JSON.parse(r.stdout).results[0].lemma.record_state.points_by_seat;
   const jsPts = real.replayRecordSubmissions(c.slug, clone(lemma), clone(c.subs), { gitAddedTs: new Map(), currentHashes: c.currentHashes }).record_state.points_by_seat;
   const same = canon(leanPts) === canon(jsPts);
-  info(`known divergence (prototype-key seat "constructor"): spec ${JSON.stringify(leanPts)}, js ${JSON.stringify(jsPts)}${same ? " (now fixed in JS)" : " (product bug, see formal/lean/PFFormal/StateMachine.lean header)"}`);
+  if (!same) fail(`prototype-key seat "constructor" diverged: spec ${JSON.stringify(leanPts)}, js ${JSON.stringify(jsPts)}`);
+  else info(`prototype-key seat "constructor" matches Lean spec: ${JSON.stringify(jsPts)}`);
 }
 
 if (failures) {

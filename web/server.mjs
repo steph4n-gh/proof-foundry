@@ -160,11 +160,27 @@ const server = http.createServer((req, res) => {
   }
 
   if (pathname === "/api/missions") {
+    const snaps = listMissionSlugs().map((s) => snapshotFor(s)).filter((s) => s.ready);
+    const claims = [];
+    for (const snap of snaps) {
+      for (const l of snap.lemmas || []) {
+        if (l.kind === "record") continue;
+        claims.push({
+          id: l.id,
+          title: l.title || l.id,
+          mission: snap.mission.slug,
+          mission_title: snap.mission.title,
+          seal: l.seal || "open",
+          status: l.status || "conjecture",
+          theorem_name: l.theorem_name || "",
+        });
+      }
+    }
     res.writeHead(200, {
       "Content-Type": "application/json; charset=utf-8",
       "X-Content-Type-Options": "nosniff",
     });
-    res.end(JSON.stringify({ missions: loadAllMissionsSummary(), default: DEFAULT_MISSION, static: false }));
+    res.end(JSON.stringify({ missions: loadAllMissionsSummary(snaps), claims, default: DEFAULT_MISSION, static: false }));
     return;
   }
 

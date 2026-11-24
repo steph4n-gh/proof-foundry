@@ -21,6 +21,7 @@ import {
   isRungConquered,
 } from "./missions.mjs";
 import { checkCommandArtifact } from "./judges/command.mjs";
+import { runJudge } from "./judges/index.mjs";
 import { parseGitRawZ, classifyEntries, verifyPrEntries, validateRecordImprovement } from "./pr_gate.mjs";
 import { readEvents } from "./build_site.mjs";
 
@@ -284,7 +285,13 @@ export function intervalAdd([a,b],[c,d]){ return [nextDown(a+c), nextUp(b+d)]; }
       JSON.stringify(n14R)
     );
 
-    // Positive control on S-num-002 with honest fields -> PASSES!
+    // Positive control on S-num-002 with honest fields (including core_hash) -> PASSES!
+    const sciCoreHash = crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(path.resolve("missions/verified-science-kernels/judge/verify.mjs")))
+      .digest("hex");
+
+    // N14b: missing core_hash on donor proof PR -> rejected!
     fs.writeFileSync(
       path.resolve(n14SubRel),
       JSON.stringify({
@@ -304,8 +311,78 @@ export function intervalAdd([a,b],[c,d]){ return [nextDown(a+c), nextUp(b+d)]; }
         },
       })
     );
+    const missingCoreR = verifyPrEntries(n14Entries);
+    assert(
+      !missingCoreR.ok && missingCoreR.reports[0]?.reason?.includes("core_hash mismatch"),
+      "N14b (missing core_hash on donor proof PR) rejected by verdict binding",
+      JSON.stringify(missingCoreR)
+    );
+
+    fs.writeFileSync(
+      path.resolve(n14SubRel),
+      JSON.stringify({
+        schema: "fleet-submission/2",
+        mission: "verified-science-kernels",
+        lemma_id: "S-num-002",
+        kind: "proof",
+        file: sciArtRel,
+        theorem: "interval_add_soundness",
+        checker: {
+          ok: true,
+          judge: "command",
+          file_hash: s2Hash,
+          core_hash: sciCoreHash,
+          statement_frozen: false,
+          axioms: ["containment_battery", "outward_rounding_1e16_plus_1"],
+          by_seat: "donor-test-ok",
+        },
+      })
+    );
     const posR = verifyPrEntries(n14Entries);
     assert(posR.ok && posR.checked === 1 && !posR.eligible_for_auto_merge, "Positive control: honest S-num-002 donor PR passes verify-pr (non-frozen -> not auto-mergeable)", JSON.stringify(posR));
+
+    // N14c: Command-Judge --permission sandbox blocks fs read/write escape attempts inside untrusted .mjs!
+    fs.writeFileSync(
+      sciArtAbs,
+      `import fs from "node:fs";
+fs.readFileSync("/etc/hosts", "utf8");
+export function intervalAdd([a,b],[c,d]){ return [a+c, b+d]; }
+`
+    );
+    const s2Escape = runJudge(loadMission("verified-science-kernels"), {
+      file: sciArtRel,
+      target: "interval_add_soundness",
+      kind: "proof",
+    });
+    assert(
+      !s2Escape.ok && /ERR_ACCESS_DENIED|Isolated artifact runner failed/.test(s2Escape.reason || ""),
+      "N14c (Command-Judge --permission sandbox blocks untrusted fs.readFileSync escape)",
+      JSON.stringify(s2Escape)
+    );
+
+    // N14d: Pure-data minimax parser rejects executable JS imports/code without ever executing it!
+    const evilRecRel = "missions/verified-science-kernels/artifacts/S_rec_exp_s449.mjs";
+    const evilRecAbs = path.resolve(evilRecRel);
+    fs.writeFileSync(
+      evilRecAbs,
+      `import fs from "node:fs";
+fs.writeFileSync("/tmp/should_never_exist_pf", "pwn");
+export const coeffs = [1, 1, 0.5, 0.16666667, 0.04166667, 0.00833333, 0.00138889, 0.00019841];
+`
+    );
+    tmpSubs.push(evilRecAbs);
+    const evilRecRes = runJudge(loadMission("verified-science-kernels"), {
+      file: evilRecRel,
+      target: "minimax_exp_deg7",
+      kind: "record",
+      expectedScore: 449,
+      statementFile: "missions/verified-science-kernels/specs/S_rec_exp.json",
+    });
+    assert(
+      !evilRecRes.ok && !fs.existsSync("/tmp/should_never_exist_pf"),
+      "N14d (Pure-data minimax parser rejects executable JS with zero code execution)",
+      JSON.stringify(evilRecRes)
+    );
   }
 } finally {
   for (const f of tmpSubs) {

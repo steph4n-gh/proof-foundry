@@ -264,9 +264,25 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     fs.writeFileSync(path.join(ROOT, "PROOFS.md"), proofsMd, "utf8");
   }
 
+  const claimsIndex = [];
+  for (const snap of snaps) {
+    for (const l of snap.lemmas || []) {
+      if (l.kind === "record") continue;
+      claimsIndex.push({
+        id: l.id,
+        title: l.title || l.id,
+        mission: snap.mission.slug,
+        mission_title: snap.mission.title,
+        seal: l.seal || "open",
+        status: l.status || "conjecture",
+        theorem_name: l.theorem_name || "",
+      });
+    }
+  }
+
   fs.writeFileSync(
     path.join(dataDir, "missions.json"),
-    JSON.stringify({ missions: loadAllMissionsSummary(snaps), static: true, snapshot_at: new Date().toISOString() }, null, 2),
+    JSON.stringify({ missions: loadAllMissionsSummary(snaps), claims: claimsIndex, static: true, snapshot_at: new Date().toISOString() }, null, 2),
     "utf8"
   );
   console.log(`Built static GitHub Pages dashboard in dist/ (including dist/PROOFS.md) for ${slugs.length} missions: ${slugs.join(", ")}`);
