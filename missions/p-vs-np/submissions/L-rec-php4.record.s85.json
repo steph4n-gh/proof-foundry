@@ -1,0 +1,27 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "p-vs-np",
+  "lemma_id": "L-rec-php4",
+  "kind": "record",
+  "score": 85,
+  "file": "lean/PnP/Lemmas/L_rec_php4_s85.lean",
+  "theorem": "PnP.Lemmas.L_rec_php4_s85.record",
+  "signature": "PnP.Lemmas.L_rec_php4_s85.record :\n  PnP.Statements.L_rec_php4.Record 85",
+  "at": "2026-11-24T00:08:01.841Z",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-24T00:08:01.841Z",
+    "duration_ms": 812,
+    "axioms": [
+      "propext",
+      "Quot.sound"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "b55429e457408c516eddc65f4cfc49b672aeda78601d68688b9b06f6d9f67fec",
+    "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
+    "statement_frozen": true,
+    "statement_hash": "3e7019bab6ffaac3bfb714467c7b6e9a3f3c2086803cb35e9deea53c9abfcb6b"
+  }
+}
