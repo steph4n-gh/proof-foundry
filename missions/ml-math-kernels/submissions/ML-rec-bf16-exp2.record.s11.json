@@ -1,0 +1,29 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "ml-math-kernels",
+  "lemma_id": "ML-rec-bf16-exp2",
+  "kind": "record",
+  "score": 11,
+  "file": "missions/ml-math-kernels/artifacts/ML_rec_bf16_exp2_s11.json",
+  "theorem": "bf16_exp2",
+  "signature": "bf16_exp2 ≤ 11 ops [actual=11 ops, max_ulp=1/1, exact=63865/65536]",
+  "at": "2026-11-24T17:58:17.448Z",
+  "checker": {
+    "ok": true,
+    "judge": "command",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-24T17:58:17.449Z",
+    "duration_ms": 83,
+    "axioms": [
+      "exhaustive_65536_bf16",
+      "max_ulp_1_le_1",
+      "pure_data_json_zero_exec",
+      "exact_dyadic_fmaf"
+    ],
+    "lean_version": "Exhaustive 65,536-Input BF16 Pure-Data Judge v1 (zero JS execution)",
+    "file_hash": "19b5a46251c823b0973223b71e1673b1ce10760991c410c948dc99509310d579",
+    "core_hash": "81d4bbc04efc97ad4524f6ec2a3ff36cbcdc477fa65d6759362e3483c2fea9b8",
+    "statement_frozen": true,
+    "statement_hash": "98b77abdd0a0afbcca4fb99f62c5c235f8b57319a8a726d363538223a1914c50"
+  }
+}
