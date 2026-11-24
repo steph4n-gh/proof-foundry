@@ -307,21 +307,25 @@ test("CLI rejects lifecycle conflicts and moves actual seat claims", (t) => {
   assert.ok(persisted.seats.every((seat) => seat.current_lemma == null && seat.status === "idle"));
 });
 
-test("global records project all six missions and eighteen hunts", () => {
-  const snapshots = listMissionSlugs().map((slug) => {
+test("global records project all missions and live hunts", () => {
+  const slugs = listMissionSlugs();
+  const snapshots = slugs.map((slug) => {
     const mission = loadMission(slug);
     const snap = buildMissionSnapshot(mission);
     return snap;
   });
+  const expectedRecords = snapshots.reduce((sum, s) => sum + s.lemmas.filter((l) => l.kind === "record").length, 0);
   const records = projectGlobalRecords(snapshots, at);
   assert.equal(records.generated_at, at);
-  assert.equal(records.totals.missions, 6);
-  assert.equal(records.records.length, 18);
-  assert.equal(records.totals.records_active + records.totals.records_closed, 18);
+  assert.equal(records.totals.missions, slugs.length);
+  assert.ok(slugs.length >= 9, `expected >= 9 missions, got ${slugs.length}`);
+  assert.equal(records.records.length, expectedRecords);
+  assert.ok(expectedRecords >= 35, `expected >= 35 record hunts, got ${expectedRecords}`);
+  assert.equal(records.totals.records_active + records.totals.records_closed, expectedRecords);
   assert.ok(records.totals.trusted_proofs > 0);
   assert.ok(records.latest_verified?.file);
   assert.ok(records.latest_verified?.at);
-  assert.equal(new Set(records.records.map((r) => `${r.mission}/${r.id}`)).size, 18);
+  assert.equal(new Set(records.records.map((r) => `${r.mission}/${r.id}`)).size, expectedRecords);
   const min = records.records.find((r) => r.id === "SN-rec-013");
   assert.equal(min.literature_bound, 43);
   assert.equal(min.gap, min.closed ? 0 : Math.max(0, (min.best_score ?? min.start_target) - (min.proven_bound ?? min.literature_bound)));
@@ -330,9 +334,10 @@ test("global records project all six missions and eighteen hunts", () => {
   assert.equal(max.gap, max.closed ? 0 : Math.max(0, (max.proven_bound ?? max.literature_bound) - (max.best_score ?? max.start_target)));
 
   const missions = loadAllMissionsSummary(snapshots);
-  assert.equal(missions.length, 6);
+  assert.equal(missions.length, slugs.length);
   for (const mission of missions) {
     assert.ok(mission.description);
+    assert.ok(mission.impact?.tier && mission.impact?.ships_to, `mission ${mission.slug} missing impact metadata`);
     assert.equal(mission.objectives_detail.length, mission.objectives.total);
     for (const objective of mission.objectives_detail) {
       assert.ok(objective.id && objective.title && objective.tier);
@@ -393,7 +398,7 @@ esac
   const { generated_at: staticAt, ...siteRecords } = staticRecords;
   assert.ok(Number.isFinite(Date.parse(liveAt)) && Number.isFinite(Date.parse(staticAt)));
   assert.deepEqual(liveRecords, siteRecords);
-  assert.equal(liveRecords.records.length, 18);
+  assert.ok(liveRecords.records.length >= 37, `expected >= 37 live records, got ${liveRecords.records.length}`);
   assert.equal(liveRecords.records.find((r) => r.id === passing.claim).open_prs[0].check_state, "passing");
 
   async function json(url) {
@@ -508,14 +513,17 @@ test("fleet next supports --mission all, --exclude, --exclude-file, ranking, PR 
   assert.equal(pp.claim.kind, "record");
 
   // Ranking + open-PR handling via fake `gh` stub:
-  // Fixed claim SN-001 with open PR -> skipped in skipped_active_prs;
+  // Open fixed claim with open PR -> skipped in skipped_active_prs;
   // KotH hunt SN-rec-013 with open PR -> STILL served when fixed bounties are excluded, listed in active_record_prs,
   // and ranked AFTER unclaimed KotH hunts with no active PR!
+  const snAll = deriveMissionState("sorting-networks").state.lemmas;
+  const openFixedSn = snAll.find((l) => l.kind !== "record" && l.status === "conjecture");
+  assert.ok(openFixedSn, "sorting-networks has an open fixed claim for PR-skip test");
   const binDir = path.join(dir, "bin");
   fs.mkdirSync(binDir, { recursive: true });
   const fakeGh = path.join(binDir, "gh");
   const fakePrs = [
-    { number: 501, title: "SN-001 witness", url: "https://example.test/501", headRefName: "donor/sn-001", updatedAt: new Date().toISOString(), statusCheckRollup: [] },
+    { number: 501, title: `${openFixedSn.id} witness`, url: "https://example.test/501", headRefName: `donor/${openFixedSn.id.toLowerCase()}`, updatedAt: new Date().toISOString(), statusCheckRollup: [] },
     { number: 502, title: "SN-rec-013 score 46", url: "https://example.test/502", headRefName: "donor/sn-rec-013-s46", updatedAt: new Date().toISOString(), statusCheckRollup: [] },
   ];
   fs.writeFileSync(fakeGh, `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify(fakePrs)}'\n`, { mode: 0o755 });
@@ -525,12 +533,11 @@ test("fleet next supports --mission all, --exclude, --exclude-file, ranking, PR 
   assert.equal(snWithPr.status, 0, snWithPr.stderr);
   const snp = JSON.parse(snWithPr.stdout);
   assert.equal(snp.pr_sync_ok, true);
-  assert.ok(snp.skipped_active_prs.some((x) => x.id === "SN-001"), "fixed claim with open PR skipped");
+  assert.ok(snp.skipped_active_prs.some((x) => x.id === openFixedSn.id), "fixed claim with open PR skipped");
   assert.ok(snp.active_record_prs.some((x) => x.id === "SN-rec-013"), "KotH hunt with open PR reported");
-  assert.notEqual(snp.claim.id, "SN-001");
+  assert.notEqual(snp.claim.id, openFixedSn.id);
 
   // Exclude all fixed claims in sorting-networks AND all other KotH hunts except SN-rec-013 -> SN-rec-013 STILL served!
-  const snAll = deriveMissionState("sorting-networks").state.lemmas;
   const exExceptRec13 = snAll.filter((l) => l.id !== "SN-rec-013").map((l) => l.id).join(",");
   const recServed = runNode(["hub/fleet.mjs", "next", "--mission", "sorting-networks", "--exclude", exExceptRec13], { env: ghEnv });
   assert.equal(recServed.status, 0, recServed.stderr);

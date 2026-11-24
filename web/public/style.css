@@ -953,6 +953,194 @@ input:hover {
   color: var(--muted);
   margin-top: 6px;
 }
+.toc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+.toc-tier {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.toc-tier.is-direct {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-tint);
+  font-weight: 600;
+}
+.toc-tier.is-frontier {
+  color: var(--ink);
+}
+.toc-impact {
+  font-size: 13.5px;
+  color: var(--ink);
+  margin-top: 5px;
+  max-width: 72ch;
+}
+.toc-impact-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-right: 6px;
+}
+.impact-tier {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.impact-tier.is-direct {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-tint);
+  font-weight: 600;
+}
+.impact-tier.is-frontier {
+  color: var(--ink);
+}
+.impact-grid {
+  margin-top: 4px;
+}
+.impact-copy {
+  font-size: 15px;
+  color: var(--ink);
+  margin-top: 8px;
+  line-height: 1.55;
+}
+.impact-copy + .impact-copy {
+  margin-top: 10px;
+}
+.impact-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+  display: block;
+  margin-bottom: 3px;
+}
+.impact-consumers {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.impact-consumers li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 14px;
+}
+.impact-consumers li:last-child {
+  border-bottom: 0;
+}
+.impact-consumers a {
+  font-weight: 600;
+}
+.impact-consumers .impact-cdetail {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.impact-ex-head {
+  margin-top: 22px;
+}
+.impact-examples {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--rule);
+}
+.impact-ex-row {
+  padding: 16px 20px 18px;
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.impact-ex-row:first-child {
+  padding-left: 0;
+}
+.impact-ex-row:last-child {
+  border-right: 0;
+  padding-right: 0;
+}
+.impact-ex-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.impact-ex-use {
+  font-family: var(--font-display);
+  font-size: 18px;
+  line-height: 1.25;
+}
+.impact-ex-mech {
+  font-size: 13.5px;
+  color: var(--muted);
+  line-height: 1.48;
+}
+.impact-ex-metric {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--accent);
+  margin-top: auto;
+  padding-top: 6px;
+}
+.d-usecase {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-left: 2px solid var(--accent);
+  background: var(--surface);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.d-usecase strong {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-right: 8px;
+}
+.dropin-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.dropin-head h4 {
+  margin: 0;
+}
+.dropin-box {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-x: auto;
+  max-height: 360px;
+}
 .toc-counts {
   font-size: 13.5px;
   color: var(--muted);
@@ -2070,6 +2258,19 @@ input:hover {
   }
   .colophon {
     grid-template-columns: 1fr;
+  }
+  .impact-examples {
+    grid-template-columns: 1fr;
+  }
+  .impact-ex-row,
+  .impact-ex-row:first-child,
+  .impact-ex-row:last-child {
+    padding: 14px 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .impact-ex-row:last-child {
+    border-bottom: 0;
   }
   .colophon li,
   .colophon li:first-child {

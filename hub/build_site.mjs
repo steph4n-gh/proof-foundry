@@ -15,6 +15,7 @@ import {
   deriveMissionState,
 } from "./missions.mjs";
 import { projectGlobalRecords, projectMissionSnapshot } from "./state_machine.mjs";
+import { extractDropInArtifact } from "./export_dropin.mjs";
 
 const DIST = path.join(ROOT, "dist");
 const PUBLIC_DIR = path.join(ROOT, "web", "public");
@@ -121,8 +122,13 @@ export function fetchOpenPRs(repo = "steph4n-gh/proof-foundry") {
 export function buildMissionSnapshot(mission, prSnap = null) {
   const { state } = deriveMissionState(mission.slug, { project: false });
   const events = readEvents(mission.paths.eventsFile, 160);
+  const projected = projectMissionSnapshot(mission, state, prSnap);
   return {
-    ...projectMissionSnapshot(mission, state, prSnap),
+    ...projected,
+    mission: {
+      ...projected.mission,
+      impact: mission.impact || null,
+    },
     ready: true,
     snapshot_at: new Date().toISOString(),
     pr_sync: prSnap ? { ok: prSnap.ok, fetched_at: prSnap.fetched_at } : { ok: false, fetched_at: null },
@@ -165,6 +171,27 @@ export function renderMasterProofsMarkdown(snapshots) {
     "",
   ];
 
+  const impactOrder = { direct_production: 0, research_frontier: 1, foundational: 2 };
+  const impactSnaps = [...snapshots].sort(
+    (a, b) => (impactOrder[a.mission.impact?.tier] ?? 9) - (impactOrder[b.mission.impact?.tier] ?? 9) || a.mission.slug.localeCompare(b.mission.slug)
+  );
+  if (impactSnaps.some((s) => s.mission.impact)) {
+    lines.push("## Where Verified Proofs Ship (Direct Real-World Impact)");
+    lines.push("");
+    lines.push("> Full real-world impact breakdown & drop-in integration examples: [docs/REAL_WORLD_IMPACT.md](./docs/REAL_WORLD_IMPACT.md).");
+    lines.push("");
+    lines.push("| Mission | Impact Tier | Ships Directly To | What One Step Buys |");
+    lines.push("|---|---|---|---|");
+    for (const s of impactSnaps) {
+      const imp = s.mission.impact;
+      if (!imp) continue;
+      const safeShips = String(imp.ships_to || "").replace(/\|/g, "\\|");
+      const safeGain = String(imp.what_one_step_buys || "").replace(/\|/g, "\\|");
+      lines.push(`| \`${s.mission.slug}\` | **${imp.tier_label || imp.tier}** | ${safeShips} | ${safeGain} |`);
+    }
+    lines.push("");
+  }
+
   if (allRecords.length) {
     lines.push("## King of the Hill — Live Auto-Ratcheting Record Hunts");
     lines.push("");
@@ -192,7 +219,12 @@ export function renderMasterProofsMarkdown(snapshots) {
 
   for (const snap of snapshots) {
     lines.push(`## ${snap.mission.title} (\`${snap.mission.slug}\`)`);
-    lines.push(`*Judge: ${snap.mission.judge?.label}*\n`);
+    lines.push(`*Judge: ${snap.mission.judge?.label}*`);
+    if (snap.mission.impact) {
+      lines.push(`*${snap.mission.impact.tier_label || snap.mission.impact.tier} · Ships to: ${snap.mission.impact.ships_to}*\n`);
+    } else {
+      lines.push("");
+    }
     const verified = snap.lemmas.filter((l) => l.kind !== "record" && (l.status === "checked" || l.status === "refuted" || l.status === "contradiction"));
     if (!verified.length) {
       lines.push("_No closed proofs yet (see King of the Hill hunts above or open bounties on the dashboard)._\n");
@@ -241,9 +273,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
     for (const l of snap.lemmas) {
       const activeFile = l.kind === "record" ? l.record_state?.best?.file : l.lean_file;
+      const leanSource = readAllowedArtifactFile(mission, activeFile);
       const dossier = {
         lemma: l,
-        leanSource: readAllowedArtifactFile(mission, activeFile),
+        leanSource,
+        dropInArtifact: extractDropInArtifact(slug, l, leanSource),
         refutationSource: readAllowedArtifactFile(mission, l.kind === "record" ? l.record_state?.refuted?.file : l.refutation?.counterexample_file),
         statementSource: l.statement_file ? readMissionStatementFile(mission, l.statement_file) : null,
         relatedMessages: (snap.messages || []).filter((m) => m.lemma_id === l.id),
