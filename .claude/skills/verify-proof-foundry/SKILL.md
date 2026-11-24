@@ -57,7 +57,7 @@ npm run verify:formal -- --require-tlc && npm test
 
 - **Proved universally (unbounded):** Lean 4 theorems over `PFFormal.StateMachine` (331 swept theorems) and `PFOracle.BF16Oracle` + `PFOracle.BF16Rounding` (34 pure-kernel theorems, zero `bv_decide`).
 - **Proved exhaustively within finite bounds:** TLC models (`pr_gate_merge`: 1 PR, 2 heads, 1 base advance; `claim_seat_lifecycle`: 2 seats, 2 claims; `pr_gate_koth`: 2 competing PRs on 1 hunt; `ui_machine`: 2 missions, 2 claims, seq budget 2).
-- **Verified empirically against the real JS & C++20:** `verify_state_machine_equiv.mjs` (2,818 traces / 20,233 steps, 10 mutants), `verify_ml_oracle.mjs` (65,536/65,536 BF16 sweep + 2,377 adversarial cases + 3 CLI kernels + 5 mutants), `missions/ml-math-kernels/judge/test_verify.mjs` (9 tests including C++20 `-fsanitize=undefined` across 6 kernels × 65,536 inputs), `verify_ui_machine.mjs` (11,099 trace steps + 23,296 URL round-trips + 20,231 adapter states).
+- **Verified empirically against the real JS & C++20:** `verify_state_machine_equiv.mjs` (2,818 traces / 20,233 steps, 10 mutants), `verify_ml_oracle.mjs` (65,536/65,536 BF16 sweep + 2,377 adversarial cases + 3 CLI kernels + 5 mutants), `missions/ml-math-kernels/judge/test_verify.mjs` (9 tests including C++20 `-fsanitize=undefined` across 7 kernels × 65,536 inputs), `verify_ui_machine.mjs` (11,099 trace steps + 23,296 URL round-trips + 20,231 adapter states).
 - **Outside the proof boundary (TCB):** Lean 4.36.0 kernel, Node.js/V8, C++20/CUDA compilers, Linux/macOS, Git, GitHub branch-protection internals (`strict_required_status_checks_policy: true`), float64 transcendental reference targets (`Math.sqrt`/`Math.pow`/`Math.exp`/`erfExact64`/`erfcExact64`), and browsers.
 
 ## Updating the Sync Commit

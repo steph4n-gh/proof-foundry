@@ -201,10 +201,11 @@ test("drop-in CUDA/C++ emitters use UB-free unsigned 32-bit wrapping and match J
     { id: "ML-rec-bf16-exp2", fn: "pf_bf16_exp2", raw: fs.readFileSync(path.join(MISSION_DIR, "artifacts/ML_rec_bf16_exp2_s18.json"), "utf8") },
     { id: "ML-rec-bf16-rsqrt", fn: "pf_bf16_rsqrt", raw: fs.readFileSync(path.join(MISSION_DIR, "artifacts/ML_rec_bf16_rsqrt_s17.json"), "utf8") },
     { id: "ML-rec-bf16-silu", fn: "pf_bf16_silu", raw: fs.readFileSync(path.join(MISSION_DIR, "artifacts/ML_rec_bf16_silu_s31.json"), "utf8") },
-    // Adversarial synthetic kernels exercising out-of-range/nonfinite ftoi_trunc, ftoi_round, and signed-zero min/bitcast!
+    // Adversarial synthetic kernels exercising out-of-range/nonfinite ftoi_trunc, ftoi_round, and signed-zero min/max!
     { id: "ML-adv-ftoi-trunc", fn: "pf_ml_adv_ftoi_trunc", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["ftoi_trunc", 0], ["itof", 1]], output: 2 }) },
     { id: "ML-adv-ftoi-round", fn: "pf_ml_adv_ftoi_round", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["ftoi_round", 0], ["itof", 1]], output: 2 }) },
     { id: "ML-adv-min-s0", fn: "pf_ml_adv_min_s0", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 0.0], ["min", 0, 1], ["bitcast_i32", 2], ["itof", 3]], output: 4 }) },
+    { id: "ML-adv-max-s0", fn: "pf_ml_adv_max_s0", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", -0.0], ["max", 0, 1], ["bitcast_i32", 2], ["itof", 3]], output: 4 }) },
   ];
   const snippets = [];
   const parsedMap = [];
@@ -244,17 +245,20 @@ test("drop-in CUDA/C++ emitters use UB-free unsigned 32-bit wrapping and match J
 #define __device__
 #define __forceinline__ inline
 
-// CUDA PTX min.f32 / max.f32 return the non-NaN operand for ALL NaNs (both qNaN and sNaN),
-// whereas ARM64 C++ std::fminf (fminnm) propagates sNaN. Keep std::fminf/std::fmaxf for finite/±0!
+// CUDA PTX min.f32 / max.f32 guarantee non-NaN preference (for both qNaN and sNaN)
+// and signed-zero ordering (-0.0f < +0.0f). Host C++ std::fminf/std::fmaxf leave
+// ±0 ordering unspecified (x86_64 GCC lowers to minss) and ARM64 fminnm propagates sNaN.
 static inline float pf_ptx_fminf(float a, float b) {
   if (std::isnan(a)) return b;
   if (std::isnan(b)) return a;
-  return std::fminf(a, b);
+  if (a == 0.0f && b == 0.0f) return (std::signbit(a) || std::signbit(b)) ? -0.0f : 0.0f;
+  return a < b ? a : b;
 }
 static inline float pf_ptx_fmaxf(float a, float b) {
   if (std::isnan(a)) return b;
   if (std::isnan(b)) return a;
-  return std::fmaxf(a, b);
+  if (a == 0.0f && b == 0.0f) return (std::signbit(a) && std::signbit(b)) ? -0.0f : 0.0f;
+  return a > b ? a : b;
 }
 #define fminf pf_ptx_fminf
 #define fmaxf pf_ptx_fmaxf
@@ -297,6 +301,7 @@ int main() {
     out[3][b] = f32_to_bf16_rne(pf_ml_adv_ftoi_trunc(x));
     out[4][b] = f32_to_bf16_rne(pf_ml_adv_ftoi_round(x));
     out[5][b] = f32_to_bf16_rne(pf_ml_adv_min_s0(x));
+    out[6][b] = f32_to_bf16_rne(pf_ml_adv_max_s0(x));
   }
   std::fwrite(out, sizeof(uint16_t), ${cases.length} * 65536, stdout);
   return 0;
