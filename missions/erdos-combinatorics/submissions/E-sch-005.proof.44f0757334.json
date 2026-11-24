@@ -1,0 +1,26 @@
+{
+  "schema": "fleet-submission/2",
+  "mission": "erdos-combinatorics",
+  "lemma_id": "E-sch-005",
+  "kind": "proof",
+  "at": "2026-11-23T23:48:43.646Z",
+  "file": "missions/erdos-combinatorics/lean/Erdos/Claims/E_sch_005.lean",
+  "theorem": "Erdos.Claims.E_sch_005.schur_four_ge_44",
+  "signature": "Erdos.Claims.E_sch_005.schur_four_ge_44 :\n  Erdos.Statements.E_sch_005.Claim",
+  "checker": {
+    "by_seat": "donor-steph4n-gh",
+    "duration_ms": 4218,
+    "axioms": [
+      "propext",
+      "Quot.sound"
+    ],
+    "file_hash": "44f0757334228af50a43ef72854c12ed01d123f64951c7c88729cc704ceed295",
+    "core_hash": "d340c0dbbf11c6f8b34fdffed7b9b6a14a1587a2a516de89911dc5a93235a3d8",
+    "statement_frozen": true,
+    "statement_hash": "94e32fe27ff270745bedd4b80b98651480b8097b6223acc4846f7dd390a9cd67",
+    "ok": true,
+    "judge": "lean4",
+    "checked_at": "2026-11-23T23:48:43.646Z",
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)"
+  }
+}
