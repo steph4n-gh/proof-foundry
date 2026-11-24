@@ -114,9 +114,9 @@ Already verified out of the box: `ML-rec-bf16-rsqrt` (17 ops), `ML-rec-bf16-exp2
 **The bottleneck:** Modern libraries (`libc++ std::sort`, Google Highway `vqsort`, DuckDB, NVIDIA CUB `WarpSort`) finish small register tiles using branchless min/max comparator networks. Every comparator is two vector instructions; every parallel layer adds a full register-dependency latency cycle.
 
 **Headline production targets:**
-- `SN-rec-016` — **16 wires = 1 full AVX-512 register (`16×int32/float32`) or GPU half-warp**. Green's 1969 record is 60 comparators (LB 53); every verified `Net 16` exports directly as branchless C/SIMD `PF_CSWAP(v[i], v[j])` code.
+- `SN-rec-016` — **16 wires = 1 full AVX-512 register (`16×int32/float32`) or GPU half-warp**. Green's 1969 record is 60 comparators, and Tomar (Hexagon Math 2026) tightened the lower bound to **59** (leaving $S(16) \in \{59, 60\}$!); every verified `Net 16` exports directly as branchless C/SIMD `PF_CSWAP(v[i], v[j])` code.
 - `SN-rec-d16` — **16-wire parallel depth** (optimal depth **9** beats Batcher bitonic's 10 by 10% pipeline latency).
-- `SN-rec-013`, `SN-rec-014`, `SN-rec-015`, `SN-rec-d17` — Active Knuth / Bundala–Závodný world-record frontiers.
+- `SN-rec-013` ($S(13)=45$ settled by Tomar 2026; 45 verified, optimality bound `¬ Record 44` open), `SN-rec-014` ($51$ vs Tomar 2026 LB $50$), `SN-rec-015` ($56$ vs LB $54$), `SN-rec-d17` ($10$ vs LB $9$) — Active Knuth / Tomar / Bundala–Závodný world-record frontiers.
 
 ---
 
@@ -125,9 +125,9 @@ Already verified out of the box: `ML-rec-bf16-rsqrt` (17 ops), `ML-rec-bf16-exp2
 **The bottleneck:** Pure bilinear rank ignores addition overhead and coefficient growth, which cause naïve Strassen/Laderman variants to lose to schoolbook GEMM on small/medium FP16/BF16 matrices.
 
 **Headline targets:**
-- `MM-rec-3x3x3-hw` — Minimizes direct addition count for rank ≤ 23 `3×3×3` schemes restricted to **unit coefficients `{-1, 0, 1}`** (keeping FP16/BF16 numerical stability tight and lowering the real BLAS/CUTLASS crossover size).
+- `MM-rec-3x3x3-hw` — Minimizes direct **pre-CSE** addition count (`schemeAdditions`, distinct from post-CSE 55-addition schemes) for rank ≤ 23 `3×3×3` schemes restricted to **unit coefficients `{-1, 0, 1}`** (keeping FP16/BF16 numerical stability tight and lowering the real BLAS/CUTLASS crossover size).
 - `MM-rec-3x3x3` — Laderman's 50-year open integer frontier (record 23, LB 19).
-- `MM-rec-4x4-f2`, `MM-rec-3x3x4`, `MM-rec-3x4x5` — AlphaTensor & Smirnov frontiers for GF(2) coding/crypto engines and rectangular block GEMM.
+- `MM-rec-4x4-f2`, `MM-rec-3x3x4`, `MM-rec-3x4x5` — AlphaTensor, Google DeepMind AlphaEvolve (`arXiv:2506.13131`), and Smirnov frontiers for GF(2) coding/crypto engines and rectangular block GEMM.
 
 ---
 

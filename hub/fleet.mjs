@@ -209,7 +209,7 @@ const missionSlug = String(rawMissionFlag || process.env.FLEET_MISSION || DEFAUL
 
 if (!cmd || cmd === "help") {
   console.log(`Proof Foundry Fleet CLI (v4)
-Commands: missions | new | next | status | claim-add | claim | whisper | msg | verify | refute | record | record-bound | rule-dead | audit | export-submission | compile | verify-pr | strategy-note | seat-state`);
+Commands: missions | new | next | search-lemmas | status | claim-add | claim | whisper | msg | verify | refute | record | record-bound | rule-dead | audit | export-submission | compile | verify-pr | strategy-note | seat-state`);
   process.exit(0);
 }
 
@@ -286,6 +286,303 @@ if (cmd === "new") {
   process.exit(0);
 }
 
+function readRecordSubmissionSignature(mission, lemma) {
+  const best = lemma.record_state?.best;
+  if (!best) return null;
+  if (best.submission) {
+    try {
+      const subPath = path.join(mission.paths.submissionsDir, path.basename(best.submission));
+      if (fs.existsSync(subPath)) {
+        const parsed = JSON.parse(fs.readFileSync(subPath, "utf8"));
+        if (typeof parsed.signature === "string" && parsed.signature.trim()) {
+          return parsed.signature.trim();
+        }
+      }
+    } catch {}
+  }
+  const head = best.theorem || lemma.theorem_name || lemma.id;
+  const def = lemma.statement_def || lemma.statement || "";
+  return def ? `${head} : ${def} ${best.score}` : `${head} (score ${best.score})`;
+}
+
+async function computeChampionDiagnostics(mission, pick, best) {
+  if (mission.slug !== "ml-math-kernels" || !best?.file?.endsWith(".json") || !pick.statement_file) {
+    return null;
+  }
+  try {
+    const artAbs = path.resolve(ROOT, best.file);
+    const specAbs = path.resolve(ROOT, pick.statement_file);
+    if (!fs.existsSync(artAbs) || !fs.existsSync(specAbs)) return null;
+    const { parseAndValidateKernel, verifyExhaustiveBf16 } = await import(
+      "../missions/ml-math-kernels/judge/verify.mjs"
+    );
+    const parsed = parseAndValidateKernel(fs.readFileSync(artAbs, "utf8"));
+    if (!parsed.ok) return null;
+    const spec = JSON.parse(fs.readFileSync(specAbs, "utf8"));
+    const verdict = verifyExhaustiveBf16(parsed, spec);
+    if (!verdict.ok) return null;
+    return {
+      tested: verdict.tested,
+      op_cost: verdict.opCost,
+      const_count: verdict.constCount,
+      max_ulp_seen: verdict.maxUlpSeen,
+      max_ulp_allowed: verdict.maxUlpAllowed,
+      exact_matches: verdict.exactMatches,
+      worst_input_bits:
+        verdict.worstInputBits != null
+          ? `0x${verdict.worstInputBits.toString(16).padStart(4, "0")}`
+          : null,
+      worst_input_val: verdict.worstInputVal,
+      worst_got: verdict.worstGot,
+      worst_expected: verdict.worstExpected,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function buildNextContext(mission, state, pick) {
+  const depSet = new Set(pick.deps || []);
+  const reusable = (state.lemmas || [])
+    .filter(
+      (l) =>
+        l.id !== pick.id &&
+        l.freshness !== "stale_core" &&
+        l.freshness !== "stale_statement" &&
+        ((l.kind !== "record" && l.status === "checked") || Boolean(l.record_state?.best))
+    )
+    .sort(
+      (a, b) =>
+        (depSet.has(a.id) ? 0 : 1) - (depSet.has(b.id) ? 0 : 1) ||
+        (a.program === pick.program ? 0 : 1) - (b.program === pick.program ? 0 : 1) ||
+        (a.kind !== "record" ? 0 : 1) - (b.kind !== "record" ? 0 : 1) ||
+        (a.rung || 99) - (b.rung || 99) ||
+        a.id.localeCompare(b.id)
+    )
+    .slice(0, 12)
+    .map((l) => {
+      const isRec = l.kind === "record";
+      return {
+        id: l.id,
+        kind: isRec ? "record" : "claim",
+        program: l.program,
+        seal: l.seal || (isRec ? (l.record_state?.closed ? "frozen" : "record") : "checked"),
+        title: l.title,
+        theorem_name: isRec ? l.record_state?.best?.theorem || l.theorem_name : l.theorem_name,
+        file: isRec ? l.record_state?.best?.file || l.lean_file : l.lean_file,
+        signature: isRec ? readRecordSubmissionSignature(mission, l) : l.verified_signature || l.statement || "",
+        best_score: isRec ? l.record_state?.best?.score ?? null : null,
+        unit: isRec ? l.record?.unit || "" : null,
+      };
+    });
+
+  const deadEnds = (state.lemmas || [])
+    .filter((l) => l.id !== pick.id && (l.status === "refuted" || l.status === "dead"))
+    .sort(
+      (a, b) =>
+        (a.program === pick.program ? 0 : 1) - (b.program === pick.program ? 0 : 1) ||
+        a.id.localeCompare(b.id)
+    )
+    .slice(0, 10)
+    .map((l) => ({
+      id: l.id,
+      status: l.status,
+      program: l.program,
+      title: l.title,
+      wall: l.epitaph?.wall || null,
+      summary: l.refutation?.summary || l.epitaph?.reason || "",
+    }));
+
+  let champion = null;
+  if (pick.kind === "record" && pick.record_state?.best) {
+    const best = pick.record_state.best;
+    const isMax = pick.record?.direction === "max";
+    const provenBound = pick.record_state?.refuted?.inclusive_bound ?? null;
+    const litBest = pick.record?.literature_best ?? null;
+    const litBound = (isMax ? pick.record?.literature_upper_bound : pick.record?.literature_lower_bound) ?? null;
+    let phase = "open";
+    if (pick.record_state?.closed) {
+      phase = "closed";
+    } else if (
+      pick.record?.allow_bound !== false &&
+      litBound != null &&
+      provenBound == null &&
+      (isMax ? best.score >= litBound : best.score <= litBound)
+    ) {
+      phase = "needs_bound";
+    } else if (litBest != null && (isMax ? best.score >= litBest : best.score <= litBest)) {
+      phase = "world_record";
+    } else if (litBest != null) {
+      phase = "match_literature";
+    }
+    const diagnostics = await computeChampionDiagnostics(mission, pick, best);
+    champion = {
+      score: best.score,
+      unit: pick.record?.unit || "",
+      seat: best.seat,
+      artifact_file: best.file,
+      theorem: best.theorem || null,
+      signature: readRecordSubmissionSignature(mission, pick),
+      next_target: pick.record_state?.next_target ?? null,
+      proven_bound: provenBound,
+      literature_best: litBest,
+      literature_bound: litBound,
+      phase,
+      ...(diagnostics && { diagnostics }),
+    };
+  }
+
+  return {
+    reusable_lemmas: reusable,
+    graveyard_dead_ends: deadEnds,
+    champion,
+    search_command: `node hub/fleet.mjs search-lemmas --mission ${mission.slug} --query "<keywords>"`,
+  };
+}
+
+if (cmd === "search-lemmas") {
+  // Pure in-memory natural-language/keyword index over lemmas (NEVER mutates state.json!)
+  if (flags.mission === true) {
+    console.log(JSON.stringify({ ok: false, error: "Missing value for --mission (pass a mission slug or 'all')" }, null, 2));
+    process.exit(1);
+  }
+  const scopeRaw = flags.mission === undefined ? "all" : String(flags.mission).trim();
+  const allScope = scopeRaw.toLowerCase() === "all";
+  const knownSlugs = listMissionSlugs();
+  if (!allScope && !knownSlugs.includes(scopeRaw)) {
+    console.log(
+      JSON.stringify(
+        { ok: false, error: `Unknown mission "${scopeRaw}". Available: ${knownSlugs.join(", ")} (or "all")` },
+        null,
+        2
+      )
+    );
+    process.exit(1);
+  }
+  const statusFilter = String(flags.status || "verified").trim().toLowerCase();
+  const validStatuses = new Set(["verified", "all", "checked", "record", "refuted", "dead", "open"]);
+  if (!validStatuses.has(statusFilter)) {
+    console.log(
+      JSON.stringify(
+        { ok: false, error: `Invalid --status "${statusFilter}". Allowed: ${[...validStatuses].join(", ")}` },
+        null,
+        2
+      )
+    );
+    process.exit(1);
+  }
+  const rawQuery = typeof flags.query === "string" ? flags.query.trim() : "";
+  const queryLower = rawQuery.toLowerCase();
+  const tokens = [...new Set(queryLower.split(/[^a-z0-9_+-]+/).filter((t) => t.length > 0))];
+  const limitNum = flags.limit !== undefined ? Number(flags.limit) : 20;
+  const limit = Number.isFinite(limitNum) && limitNum > 0 ? Math.min(200, Math.floor(limitNum)) : 20;
+
+  const targetSlugs = allScope ? knownSlugs : [scopeRaw];
+  const matches = [];
+
+  for (const slug of targetSlugs) {
+    const m = loadMission(slug);
+    const { state } = deriveMissionState(slug);
+    for (const l of state.lemmas || []) {
+      const isRec = l.kind === "record";
+      const isFresh = l.freshness !== "stale_core" && l.freshness !== "stale_statement";
+      const hasBest = Boolean(l.record_state?.best);
+      const isVerified = isFresh && ((l.status === "checked" && !isRec) || (isRec && hasBest));
+      if (statusFilter === "verified" && !isVerified) continue;
+      if (statusFilter === "checked" && l.status !== "checked") continue;
+      if (statusFilter === "record" && !isRec) continue;
+      if (statusFilter === "refuted" && l.status !== "refuted") continue;
+      if (statusFilter === "dead" && l.status !== "dead") continue;
+      if (
+        statusFilter === "open" &&
+        !(isRec ? !l.record_state?.closed && !l.record_state?.contradiction : l.status === "conjecture")
+      ) {
+        continue;
+      }
+
+      const sig = isRec && hasBest ? readRecordSubmissionSignature(m, l) : l.verified_signature || l.statement || "";
+      const fields = [
+        { text: String(l.id || "").toLowerCase(), weight: 8 },
+        { text: `${l.theorem_name || ""} ${l.statement_def || ""}`.toLowerCase(), weight: 6 },
+        { text: String(l.title || "").toLowerCase(), weight: 5 },
+        { text: `${sig || ""} ${l.registered_statement || ""}`.toLowerCase(), weight: 4 },
+        { text: `${slug} ${l.program || ""} ${l.use_case || ""}`.toLowerCase(), weight: 3 },
+        {
+          text: `${l.paper_notes || ""} ${l.refutation?.summary || ""} ${l.epitaph?.wall || ""} ${l.epitaph?.reason || ""}`.toLowerCase(),
+          weight: 2,
+        },
+      ];
+
+      let matchedTokens = 0;
+      let score = 0;
+      if (tokens.length === 0) {
+        score = isVerified ? 10 : 1;
+      } else {
+        if (String(l.id || "").toLowerCase() === queryLower) score += 25;
+        else if (queryLower.length >= 2 && fields.some((f) => f.text.includes(queryLower))) score += 10;
+        for (const tok of tokens) {
+          let tokScore = 0;
+          for (const f of fields) {
+            if (f.text.includes(tok)) tokScore += f.weight;
+          }
+          if (tokScore > 0) {
+            matchedTokens++;
+            score += tokScore;
+          }
+        }
+        if (matchedTokens === 0) continue;
+        if (matchedTokens === tokens.length) score += 20;
+      }
+
+      matches.push({
+        matched_tokens: matchedTokens,
+        match_score: score,
+        entry: {
+          mission: slug,
+          id: l.id,
+          kind: isRec ? "record" : "claim",
+          program: l.program,
+          status: l.status,
+          seal: l.seal || (isRec ? (hasBest ? "record" : "open") : l.status),
+          title: l.title,
+          theorem_name: isRec && hasBest ? l.record_state.best.theorem || l.theorem_name : l.theorem_name,
+          statement_def: l.statement_def || null,
+          file: isRec && hasBest ? l.record_state.best.file : l.lean_file,
+          signature: sig,
+          best_score: isRec ? l.record_state?.best?.score ?? null : null,
+          unit: isRec ? l.record?.unit || "" : null,
+          use_case: l.use_case || null,
+          match_score: score,
+        },
+      });
+    }
+  }
+
+  matches.sort(
+    (a, b) =>
+      b.matched_tokens - a.matched_tokens ||
+      b.match_score - a.match_score ||
+      a.entry.mission.localeCompare(b.entry.mission) ||
+      a.entry.id.localeCompare(b.entry.id)
+  );
+
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        scope: allScope ? "all" : scopeRaw,
+        query: rawQuery,
+        status_filter: statusFilter,
+        total_matches: matches.length,
+        lemmas: matches.slice(0, limit).map((x) => x.entry),
+      },
+      null,
+      2
+    )
+  );
+  process.exit(0);
+}
+
 if (cmd === "next") {
   // Pure in-memory derivation across one mission or `--mission all` (NEVER mutates state.json!)
   if (flags.mission === true || !missionSlug) {
@@ -336,11 +633,13 @@ if (cmd === "next") {
   const skippedActivePr = [];
   const activeRecordPrs = [];
   const candidates = [];
+  const derivedStatesBySlug = new Map();
   let prSyncOk = false;
 
   for (const slug of targetSlugs) {
     const m = loadMission(slug);
     const { state } = deriveMissionState(slug);
+    derivedStatesBySlug.set(slug, state);
     const prSnap = getPrSnap(m.github_repo);
     if (prSnap.ok) prSyncOk = true;
     const byId = Object.fromEntries(state.lemmas.map((l) => [l.id, l]));
@@ -425,13 +724,25 @@ if (cmd === "next") {
   const picked = candidates[0];
   const m = picked.mission;
   const pick = picked.lemma;
+  const pickState = derivedStatesBySlug.get(m.slug);
+  const context = await buildNextContext(m, pickState, pick);
   const repo = m.github_repo || "steph4n-gh/proof-foundry";
+  const reusableNote =
+    context.reusable_lemmas.length > 0
+      ? ` (reuse verified lemmas in context.reusable_lemmas or run \`${context.search_command}\`)`
+      : "";
+  const deadEndNote =
+    context.graveyard_dead_ends.length > 0
+      ? ` and check context.graveyard_dead_ends (${context.graveyard_dead_ends.length} refuted/dead approaches to avoid)`
+      : "";
   let instructions;
   let branchHint;
   if (pick.kind === "record") {
     const isMax = pick.record?.direction === "max";
     const op = isMax ? "≥" : "≤";
-    const isCmd = pick.record?.artifact_ext === ".mjs";
+    const isCmd =
+      m.judge?.type === "command" ||
+      (Boolean(pick.record?.artifact_ext) && pick.record.artifact_ext !== ".lean");
     const bestScore = pick.record_state?.best?.score ?? null;
     const litBound = isMax ? pick.record?.literature_upper_bound : pick.record?.literature_lower_bound;
     const needsOptBound =
@@ -447,26 +758,29 @@ if (cmd === "next") {
       : (pick.record_state?.next_target ?? pick.record?.start_target);
     const recTargets = computeRecordTargets(m.slug, pick, recKind, targetScore);
     branchHint = `donor/${pick.id.toLowerCase()}-${recTargets.tag}-HANDLE`;
+    const champRef = context.champion
+      ? ` + incumbent champion ${context.champion.artifact_file} (${context.champion.score} ${pick.record?.unit || ""}${context.champion.diagnostics ? `; see context.champion.diagnostics for worst-ULP input ${context.champion.diagnostics.worst_input_bits}` : ""})`
+      : "";
     instructions = isCmd
       ? [
           `1. Start from a clean base off upstream/main (or origin/main if not in a fork): git fetch upstream main 2>/dev/null || git fetch origin main; git checkout -B ${branchHint} upstream/main 2>/dev/null || git checkout -B ${branchHint} origin/main`,
-          `2. Read ${m.judge?.harness_file} AND frozen spec ${pick.statement_file}`,
-          `3. Export your candidate data in ${recTargets.artifactFile} targeting score ${op} ${targetScore} ${pick.record?.unit || ""}`,
+          `2. Read ${m.judge?.harness_file} AND frozen spec ${pick.statement_file}${champRef}${reusableNote}${deadEndNote}`,
+          `3. Write your pure-data ${pick.record?.artifact_ext || ".json"} candidate in ${recTargets.artifactFile} targeting score ${op} ${targetScore} ${pick.record?.unit || ""}${context.champion ? ` (mutate from ${context.champion.artifact_file}; never edit older score files!)` : ""}`,
           `4. Verify locally (replace HANDLE with your GitHub handle): node hub/fleet.mjs record --mission ${m.slug} --lemma ${pick.id} --score ${targetScore} --seat donor-HANDLE --export`,
           `5. Revert any state/event edits (git restore --worktree --staged -- missions/*/state.json missions/*/events.ndjson), commit ONLY ${recTargets.artifactFile} and ${recTargets.submissionFile}, push, and open a PR against ${repo} referencing ${pick.id}.`,
         ]
       : needsOptBound
       ? [
           `1. Start from a clean base off upstream/main (or origin/main if not in a fork): git fetch upstream main 2>/dev/null || git fetch origin main; git checkout -B ${branchHint} upstream/main 2>/dev/null || git checkout -B ${branchHint} origin/main`,
-          `2. Read ${m.judge?.core_file} AND frozen record statement ${pick.statement_file} (construction already hits the known optimum ${bestScore} — prove optimality by refuting ${targetScore}!)`,
+          `2. Read ${m.judge?.core_file} AND frozen record statement ${pick.statement_file} (construction already hits the known optimum ${bestScore} — prove optimality by refuting ${targetScore}!)${reusableNote}${deadEndNote}`,
           `3. Prove \`theorem ${recTargets.theoremName} : ¬ ${pick.statement_def} ${targetScore}\` in ${recTargets.artifactFile}`,
           `4. Verify locally (replace HANDLE with your GitHub handle): node hub/fleet.mjs record-bound --mission ${m.slug} --lemma ${pick.id} --score ${targetScore} --seat donor-HANDLE --file ${recTargets.artifactFile} --export`,
           `5. Revert any state/event edits (git restore --worktree --staged -- missions/*/state.json missions/*/events.ndjson), commit ONLY ${recTargets.artifactFile} and ${recTargets.submissionFile}, push, and open a PR against ${repo} referencing ${pick.id}.`,
         ]
       : [
           `1. Start from a clean base off upstream/main (or origin/main if not in a fork): git fetch upstream main 2>/dev/null || git fetch origin main; git checkout -B ${branchHint} upstream/main 2>/dev/null || git checkout -B ${branchHint} origin/main`,
-          `2. Read ${m.judge?.core_file} AND frozen record statement ${pick.statement_file}`,
-          `3. Prove \`theorem ${recTargets.theoremName} : ${pick.statement_def} ${targetScore}\` in ${recTargets.artifactFile} (or any strictly better score ${op} ${targetScore}!)`,
+          `2. Read ${m.judge?.core_file} AND frozen record statement ${pick.statement_file}${champRef}${reusableNote}${deadEndNote}`,
+          `3. Prove \`theorem ${recTargets.theoremName} : ${pick.statement_def} ${targetScore}\` in ${recTargets.artifactFile} (or any strictly better score ${op} ${targetScore}!${context.champion ? ` Mutate/improve from ${context.champion.artifact_file}; never edit older score files.` : ""})`,
           `4. Verify locally (replace HANDLE with your GitHub handle): node hub/fleet.mjs record --mission ${m.slug} --lemma ${pick.id} --score ${targetScore} --seat donor-HANDLE --file ${recTargets.artifactFile} --export`,
           `5. Revert any state/event edits (git restore --worktree --staged -- missions/*/state.json missions/*/events.ndjson), commit ONLY ${recTargets.artifactFile} and ${recTargets.submissionFile}, push, and open a PR against ${repo} referencing ${pick.id}.`,
         ];
@@ -474,7 +788,7 @@ if (cmd === "next") {
     branchHint = `donor/${pick.id.toLowerCase()}-HANDLE`;
     instructions = [
       `1. Start from a clean base off upstream/main (or origin/main if not in a fork): git fetch upstream main 2>/dev/null || git fetch origin main; git checkout -B ${branchHint} upstream/main 2>/dev/null || git checkout -B ${branchHint} origin/main`,
-      `2. Read ${m.judge?.core_file || m.judge?.harness_file}${pick.statement_file ? ` AND frozen statement ${pick.statement_file}` : ""}`,
+      `2. Read ${m.judge?.core_file || m.judge?.harness_file}${pick.statement_file ? ` AND frozen statement ${pick.statement_file}` : ""}${reusableNote}${deadEndNote}`,
       `3. Write your isolated artifact in ${pick.lean_file}`,
       `4. Verify locally (replace HANDLE with your GitHub handle): node hub/fleet.mjs verify --mission ${m.slug} --lemma ${pick.id} --seat donor-HANDLE --file ${pick.lean_file} --theorem ${pick.theorem_name} --export`,
       `5. Revert any state/event edits (git restore --worktree --staged -- missions/*/state.json missions/*/events.ndjson), commit ONLY ${pick.lean_file} and missions/${m.slug}/submissions/${pick.id}.*.json, push, and open a PR against ${repo} referencing ${pick.id}.`,
@@ -493,6 +807,7 @@ if (cmd === "next") {
         remaining_count: candidates.length,
         branch_hint: branchHint,
         claim: pick,
+        context,
         instructions,
       },
       null,
@@ -558,7 +873,7 @@ if (cmd === "lemma-add" || cmd === "claim-add") {
     if (!prog) throw new Error(`Unknown program: ${flags.program}`);
     const deps = flags.deps ? flags.deps.split(",").map((s) => s.trim()).filter(Boolean) : [];
     const defaultDir = mission.judge?.allowed_dirs?.[0] || `missions/${mission.slug}/artifacts`;
-    const defaultExt = mission.judge?.type === "lean4" ? ".lean" : ".mjs";
+    const defaultExt = mission.judge?.allowed_extensions?.[0] || (mission.judge?.type === "lean4" ? ".lean" : ".json");
     const lemma = {
       id,
       program: flags.program,
