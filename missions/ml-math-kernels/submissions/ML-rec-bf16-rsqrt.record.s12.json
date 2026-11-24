@@ -1,0 +1,29 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "ml-math-kernels",
+  "lemma_id": "ML-rec-bf16-rsqrt",
+  "kind": "record",
+  "score": 12,
+  "file": "missions/ml-math-kernels/artifacts/ML_rec_bf16_rsqrt_s12.json",
+  "theorem": "bf16_rsqrt",
+  "signature": "bf16_rsqrt ≤ 12 ops [actual=12 ops, max_ulp=1/1, exact=63117/65536]",
+  "at": "2026-11-24T17:41:45.814Z",
+  "checker": {
+    "ok": true,
+    "judge": "command",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-24T17:41:45.815Z",
+    "duration_ms": 62,
+    "axioms": [
+      "exhaustive_65536_bf16",
+      "max_ulp_1_le_1",
+      "pure_data_json_zero_exec",
+      "exact_dyadic_fmaf"
+    ],
+    "lean_version": "Exhaustive 65,536-Input BF16 Pure-Data Judge v1 (zero JS execution)",
+    "file_hash": "595c91d9b5e671a6b2671a200298f49a3a128d5846135f849b627848c88a846d",
+    "core_hash": "81d4bbc04efc97ad4524f6ec2a3ff36cbcdc477fa65d6759362e3483c2fea9b8",
+    "statement_frozen": true,
+    "statement_hash": "f88f2960e4ec3fe5ae5b327a35fa12a86cb2c88f77ad0ff1d6edcbe86f78a602"
+  }
+}
