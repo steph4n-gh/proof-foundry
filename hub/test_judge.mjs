@@ -199,6 +199,26 @@ export function compensatedSum() { return 0; }
   const resN4c = checkCommandArtifact(tmplImportArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
   assert(!resN4c.ok && /import/i.test(resN4c.reason), "Attack N4c (dynamic import inside template expression) rejected", JSON.stringify(resN4c));
 
+  // Attack N4d (Daybreak Blue P2): division after object literal `{}` cannot disguise `import(...)` as regex
+  const braceDivImportArt = path.join(tmp, "BraceDivImport.mjs");
+  fs.writeFileSync(
+    braceDivImportArt,
+    `const q = {} / 1; import("node:fs").catch(() => {}) / 2;
+export function compensatedSum() { return 0; }
+`
+  );
+  const resN4d = checkCommandArtifact(braceDivImportArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(!resN4d.ok && /import/i.test(resN4d.reason), "Attack N4d (Daybreak P2: {} / 1; import(...) / 2) rejected by lexer", JSON.stringify(resN4d));
+
+  // Attack N4e (Daybreak Blue P2): regex literals are rejected fail-closed in numerical kernels
+  const regexLitArt = path.join(tmp, "RegexLit.mjs");
+  fs.writeFileSync(
+    regexLitArt,
+    `export function compensatedSum() { const r = /import/; return r.source.length; }\n`
+  );
+  const resN4e = checkCommandArtifact(regexLitArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(!resN4e.ok && /Regex literals are not permitted/i.test(resN4e.reason), "Attack N4e (regex literal fail-closed rejection) blocked", JSON.stringify(resN4e));
+
   // Positive control: aliased export list `export { impl as compensatedSum }` + harmless string `"import fake"` passes
   const aliasedExportArt = path.join(tmp, "AliasedExport.mjs");
   fs.writeFileSync(

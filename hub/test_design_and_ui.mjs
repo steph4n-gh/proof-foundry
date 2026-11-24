@@ -546,13 +546,14 @@ console.log("\n— Snapshot adapters (real mission data) —");
   } catch (err) {
     assert(false, "load real mission snapshots", err.message);
   }
-  assert(snaps.length === 6 && catalog.length === 6, "six missions load", `${snaps.length}/${catalog.length}`);
+  assert(snaps.length >= 9 && snaps.length === catalog.length, "all nine+ missions load", `${snaps.length}/${catalog.length}`);
+  assert(catalog.every((m) => m.impact && m.impact.tier && m.impact.ships_to && Array.isArray(m.impact.examples) && m.impact.examples.length >= 2), "every mission declares structured real-world impact metadata");
   const expectedRecords = snaps.reduce((a, s) => a + s.lemmas.filter((l) => l.kind === "record").length, 0);
   const synth = synthesizeRecordsPayload(snaps, catalog);
-  assert(synth.records.length === expectedRecords && expectedRecords >= 18, `synthesized records board has all ${expectedRecords} King-of-the-Hill hunts`, String(synth.records.length));
-  assert(new Set(synth.records.map((r) => r.mission)).size === 6, "records span all six missions");
+  assert(synth.records.length === expectedRecords && expectedRecords >= 35, `synthesized records board has all ${expectedRecords} King-of-the-Hill hunts`, String(synth.records.length));
+  assert(new Set(synth.records.map((r) => r.mission)).size === snaps.length, `records span all ${snaps.length} missions`);
   assert(synth.latest_verified && synth.latest_verified.id && synth.latest_verified.statement, "synthesized latest_verified theorem for the masthead", JSON.stringify(synth.latest_verified?.id));
-  assert(synth.totals.missions === 6 && synth.totals.checked_total > 0, "synthesized totals for the figure sentence", JSON.stringify(synth.totals));
+  assert(synth.totals.missions === snaps.length && synth.totals.checked_total > 0, "synthesized totals for the figure sentence", JSON.stringify(synth.totals));
   for (const r of synth.records) {
     const g = boundIntervalGeometry(r);
     const inside = (v) => v == null || (v >= 0 && v <= 100);

@@ -34,7 +34,7 @@ Formal verification was not rubber-stamping — building these proofs uncovered 
    - Closing `search` or `attempt` via `ESCAPE` left a deep-linked `route.claim` stuck in the URL.
    - Switching missions via `MISSION_LOADED` without an explicit `intent.claim` leaked the previous mission's `route.claim` onto the new mission.
    - Unprojected legacy `contradiction` records checked only `record_state.contradiction` in `recordMetaOf` instead of matching `sealOf` (`status === "contradiction" || record_state.contradiction`), and `CATALOG_FAILED` did not preserve an already-committed healthy `activeMission`.
-4. **Command-Judge sandboxing (`missions/verified-science-kernels/judge/verify.mjs`)** — Functional kernel runs now execute under Node `--permission --allow-fs-read=<realArtifact>` (blocking filesystem writes, `/proc`, and `resultPath`), and `S-rec-exp`/`S-rec-sin` coefficient artifacts are parsed statically as pure data with **zero JS execution**.
+4. **Command-Judge sandboxing (`missions/verified-science-kernels/judge/verify.mjs`)** — Functional kernel runs now execute in a double-isolated child process under Node `--permission` (with **zero** filesystem, child-process, worker, addon, or WASI permissions) + `--max-old-space-size=256` + an isolated V8 `vm` context (`Object.create(null)`, `codeGeneration: { strings: false, wasm: false }`, pre-captured `Reflect.apply` / `Object.hasOwn` intrinsics, syntax-aware `tokenizeJsCode` rejecting `import` and regex literals while preserving string/template literals verbatim) + a per-run 128-bit random stdout nonce; `S-rec-exp`/`S-rec-sin` coefficient artifacts and `ml-math-kernels` BF16 DAGs are parsed statically as pure data with **zero JS execution**.
 
 ---
 
@@ -49,7 +49,7 @@ Proved in [formal/lean/PFFormal/StateMachine.lean](./lean/PFFormal/StateMachine.
 - **Exact optimal closure:** `koth_closed_exact_optimal`, `koth_closed_denies`.
 - **Barriers, arbitrary seat↔claim bijection, trust seals & conquest:** `barrier_never_overwrites_verdict`, `seat_claim_bijection_preserved`, `trust_seal_and_conquered_sound`, `conquered_false_of_bad_seal`, `conquered_replay_default`.
 
-[formal/lean/PFFormal/AxiomCheck.lean](./lean/PFFormal/AxiomCheck.lean) mechanically sweeps all 327 theorems in `PF` during `lake build` and fails compilation if any theorem uses `sorryAx` or non-standard axioms.
+[formal/lean/PFFormal/AxiomCheck.lean](./lean/PFFormal/AxiomCheck.lean) mechanically sweeps all 331 theorems in `PF` during `lake build` and fails compilation if any theorem uses `sorryAx` or non-standard axioms.
 
 ### 2. Judge Security Boundary & PR-Gate TLA+ Models
 

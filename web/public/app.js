@@ -62,6 +62,13 @@ function safeGithubUrl(raw) {
   } catch {}
   return null;
 }
+function safeHttpsUrl(raw) {
+  try {
+    const u = new URL(String(raw || ""));
+    if (u.protocol === "https:") return u.href;
+  } catch {}
+  return null;
+}
 function int(v) {
   const n = Number(v);
   return Number.isFinite(n) ? Math.round(n) : 0;
@@ -409,19 +416,29 @@ function renderMissions() {
     prev.innerHTML = hot.length ? hot.map(recordRowHTML).join("") : `<li class="empty">No live record hunts right now.</li>`;
   }
 
-  // §2 table of contents
-  $("#missions-count").textContent = CATALOG.length ? `${CATALOG.length} missions` : "";
-  $("#missions-toc").innerHTML = CATALOG.length
-    ? CATALOG.map((m, i) => {
+  // §2 table of contents (ordered by direct real-world impact tier, then slug)
+  const tierRank = { direct_production: 0, research_frontier: 1, foundational: 2 };
+  const orderedMissions = [...CATALOG].sort(
+    (a, b) => (tierRank[a.impact?.tier] ?? 9) - (tierRank[b.impact?.tier] ?? 9) || String(a.slug).localeCompare(String(b.slug))
+  );
+  $("#missions-count").textContent = orderedMissions.length ? `${orderedMissions.length} missions` : "";
+  $("#missions-toc").innerHTML = orderedMissions.length
+    ? orderedMissions.map((m, i) => {
         const c = m.counts || {};
         const open = Math.max(0, int(c.conjecture) - int(c.records_active));
         const recs = int(c.records_active) + int(c.records_closed);
+        const imp = m.impact;
+        const tierCls = imp?.tier === "direct_production" ? "is-direct" : imp?.tier === "research_frontier" ? "is-frontier" : "";
         return `
         <li class="toc-row ${m.slug === activeSlug() ? "is-active" : ""}" data-open-mission="${esc(m.slug)}" tabindex="0" role="link" aria-label="Open mission ${esc(m.title)}">
           <span class="toc-num">${toRoman(i + 1)}.</span>
           <div>
-            <div class="toc-title">${esc(m.title)}</div>
+            <div class="toc-head">
+              <div class="toc-title">${esc(m.title)}</div>
+              ${imp?.tier_label ? `<span class="toc-tier ${tierCls}">${esc(imp.tier_label)}</span>` : ""}
+            </div>
             <p class="toc-question">${esc(m.question || m.tagline || "")}</p>
+            ${imp?.ships_to ? `<p class="toc-impact"><span class="toc-impact-label">Ships to</span>${esc(imp.ships_to)}</p>` : ""}
             <div class="toc-judge">${esc(m.judge_label || (m.judge_type === "command" ? "Command Judge" : "Lean 4 kernel"))}</div>
           </div>
           ${rungStripHTML(m)}
@@ -551,7 +568,50 @@ function renderControl() {
   ].join(sep);
   $("#control-attempt-btn").disabled = !pickNextProblem();
 
-  // §1 ladders
+  // §1 direct impact & real-world use cases
+  const imp = m.impact || meta?.impact || null;
+  const impSection = $("#control-impact-section");
+  impSection.hidden = !imp;
+  if (imp) {
+    const tierEl = $("#control-impact-tier");
+    tierEl.textContent = imp.tier_label || imp.tier || "";
+    tierEl.className = `impact-tier ${imp.tier === "direct_production" ? "is-direct" : imp.tier === "research_frontier" ? "is-frontier" : ""}`;
+    $("#control-impact-ships").textContent = imp.ships_to || "";
+    const consumersHTML = (imp.consumers || [])
+      .map((con) => {
+        const href = safeHttpsUrl(con.url);
+        const nameHTML = href
+          ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(con.name)} ↗</a>`
+          : `<strong>${esc(con.name)}</strong>`;
+        return `<li>${nameHTML}<span class="impact-cdetail">${esc(con.detail || "")}</span></li>`;
+      })
+      .join("");
+    $("#control-impact-summary").innerHTML = `
+      <div>
+        <div class="col-head"><span>Real-world bottleneck &amp; marginal gain</span><span>direct impact</span></div>
+        <p class="impact-copy"><span class="impact-label">Bottleneck</span>${esc(imp.bottleneck || "")}</p>
+        <p class="impact-copy"><span class="impact-label">What one verified step buys</span>${esc(imp.what_one_step_buys || "")}</p>
+      </div>
+      <div>
+        <div class="col-head"><span>Downstream libraries &amp; standards</span><span>${(imp.consumers || []).length} targets</span></div>
+        <ul class="impact-consumers">${consumersHTML || `<li class="muted small">See docs/REAL_WORLD_IMPACT.md</li>`}</ul>
+      </div>`;
+    $("#control-impact-examples").innerHTML = (imp.examples || [])
+      .map(
+        (ex) => `
+      <li class="impact-ex-row">
+        <div class="impact-ex-top">
+          <h3 class="impact-ex-use">${esc(ex.use_case || "")}</h3>
+          ${ex.claim_id ? `<button class="chip-link" type="button" data-open-claim="${esc(ex.claim_id)}" data-mission="${esc(m.slug)}">${esc(ex.claim_id)} →</button>` : ""}
+        </div>
+        <p class="impact-ex-mech">${esc(ex.mechanism || "")}</p>
+        <p class="impact-ex-metric">${esc(ex.metric || "")}</p>
+      </li>`
+      )
+      .join("");
+  }
+
+  // §2 ladders
   $("#ladders-count").textContent = objs.length ? `${won} of ${objs.length} conquered` : "";
   $("#ladders").innerHTML = objs.length
     ? objs
@@ -1477,6 +1537,100 @@ function renderDossier(o, p) {
   if (fresh) $("#dossier-close").focus();
 }
 
+function extractDropInClient(missionSlug, lemma, src) {
+  if (!src || typeof src !== "string") return null;
+  const ident = String(lemma.id || "artifact").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+  try {
+    if (missionSlug === "ml-math-kernels") {
+      const k = JSON.parse(src);
+      if (k?.schema !== "pf.mlkernel.v1" || !Array.isArray(k.ops)) return null;
+      const fLit = (v) => {
+        if (Object.is(v, -0)) return "-0.0f";
+        const s = Number(v).toPrecision(9);
+        if (s.includes("e") || s.includes("E")) {
+          const [m, e] = s.split(/[eE]/);
+          return `${m.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, ".0")}e${e}f`;
+        }
+        const t = s.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, ".0");
+        return (t.includes(".") ? t : `${t}.0`) + "f";
+      };
+      const fn = `pf_${String(k.target || ident).replace(/[^a-z0-9_]/gi, "_")}`;
+      const lines = [`// Verified pure-data BF16 kernel (65,536/65,536 inputs <= 1 ULP)`, `__device__ __forceinline__ float ${fn}(float r0) {`];
+      const types = ["f32"];
+      k.ops.forEach((op, i) => {
+        const r = `r${i + 1}`, nm = op[0], a = op.slice(1).map((x) => `r${x}`);
+        let ot = "f32";
+        if (nm === "const") lines.push(`  const float ${r} = ${fLit(op[1])};`);
+        else if (nm === "iconst") { ot = "i32"; lines.push(`  const int32_t ${r} = ${op[1] === -2147483648 ? "(-2147483647 - 1)" : op[1] | 0};`); }
+        else if (nm === "bitcast_i32") { ot = "i32"; lines.push(`  const int32_t ${r} = __float_as_int(${a[0]});`); }
+        else if (nm === "bitcast_f32") lines.push(`  const float ${r} = __int_as_float(${a[0]});`);
+        else if (nm === "add") lines.push(`  const float ${r} = ${a[0]} + ${a[1]};`);
+        else if (nm === "sub") lines.push(`  const float ${r} = ${a[0]} - ${a[1]};`);
+        else if (nm === "mul") lines.push(`  const float ${r} = ${a[0]} * ${a[1]};`);
+        else if (nm === "fma") lines.push(`  const float ${r} = fmaf(${a[0]}, ${a[1]}, ${a[2]});`);
+        else if (nm === "abs") lines.push(`  const float ${r} = fabsf(${a[0]});`);
+        else if (nm === "neg") lines.push(`  const float ${r} = -${a[0]};`);
+        else if (nm === "min") lines.push(`  const float ${r} = fminf(${a[0]}, ${a[1]});`);
+        else if (nm === "max") lines.push(`  const float ${r} = fmaxf(${a[0]}, ${a[1]});`);
+        else if (nm === "ftoi_trunc") { ot = "i32"; lines.push(`  const int32_t ${r} = __float2int_rz(${a[0]});`); }
+        else if (nm === "ftoi_round") { ot = "i32"; lines.push(`  const int32_t ${r} = __float2int_rn(${a[0]});`); }
+        else if (nm === "itof") lines.push(`  const float ${r} = (float)${a[0]};`);
+        else if (["iadd", "isub", "imul", "iand", "ior", "ixor", "ishl", "ishr_s", "ishr_u"].includes(nm)) {
+          ot = "i32";
+          const sym = { iadd: "+", isub: "-", imul: "*", iand: "&", ior: "|", ixor: "^", ishl: "<<", ishr_s: ">>" }[nm];
+          lines.push(nm === "ishr_u" ? `  const int32_t ${r} = (int32_t)((uint32_t)${a[0]} >> (${a[1]} & 31));` : `  const int32_t ${r} = ${a[0]} ${sym} ${a[1]};`);
+        } else if (["lt", "le", "eq"].includes(nm)) {
+          ot = "bool";
+          const sym = { lt: "<", le: "<=", eq: "==" }[nm];
+          lines.push(`  const bool ${r} = ${a[0]} ${sym} ${a[1]};`);
+        } else if (nm === "select") {
+          ot = types[op[2]] || "f32";
+          lines.push(`  const ${ot === "i32" ? "int32_t" : "float"} ${r} = ${a[0]} ? ${a[1]} : ${a[2]};`);
+        }
+        types.push(ot);
+      });
+      lines.push(`  return r${k.output};`, `}`);
+      return { lang: "cuda", title: "Drop-in CUDA / C++ __device__ kernel", code: lines.join("\n") };
+    }
+    if (missionSlug === "crypto-zk-circuits") {
+      const clean = src.replace(/\/-[\s\S]*?-\//g, "").replace(/--[^\n]*/g, "");
+      const sig = clean.match(/MultiCircuit\s+(\d+)\s+(\d+)/);
+      const gb = clean.match(/gates\s*:=\s*\[([\s\S]*?)\]/);
+      const ob = clean.match(/outputs\s*:=\s*\[([\s\S]*?)\]/);
+      if (!sig || !gb || !ob) return null;
+      const nIn = Number(sig[1]), nOut = Number(sig[2]);
+      const ops = { opAnd: "&", opOr: "|", opXor: "^" };
+      const lines = [`/* 64-way bit-sliced C99 S-box from Lean-verified ${lemma.id} */`, `static inline void pf_${ident}_bitslice64(uint64_t out[${nOut}], const uint64_t in[${nIn}]) {`];
+      for (let i = 0; i < nIn; i++) lines.push(`  const uint64_t w${i} = in[${i}];`);
+      let idx = 0;
+      for (const m of gb[1].matchAll(/⟨\s*(op[A-Za-z0-9_]+)\s*,\s*(\d+)\s*,\s*(\d+)\s*⟩/g)) {
+        const w = `w${nIn + idx++}`, a = `w${m[2]}`, b = `w${m[3]}`, op = m[1];
+        const rhs = ops[op] ? `(${a} ${ops[op]} ${b})` : op === "opXnor" ? `~(${a} ^ ${b})` : op === "opNotAnd" ? `(~${a} & ${b})` : op === "opAndNot" ? `(${a} & ~${b})` : op === "opNand" ? `~(${a} & ${b})` : op === "opNor" ? `~(${a} | ${b})` : `(${a} ^ ${b})`;
+        lines.push(`  const uint64_t ${w} = ${rhs};`);
+      }
+      if (!idx) return null;
+      [...ob[1].matchAll(/\d+/g)].forEach((m, i) => lines.push(`  out[${i}] = w${m[0]};`));
+      lines.push(`}`);
+      return { lang: "c", title: `Drop-in 64-way bit-sliced C99 S-box (${idx} ops)`, code: lines.join("\n") };
+    }
+    if (missionSlug === "sorting-networks") {
+      const clean = src.replace(/\/-[\s\S]*?-\//g, "").replace(/--[^\n]*/g, "");
+      const defs = [...clean.matchAll(/def\s+\w+\s*:\s*(?:SortNet\.)?Net\s+(\d+)\s*:=\s*\[([\s\S]*?)\]/g)];
+      if (defs.length !== 1) return null;
+      const n = Number(defs[0][1]);
+      const pairs = [...defs[0][2].matchAll(/(?:mkComp|⟨\s*⟨)\s*(\d+)\s*(?:,?\s*by\s+decide\s*⟩\s*,\s*⟨\s*)?(\d+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+      if (pairs.length < 3) return null;
+      const lines = [`/* Branchless ${n}-wire sorting network from Lean-verified ${lemma.id} */`, `static inline void pf_sort_${n}(int32_t v[${n}]) {`];
+      for (let i = 0; i < pairs.length; i += 4) {
+        lines.push(`  ${pairs.slice(i, i + 4).map(([a, b]) => `PF_CSWAP(v[${a}], v[${b}]);`).join(" ")}`);
+      }
+      lines.push(`}`);
+      return { lang: "c", title: `Drop-in branchless C/SIMD ${n}-wire sorter (${pairs.length} comparators)`, code: lines.join("\n") };
+    }
+  } catch {}
+  return null;
+}
+
 function dossierBodyHTML(d, mission) {
   const l = d.lemma;
   const isRec = l.kind === "record";
@@ -1485,6 +1639,10 @@ function dossierBodyHTML(d, mission) {
   const meta = missionMeta(mission);
   const acts = actionsOf(l);
   const fresh = freshnessOf(l);
+  const imp = snap?.mission?.impact || meta?.impact || null;
+  const matchedExample = (imp?.examples || []).find((ex) => ex.claim_id === l.id) || null;
+  const useCaseText = l.use_case || (matchedExample ? `${matchedExample.use_case}: ${matchedExample.mechanism}` : "");
+  const useCaseHTML = useCaseText ? `<div class="d-usecase"><strong>Direct use case</strong>${esc(useCaseText)}</div>` : "";
 
   const freshHTML =
     fresh === "stale_statement"
@@ -1544,6 +1702,10 @@ function dossierBodyHTML(d, mission) {
   const frozenSrc = d.statementSource ? `<section class="d-section"><h4>Statement source</h4><pre class="source-pre">${esc(d.statementSource)}</pre></section>` : "";
   const srcCode = isRec ? d.leanSource : l.status === "refuted" ? d.refutationSource : d.leanSource;
   const srcPath = isRec ? l.record_state?.best?.file : l.status === "refuted" ? l.refutation?.counterexample_file : l.lean_file;
+  const dropIn = d.dropInArtifact || extractDropInClient(mission, l, srcCode);
+  const dropInBlock = dropIn?.code
+    ? `<section class="d-section"><div class="dropin-head"><h4>${esc(dropIn.title || "Drop-in code")}</h4><button class="btn btn-sm" type="button" data-copy-dropin>Copy code</button></div><pre class="dropin-box">${esc(dropIn.code)}</pre></section>`
+    : "";
   const proofSrc = srcCode ? `<section class="d-section"><h4>${isRec ? "Current record artifact" : l.status === "refuted" ? "Counterexample source" : "Proof source"} · <span class="mono">${esc(srcPath || "")}</span></h4><pre class="source-pre">${esc(srcCode)}</pre></section>` : "";
   const boundSrc = isRec && d.refutationSource ? `<section class="d-section"><h4>Proven bound artifact · <span class="mono">${esc(l.record_state?.refuted?.file || "")}</span></h4><pre class="source-pre">${esc(d.refutationSource)}</pre></section>` : "";
   const deps =
@@ -1557,10 +1719,12 @@ function dossierBodyHTML(d, mission) {
     <p class="eyebrow">${esc(meta?.title || snap?.mission?.title || mission)}${programTitle(snap, l.program) ? ` · ${esc(programTitle(snap, l.program))}` : ""}</p>
     <h2 class="d-title">${esc(isRec ? cleanRecordTitle(l.title) : l.title)}</h2>
     <div class="d-meta">${l.theorem_name ? `<span class="mono">${esc(l.theorem_name)}</span>` : ""}${l.rung ? `<span>rung ${int(l.rung)}</span>` : ""}</div>
+    ${useCaseHTML}
     ${l.paper_notes ? `<p class="d-notes">${esc(l.paper_notes)}</p>` : ""}
     ${freshHTML}
     ${audit}
     ${actions}
+    ${dropInBlock}
     ${record}
     ${statementBlock}
     ${receipts}
@@ -1703,6 +1867,10 @@ function buildPrompt(lemma, o) {
     const t = recordTargets(slug, lemma, kind, score);
     const branch = `donor/${lemma.id.toLowerCase()}-${t.tag}-${handle}`;
     if (isCmd) {
+      const isJson = rm.artifact_ext === ".json";
+      const step3 = isJson
+        ? `3. Write a NEW score-stamped pure-data JSON artifact at \`${t.artifactFile}\` (\`schema: "pf.mlkernel.v1"\`, \`ops\`, \`output\`) achieving ${rm.op} ${score} ${rm.unit} while passing all exhaustive spec checks. Pure JSON only — zero executable code. Never edit older score files.`
+        : `3. Write a NEW score-stamped pure-data module at \`${t.artifactFile}\` exporting only the required float64 \`coeffs\` array, achieving worst-case error ${rm.op} ${score} ${rm.unit}. No imports, no Math calls, no code paths — data only. Never edit older score files.`;
       return [
         preamble,
         `Repository: https://github.com/${repo}`,
@@ -1712,7 +1880,7 @@ function buildPrompt(lemma, o) {
         `Instructions:`,
         `1. Clone/pull \`https://github.com/${repo}\` (or fetch \`upstream/main\` if working in a fork), branch \`${branch}\` off latest main, and read \`CONTRIBUTING_AGENTS.md\`.`,
         `2. Read the FROZEN spec in \`${lemma.statement_file}\` and the trusted verifier harness (do NOT edit specs/ or judge/).`,
-        `3. Write a NEW score-stamped pure-data module at \`${t.artifactFile}\` exporting only the required float64 \`coeffs\` array, achieving worst-case error ${rm.op} ${score} ${rm.unit}. No imports, no Math calls, no code paths — data only. Never edit older score files.`,
+        step3,
         `4. Verify locally & export the hashless record submission JSON:`,
         `   node hub/fleet.mjs record --mission ${slug} --lemma ${lemma.id} --score ${score} --seat ${seat} --export`,
         `5. Revert any state/event edits (\`git restore --worktree --staged -- missions/*/state.json missions/*/events.ndjson\`), commit ONLY \`${t.artifactFile}\` + \`${t.submissionFile}\`, push, and open a PR against \`${repo}\` referencing ${lemma.id}.`,
@@ -1855,7 +2023,7 @@ function searchCorpus() {
     ["ledger", "audit", "Ledger · audit log"],
   ];
   for (const [view, tab, title] of views) items.push({ group: "Views", glyph: "§", title, sub: tab ? `ledger/${tab}` : view, run: () => navigate(view, { ledgerTab: tab || undefined }) });
-  CATALOG.forEach((m, i) => items.push({ group: "Missions", glyph: toRoman(i + 1), title: m.title, sub: m.slug, hay: `${m.question || ""} ${m.tagline || ""}`, run: () => navigate("control", { mission: m.slug }) }));
+  CATALOG.forEach((m, i) => items.push({ group: "Missions", glyph: toRoman(i + 1), title: m.title, sub: m.slug, hay: `${m.question || ""} ${m.tagline || ""} ${m.impact?.ships_to || ""} ${m.impact?.tier_label || ""}`, run: () => navigate("control", { mission: m.slug }) }));
   for (const r of RECORDS?.records || []) {
     items.push({ group: "Records", glyph: "♛", title: `${r.id} · ${cleanRecordTitle(r.title)}`, sub: r.mission, hay: r.mission_title, run: () => openDossier(r.id, r.mission) });
   }
@@ -1895,7 +2063,7 @@ function computeSearchResults(query) {
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (!terms.length) {
     const pick = (g, n) => all.filter((i) => i.group === g).slice(0, n);
-    return [...pick("Views", 5), ...pick("Missions", 6), ...all.filter((i) => i.group === "Records").slice(0, 5)];
+    return [...pick("Views", 5), ...pick("Missions", 9), ...all.filter((i) => i.group === "Records").slice(0, 5)];
   }
   return all.filter((i) => {
     const hay = `${i.title} ${i.sub} ${i.hay || ""} ${i.group}`.toLowerCase();
@@ -1940,6 +2108,18 @@ function runSearchResult(idx) {
 // ================================================================= events
 document.addEventListener("click", (e) => {
   if (e.target.closest("[data-stop]")) return;
+  const copyDropin = e.target.closest("[data-copy-dropin]");
+  if (copyDropin) {
+    const codeEl = copyDropin.closest(".d-section")?.querySelector(".dropin-box");
+    const text = codeEl?.textContent || "";
+    if (text) {
+      navigator.clipboard?.writeText(text).then(
+        () => showToast("Copied drop-in code to clipboard"),
+        () => showToast("Select the code block and press ⌘C / Ctrl+C to copy")
+      );
+    }
+    return;
+  }
   const attempt = e.target.closest("[data-attempt]");
   if (attempt) {
     e.preventDefault();

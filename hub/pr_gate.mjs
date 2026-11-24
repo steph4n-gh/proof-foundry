@@ -598,7 +598,7 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
           if (rec.file_hash !== verdict.file_hash) bindErrors.push(`file_hash mismatch`);
           if (rec.statement_hash !== verdict.statement_hash) bindErrors.push(`statement_hash mismatch`);
           if (rec.core_hash !== verdict.core_hash) bindErrors.push(`core_hash mismatch`);
-          if (verdict.signature && sub.signature != null && String(sub.signature).trim() !== String(verdict.signature).trim()) {
+          if (verdict.signature && ((!allowMeta && !sub.signature) || (sub.signature != null && String(sub.signature).trim() !== String(verdict.signature).trim()))) {
             bindErrors.push(`signature mismatch: JSON does not match verified Judge signature`);
           }
           if (rec.statement_frozen !== true || verdict.statement_frozen !== true) bindErrors.push(`statement_frozen must be true`);
@@ -780,11 +780,14 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
           } else if (rec.statement_hash != null) {
             bindErrors.push(`statement_hash mismatch: JSON="${rec.statement_hash}", computed=null`);
           }
-          if (verdict.signature && sub.signature != null && String(sub.signature).trim() !== String(verdict.signature).trim()) {
+          if (sub.kind === "proof" && verdict.signature && ((!allowMeta && !sub.signature) || (sub.signature != null && String(sub.signature).trim() !== String(verdict.signature).trim()))) {
             bindErrors.push(`signature mismatch: JSON does not match verified Judge signature`);
           }
-          if (sub.kind === "refutation" && verdict.signature && rec.signature != null && String(rec.signature).trim() !== String(verdict.signature).trim()) {
+          if (sub.kind === "refutation" && verdict.signature && ((!allowMeta && !rec.signature) || (rec.signature != null && String(rec.signature).trim() !== String(verdict.signature).trim()))) {
             bindErrors.push(`refutation.signature mismatch: JSON does not match verified Judge signature`);
+          }
+          if (sub.kind === "refutation" && verdict.signature && sub.signature != null && String(sub.signature).trim() !== String(verdict.signature).trim()) {
+            bindErrors.push(`signature mismatch: JSON does not match verified Judge signature`);
           }
           if (Boolean(rec.statement_frozen) !== Boolean(verdict.statement_frozen)) {
             bindErrors.push(`statement_frozen mismatch: JSON=${Boolean(rec.statement_frozen)}, judge=${Boolean(verdict.statement_frozen)}`);

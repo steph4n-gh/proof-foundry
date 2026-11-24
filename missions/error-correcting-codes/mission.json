@@ -14,6 +14,50 @@
     "right_label": "Optimality upper bounds",
     "disclaimer": "Counts Lean-verified explicit codes vs. Lean-verified upper bounds (sphere-packing, Plotkin, ¬ Record certificates)."
   },
+  "impact": {
+    "tier": "direct_production",
+    "tier_label": "Direct production impact",
+    "ships_to": "DNA multiplexing barcodes (Illumina/Twist), NVMe/NAND flash ECC, optical/deep-space short-block FEC, Brouwer's tables",
+    "bottleneck": "Short-block non-linear and constant-weight codes determine how many error-resilient codewords fit in tight physical budgets (17–20 bits) where balanced GC-content/DC-balance (constant Hamming weight) and guaranteed error-correction radius are mandatory.",
+    "what_one_step_buys": "Adding +1 verified codeword to A(17,6), A(17,6,7), or A(20,8,10) permanently expands multiplexing capacity at identical error-correction strength (2–3 bit errors corrected) and updates Brouwer's decades-old world tables.",
+    "consumers": [
+      {
+        "name": "Brouwer's Code Tables (TU Eindhoven)",
+        "detail": "Authoritative world tables of A(n,d) and A(n,d,w) cited across coding theory and hardware standards.",
+        "url": "https://www.win.tue.nl/~aeb/codes/binary-1.html"
+      },
+      {
+        "name": "Genomic Sequencing & DNA Data Storage",
+        "detail": "Constant-weight binary codes map directly to fixed-GC-content DNA barcodes tolerating 2–3 sequencing substitutions.",
+        "url": "https://en.wikipedia.org/wiki/Constant-weight_code"
+      },
+      {
+        "name": "Short-Packet Wireless & Optical Links",
+        "detail": "DC-balanced constant-weight headers and non-linear short-block codes maximize packet ID space under noisy channels.",
+        "url": "https://errorcorrectionzoo.org/"
+      }
+    ],
+    "examples": [
+      {
+        "use_case": "Fixed-GC DNA sample multiplexing barcodes",
+        "claim_id": "EC-rec-17-6-7",
+        "mechanism": "Every codeword in A(17,6,7) has exact weight 7 and pairwise distance ≥ 6, guaranteeing 2-error correction and 3-error detection with constant thermal/GC balance.",
+        "metric": "166 verified codewords match Brouwer's 1990 record; 167+ expands usable barcode library size with zero extra length."
+      },
+      {
+        "use_case": "High-reliability 3-error-correcting DC-balanced packets",
+        "claim_id": "EC-rec-20-8-10",
+        "mechanism": "Exact 50/50 balanced weight-10 words of length 20 with distance ≥ 8 correct any 3 bit flips while maintaining zero DC bias on optical/copper transceivers.",
+        "metric": "176 codewords verified in Lean 4; beating 176 breaks a 35-year Brouwer table entry."
+      },
+      {
+        "use_case": "Maximum-capacity short-block 2-error-correcting code",
+        "claim_id": "EC-rec-17-6",
+        "mechanism": "Non-linear binary codes outperform the best linear codes of length 17 (e.g., Nordstrom–Robinson beats all linear codes of equal distance).",
+        "metric": "256 verified in Lean 4; record is 258 (UB 340) — beating 258 sets a new world record."
+      }
+    ]
+  },
   "judge": {
     "type": "lean4",
     "label": "Lean 4.36.0 kernel · frozen statements · zero sorry",

@@ -14,6 +14,50 @@
     "right_label": "Optimality lower bounds",
     "disclaimer": "Counts Lean-verified sorting networks vs. Lean-verified impossibility/optimality bounds."
   },
+  "impact": {
+    "tier": "direct_production",
+    "tier_label": "Direct production impact",
+    "ships_to": "LLVM libc++ std::sort, Google Highway (vqsort), DuckDB, NVIDIA CUB / Thrust GPU warp sort, FPGA pipelines",
+    "bottleneck": "Modern CPU/GPU sorting libraries finish small partitions (n = 8..16 elements) using branchless SIMD min/max sorting networks inside registers. Every comparator is two vector min/max instructions; every parallel layer adds a full register-dependency latency cycle.",
+    "what_one_step_buys": "Removing 1 comparator or 1 parallel layer from a 16-wire network speeds up every AVX-512 (16×32-bit) and CUDA half-warp base sort in databases, search engines, and standard libraries — permanently, with zero branch mispredictions.",
+    "consumers": [
+      {
+        "name": "LLVM libc++ / AlphaDev std::sort",
+        "detail": "Uses provably optimal fixed-size branchless sorting networks as base cases for C++ std::sort.",
+        "url": "https://github.com/llvm/llvm-project"
+      },
+      {
+        "name": "Google Highway (vqsort) & x86-simd-sort",
+        "detail": "16-lane AVX-512 sorting networks power vectorized sorting in DuckDB, ClickHouse, and NumPy.",
+        "url": "https://github.com/google/highway"
+      },
+      {
+        "name": "NVIDIA CUB / Thrust WarpSort",
+        "detail": "Depth-optimal 16- and 32-lane comparator networks execute inside GPU warp shuffle registers with zero shared memory.",
+        "url": "https://github.com/NVIDIA/cccl"
+      }
+    ],
+    "examples": [
+      {
+        "use_case": "AVX-512 16-lane SIMD & GPU half-warp register sort",
+        "claim_id": "SN-rec-016",
+        "mechanism": "Every verified Net 16 exports directly as a branchless C/SIMD `CMP_SWAP(a, b)` macro sequence (or AVX-512 `_mm512_min/max_epi32` schedule).",
+        "metric": "Beating Green's 1969 record of 60 comparators on 16 wires directly shrinks instruction count for every 16-lane SIMD base sort."
+      },
+      {
+        "use_case": "Low-latency FPGA & GPU pipeline sorting (16-wire depth)",
+        "claim_id": "SN-rec-d16",
+        "mechanism": "Parallel depth equals exact hardware pipeline stages / critical-path latency in SIMD & Verilog.",
+        "metric": "Depth-9 optimal 16-wire network beats Batcher bitonic sort (depth 10) by 10% end-to-end latency."
+      },
+      {
+        "use_case": "17-wire open depth frontier (famous Bundala–Závodný problem)",
+        "claim_id": "SN-rec-d17",
+        "mechanism": "Proving depth 9 on 17 wires (or ¬Record 9) resolves a decades-old open boundary in parallel comparison networks.",
+        "metric": "Direct publishable CS result checked in seconds by Lean 4's kernel."
+      }
+    ]
+  },
   "judge": {
     "type": "lean4",
     "label": "Lean 4.36.0 kernel · frozen statements · zero sorry",
@@ -69,6 +113,16 @@
         { "id": "SN-rec-014", "expect": { "record_at_most": 51 } },
         { "id": "SN-rec-015", "expect": { "record_at_most": 56 } },
         { "id": "SN-rec-d17", "expect": { "record_at_most": 10 } }
+      ]
+    },
+    {
+      "id": "OBJ-sn-simd16",
+      "title": "AVX-512 & GPU Warp-Width 16-Wire SIMD Sorters (Size ≤ 60 & Depth ≤ 9)",
+      "tier": "Direct Production Frontier",
+      "finish_line": "Certify Green's 60-comparator 16-wire sorter (beat 60 for a 1969 world record!) and the exact depth-9 optimal 16-wire parallel network.",
+      "required": [
+        { "id": "SN-rec-016", "expect": { "record_at_most": 60 } },
+        { "id": "SN-rec-d16", "expect": { "record_at_most": 9 } }
       ]
     }
   ]

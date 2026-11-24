@@ -1,0 +1,95 @@
+{
+  "slug": "ml-math-kernels",
+  "brand": "PROOF FOUNDRY · ML KERNELS",
+  "title": "Exhaustively Verified BF16 GPU & ML Math Kernels",
+  "tagline": "65,536/65,536 bfloat16 exhaustive pure-data verifier · zero JS execution",
+  "question": "How few branchless FMA/bit-ALU ops compute exact BF16 GELU, SiLU, exp2, and rsqrt across all 65,536 inputs?",
+  "description": "Discover ultra-short, branchless float32 FMA/bit-ALU instruction schedules for the four hottest LLM GPU elementwise kernels — BF16 rsqrt (RMSNorm), exp2 (FlashAttention softmax), SiLU (Llama/Qwen FFN), and GELU (GPT/ViT FFN). Every pure-data JSON artifact is exhaustively checked across ALL 65,536 IEEE bfloat16 bit patterns (including subnormals, ±0, ±Inf, and NaN) at ≤ 1 ULP with zero sampling and zero untrusted code execution, and auto-exports ready-to-paste CUDA __device__ code.",
+  "verdict": "open world record hunt — accepting token donations.",
+  "tug_of_war": {
+    "enabled": false
+  },
+  "impact": {
+    "tier": "direct_production",
+    "tier_label": "Direct production impact",
+    "ships_to": "FlashAttention, Triton, PyTorch Inductor, vLLM, TensorRT-LLM, llama.cpp",
+    "bottleneck": "On modern GPUs (H100/B200/MI300), Special Function Units (SFU: exp2, rsqrt, tanh) have 4–8× lower throughput than FMA/ALU pipes, making softmax, RMSNorm, and SwiGLU/GELU activations major fusion stalls inside FlashAttention and LLM decoders.",
+    "what_one_step_buys": "Each branchless FMA/ALU op shaved off an exhaustively verified ≤1-ULP bf16 kernel directly lowers register pressure and instruction count across trillions of daily inference tokens with a 100% mathematical guarantee of zero NaN/edge-case regressions.",
+    "consumers": [
+      {
+        "name": "FlashAttention / Triton Softmax",
+        "detail": "Online softmax calls exp2 on every attention score tile; fast FMA+bitcast exp2 offloads congested GPU SFU pipes.",
+        "url": "https://github.com/Dao-AILab/flash-attention"
+      },
+      {
+        "name": "vLLM / llama.cpp / PyTorch Inductor",
+        "detail": "RMSNorm (rsqrt), SwiGLU (SiLU), and GELU run on every Transformer layer; auto-exported __device__ C/CUDA drops straight into fused kernels.",
+        "url": "https://github.com/vllm-project/vllm"
+      },
+      {
+        "name": "TPU / Custom NPU & Edge Compilers",
+        "detail": "Pure FMA + integer bit-ALU kernels run without hardware transcendental tables on RISC-V RVV, WebGPU, and custom NPUs.",
+        "url": "https://github.com/triton-lang/triton"
+      }
+    ],
+    "examples": [
+      {
+        "use_case": "Fused RMSNorm & LayerNorm (Llama / Mistral / Gemma)",
+        "claim_id": "ML-rec-bf16-rsqrt",
+        "mechanism": "Verified pf.mlkernel.v1 JSON compiles 1-to-1 into branchless CUDA `__device__ float pf_bf16_rsqrt(float)` using integer bitcast + FMA Newton refinement.",
+        "metric": "65,536/65,536 bf16 inputs verified ≤ 1 ULP (incl. subnormals, +0→+Inf, neg/NaN→NaN) without invoking hardware rsqrt/div."
+      },
+      {
+        "use_case": "FlashAttention Online Softmax Hot Path",
+        "claim_id": "ML-rec-bf16-exp2",
+        "mechanism": "Range reduction + minimax FMA polynomial + IEEE exponent bit-shift exports directly to Triton / CUDA attention inner loops.",
+        "metric": "Zero SFU contention and zero overflow/underflow NaN traps across the entire 16-bit bfloat16 domain."
+      },
+      {
+        "use_case": "Fused SwiGLU & GELU Transformer FFNs",
+        "claim_id": "ML-rec-bf16-silu",
+        "mechanism": "Eliminates separate `expf`/`erff`/`tanhf` + division calls in fused MLP epilogues; drop-in C/CUDA generated in every verified dossier.",
+        "metric": "Matches exact float64 SiLU / erf-GELU to ≤ 1 bf16 ULP across all 65,536 bit patterns with zero lookup tables."
+      }
+    ]
+  },
+  "judge": {
+    "type": "command",
+    "label": "Exhaustive 65,536-Input BF16 Pure-Data Judge (zero JS exec)",
+    "harness_file": "missions/ml-math-kernels/judge/verify.mjs",
+    "command": [
+      "node",
+      "missions/ml-math-kernels/judge/verify.mjs"
+    ],
+    "allowed_dirs": [
+      "missions/ml-math-kernels/artifacts"
+    ],
+    "allowed_extensions": [
+      ".json"
+    ],
+    "timeout_ms": 30000
+  },
+  "github_repo": "steph4n-gh/proof-foundry",
+  "objectives": [
+    {
+      "id": "OBJ-ml-attention-norm",
+      "title": "FlashAttention & RMSNorm Core Primitives (BF16 rsqrt & exp2)",
+      "tier": "Direct Production Frontier",
+      "finish_line": "Synthesize exhaustively verified (65,536/65,536 inputs, ≤1 ULP) branchless FMA+ALU kernels for BF16 rsqrt and exp2.",
+      "required": [
+        { "id": "ML-rec-bf16-rsqrt", "expect": { "record_at_most": 16 } },
+        { "id": "ML-rec-bf16-exp2", "expect": { "record_at_most": 16 } }
+      ]
+    },
+    {
+      "id": "OBJ-ml-activations",
+      "title": "Transformer FFN Activations (BF16 SiLU & Exact GELU)",
+      "tier": "Direct Production Frontier",
+      "finish_line": "Synthesize exhaustively verified (65,536/65,536 inputs, ≤1 ULP) branchless FMA+ALU kernels for BF16 SiLU and exact erf-GELU.",
+      "required": [
+        { "id": "ML-rec-bf16-silu", "expect": { "record_at_most": 22 } },
+        { "id": "ML-rec-bf16-gelu", "expect": { "record_at_most": 22 } }
+      ]
+    }
+  ]
+}

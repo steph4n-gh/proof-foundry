@@ -44,7 +44,7 @@ function sleepMs(ms) {
 }
 
 function withMissionLock(lockDir, fn) {
-  const deadline = Date.now() + 20000;
+  const deadline = Date.now() + 30000;
   const ownerToken = `${process.pid}-${Date.now()}-${crypto.randomBytes(8).toString("hex")}`;
   const ownerFile = path.join(lockDir, "owner.json");
   let ownerWritten = false;
@@ -60,33 +60,35 @@ function withMissionLock(lockDir, fn) {
       if (err.code !== "EEXIST") throw err;
       try {
         const st = fs.statSync(lockDir);
-        if (Date.now() - st.mtimeMs > 25000) {
-          let staleToken = null;
-          let ownerAlive = false;
+        const ageMs = Date.now() - st.mtimeMs;
+        let staleToken = null;
+        let hasValidPid = false;
+        let ownerAlive = false;
+        try {
+          const info = JSON.parse(fs.readFileSync(ownerFile, "utf8"));
+          staleToken = info.token || null;
+          if (typeof info.pid === "number" && info.pid > 0) {
+            hasValidPid = true;
+            try {
+              process.kill(info.pid, 0);
+              ownerAlive = true;
+            } catch (ke) {
+              ownerAlive = ke.code === "EPERM";
+            }
+          }
+        } catch {}
+        // Reclaim promptly (1s grace) if owner PID is confirmed dead; fall back to 25s only when owner.json is absent/unreadable.
+        const canReclaim = !ownerAlive && ((hasValidPid && ageMs > 1000) || ageMs > 25000);
+        if (canReclaim) {
+          const tomb = `${lockDir}.stale.${process.pid}.${Date.now()}`;
           try {
-            const info = JSON.parse(fs.readFileSync(ownerFile, "utf8"));
-            staleToken = info.token || null;
-            if (typeof info.pid === "number" && info.pid > 0) {
-              try {
-                process.kill(info.pid, 0);
-                ownerAlive = true;
-              } catch (ke) {
-                ownerAlive = ke.code === "EPERM";
-              }
+            const curToken = fs.existsSync(ownerFile) ? JSON.parse(fs.readFileSync(ownerFile, "utf8")).token || null : null;
+            if (curToken === staleToken) {
+              fs.renameSync(lockDir, tomb);
+              fs.rmSync(tomb, { recursive: true, force: true });
+              continue;
             }
           } catch {}
-          if (!ownerAlive) {
-            const tomb = `${lockDir}.stale.${process.pid}.${Date.now()}`;
-            try {
-              // Re-confirm the lock was not replaced before moving it aside.
-              const curToken = fs.existsSync(ownerFile) ? JSON.parse(fs.readFileSync(ownerFile, "utf8")).token || null : null;
-              if (curToken === staleToken) {
-                fs.renameSync(lockDir, tomb);
-                fs.rmSync(tomb, { recursive: true, force: true });
-                continue;
-              }
-            } catch {}
-          }
         }
       } catch {}
       if (Date.now() > deadline) throw new Error("Timed out waiting for mission state lock");

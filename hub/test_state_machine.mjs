@@ -321,21 +321,25 @@ test("CLI rejects lifecycle conflicts and moves actual seat claims", (t) => {
   assert.ok(persisted.seats.every((seat) => seat.current_lemma == null && seat.status === "idle"));
 });
 
-test("global records project all six missions and eighteen hunts", () => {
-  const snapshots = listMissionSlugs().map((slug) => {
+test("global records project all missions and live hunts", () => {
+  const slugs = listMissionSlugs();
+  const snapshots = slugs.map((slug) => {
     const mission = loadMission(slug);
     const snap = buildMissionSnapshot(mission);
     return snap;
   });
+  const expectedRecords = snapshots.reduce((sum, s) => sum + s.lemmas.filter((l) => l.kind === "record").length, 0);
   const records = projectGlobalRecords(snapshots, at);
   assert.equal(records.generated_at, at);
-  assert.equal(records.totals.missions, 6);
-  assert.equal(records.records.length, 18);
-  assert.equal(records.totals.records_active + records.totals.records_closed, 18);
+  assert.equal(records.totals.missions, slugs.length);
+  assert.ok(slugs.length >= 9, `expected >= 9 missions, got ${slugs.length}`);
+  assert.equal(records.records.length, expectedRecords);
+  assert.ok(expectedRecords >= 35, `expected >= 35 record hunts, got ${expectedRecords}`);
+  assert.equal(records.totals.records_active + records.totals.records_closed, expectedRecords);
   assert.ok(records.totals.trusted_proofs > 0);
   assert.ok(records.latest_verified?.file);
   assert.ok(records.latest_verified?.at);
-  assert.equal(new Set(records.records.map((r) => `${r.mission}/${r.id}`)).size, 18);
+  assert.equal(new Set(records.records.map((r) => `${r.mission}/${r.id}`)).size, expectedRecords);
   const min = records.records.find((r) => r.id === "SN-rec-013");
   assert.equal(min.literature_bound, 43);
   assert.equal(min.gap, min.closed ? 0 : Math.max(0, (min.best_score ?? min.start_target) - (min.proven_bound ?? min.literature_bound)));
@@ -344,9 +348,10 @@ test("global records project all six missions and eighteen hunts", () => {
   assert.equal(max.gap, max.closed ? 0 : Math.max(0, (max.proven_bound ?? max.literature_bound) - (max.best_score ?? max.start_target)));
 
   const missions = loadAllMissionsSummary(snapshots);
-  assert.equal(missions.length, 6);
+  assert.equal(missions.length, slugs.length);
   for (const mission of missions) {
     assert.ok(mission.description);
+    assert.ok(mission.impact?.tier && mission.impact?.ships_to, `mission ${mission.slug} missing impact metadata`);
     assert.equal(mission.objectives_detail.length, mission.objectives.total);
     for (const objective of mission.objectives_detail) {
       assert.ok(objective.id && objective.title && objective.tier);
@@ -407,7 +412,7 @@ esac
   const { generated_at: staticAt, ...siteRecords } = staticRecords;
   assert.ok(Number.isFinite(Date.parse(liveAt)) && Number.isFinite(Date.parse(staticAt)));
   assert.deepEqual(liveRecords, siteRecords);
-  assert.equal(liveRecords.records.length, 18);
+  assert.ok(liveRecords.records.length >= 37, `expected >= 37 live records, got ${liveRecords.records.length}`);
   assert.equal(liveRecords.records.find((r) => r.id === passing.claim).open_prs[0].check_state, "passing");
 
   async function json(url) {
@@ -661,4 +666,43 @@ test("web server rejects missing Host, supports IPv6 [::1]:port, and blocks syml
   t.after(() => { try { fs.unlinkSync(symPath); } catch {} });
   const symRes = await fetch(`http://127.0.0.1:${port}/${symName}`, { signal: AbortSignal.timeout(5000) });
   assert.equal(symRes.status, 403);
+});
+
+test("fleet compile recovers dead-PID stale locks without clobbering live owners (P2-5)", (t) => {
+  const dir = tempDir(t);
+  fs.cpSync(path.join(ROOT, "hub"), path.join(dir, "hub"), { recursive: true });
+  const missionDir = path.join(dir, "missions/locktest");
+  fs.mkdirSync(path.join(missionDir, "submissions"), { recursive: true });
+  fs.writeFileSync(path.join(missionDir, "mission.json"), JSON.stringify({ title: "Lock Test", judge: { type: "command" } }));
+  fs.writeFileSync(path.join(missionDir, "state.json"), JSON.stringify({ meta: {}, seats: [], lemmas: [], messages: [], whispers: [], checker_runs: [] }));
+  fs.writeFileSync(path.join(missionDir, "events.ndjson"), "");
+
+  // Plant a stale lock owned by a dead PID (>1s old) -> compile reclaims cleanly and succeeds!
+  const lockDir = path.join(missionDir, ".state.lock");
+  fs.mkdirSync(lockDir);
+  fs.writeFileSync(path.join(lockDir, "owner.json"), JSON.stringify({ pid: 99999999, token: "dead-owner", created_at: Date.now() - 5000 }));
+  const past = new Date(Date.now() - 5000);
+  fs.utimesSync(lockDir, past, past);
+
+  const ok = runNode(["hub/fleet.mjs", "compile", "--mission", "locktest"], { cwd: dir });
+  assert.equal(ok.status, 0, ok.stderr || ok.stdout);
+  assert.equal(fs.existsSync(lockDir), false, "lock cleaned up after compile");
+});
+
+test("dashboard URL sanitizers reject non-HTTPS and non-GitHub PR schemes (P3-3)", () => {
+  const appSrc = fs.readFileSync(path.join(ROOT, "web/public/app.js"), "utf8");
+  const fnGithub = appSrc.match(/function safeGithubUrl[\s\S]*?\n\}/)?.[0];
+  const fnHttps = appSrc.match(/function safeHttpsUrl[\s\S]*?\n\}/)?.[0];
+  assert.ok(fnGithub && fnHttps, "safeGithubUrl and safeHttpsUrl exist in web/public/app.js");
+  const { safeGithubUrl, safeHttpsUrl } = new Function(`${fnGithub}\n${fnHttps}\nreturn { safeGithubUrl, safeHttpsUrl };`)();
+
+  for (const bad of ["javascript:alert(1)", "data:text/html,<script>alert(1)</script>", "http://github.com/org/repo/pull/1", "https://evil.github.com/org/repo/pull/1", "https://example.com/pull/1", ""]) {
+    assert.equal(safeGithubUrl(bad), null, `safeGithubUrl must reject ${bad}`);
+  }
+  assert.equal(safeGithubUrl("https://github.com/steph4n-gh/proof-foundry/pull/46"), "https://github.com/steph4n-gh/proof-foundry/pull/46");
+
+  for (const bad of ["javascript:alert(1)", "data:text/html,x", "http://insecure.example/docs", "ftp://example.com/file"]) {
+    assert.equal(safeHttpsUrl(bad), null, `safeHttpsUrl must reject ${bad}`);
+  }
+  assert.equal(safeHttpsUrl("https://arxiv.org/abs/2401.00001"), "https://arxiv.org/abs/2401.00001");
 });

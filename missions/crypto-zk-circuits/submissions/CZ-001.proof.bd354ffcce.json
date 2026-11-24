@@ -1,0 +1,27 @@
+{
+  "schema": "fleet-submission/2",
+  "mission": "crypto-zk-circuits",
+  "lemma_id": "CZ-001",
+  "kind": "proof",
+  "at": "2026-11-24T01:20:54.607Z",
+  "file": "missions/crypto-zk-circuits/lean/Crypto/Claims/CZ_001.lean",
+  "theorem": "Crypto.Claims.CZ_001.ascon_five_and_depth_one",
+  "signature": "Crypto.Claims.CZ_001.ascon_five_and_depth_one :\n  Crypto.Statements.CZ_001.Claim",
+  "checker": {
+    "by_seat": "donor-foundry-seed",
+    "duration_ms": 4231,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "file_hash": "bd354ffcce9fbb41ffc45f5c8472a7fbf709c999ca017f1c7e1ba096ba68faeb",
+    "core_hash": "1117ad754d7ae7f09cba4b3ed07a5d48d33fd1ba50523b3c84adaeab33d8b54b",
+    "statement_frozen": true,
+    "statement_hash": "86b6db5baa7be55ee3c4bb0579f048ed6733c1260634e3edb6d331acd80238ab",
+    "ok": true,
+    "judge": "lean4",
+    "checked_at": "2026-11-24T01:20:54.607Z",
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)"
+  }
+}

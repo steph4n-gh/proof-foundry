@@ -17,6 +17,7 @@ import {
   readMissionStatementFile,
 } from "../hub/missions.mjs";
 import { buildMissionSnapshot, fetchOpenPRs, renderMasterProofsMarkdown } from "../hub/build_site.mjs";
+import { extractDropInArtifact } from "../hub/export_dropin.mjs";
 import { projectGlobalRecords } from "../hub/state_machine.mjs";
 
 const PUBLIC_DIR = path.join(ROOT, "web", "public");
@@ -248,6 +249,7 @@ const server = http.createServer((req, res) => {
       JSON.stringify({
         lemma,
         leanSource,
+        dropInArtifact: extractDropInArtifact(slug, lemma, leanSource),
         refutationSource,
         statementSource,
         relatedMessages,

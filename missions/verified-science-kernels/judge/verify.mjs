@@ -206,35 +206,10 @@ function tokenizeJsCode(src) {
       if (r.done) tokens.push({ type: "lit", value: "`", start, end: i, braceDepth });
       continue;
     }
-    // Regex literal vs division operator
+    // Regex literals are forbidden in numerical kernels (fail closed so division/regex grammar
+    // ambiguities can never swallow code tokens such as `import(...)`).
     if (ch === "/" && canStartRegex) {
-      const start = i;
-      i++;
-      let inClass = false;
-      let closed = false;
-      while (i < n) {
-        const c = src[i];
-        if (c === "\\") {
-          i += 2;
-          continue;
-        }
-        if (c === "\n" || c === "\r") {
-          return { ok: false, error: "Unterminated regex literal in kernel artifact" };
-        }
-        if (c === "[") inClass = true;
-        else if (c === "]") inClass = false;
-        else if (c === "/" && !inClass) {
-          i++;
-          while (i < n && /[A-Za-z]/.test(src[i])) i++;
-          closed = true;
-          break;
-        }
-        i++;
-      }
-      if (!closed) return { ok: false, error: "Unterminated regex literal in kernel artifact" };
-      tokens.push({ type: "lit", value: "/", start, end: i, braceDepth });
-      canStartRegex = false;
-      continue;
+      return { ok: false, error: "Regex literals are not permitted in numerical kernel artifacts" };
     }
     // Identifier or keyword
     if (/[A-Za-z_$]/.test(ch)) {
@@ -280,8 +255,12 @@ function tokenizeJsCode(src) {
     const start = i;
     i++;
     if (ch === "{") {
+      const prev = tokens[tokens.length - 1];
+      const isExprBrace =
+        Boolean(prev && prev.type === "punct" && ["(", "[", ",", ":", "?", "=", "=>", "!", "&", "|", "^", "~", "+", "-", "*", "%", "<", ">"].includes(prev.value)) ||
+        Boolean(prev && prev.type === "id" && !prev.isProp && REGEX_PREV_KEYWORDS.has(prev.value));
       tokens.push({ type: "punct", value: "{", start, end: i, braceDepth });
-      braceStack.push("block");
+      braceStack.push(isExprBrace ? "expr" : "block");
       braceDepth++;
       canStartRegex = true;
       continue;
@@ -296,7 +275,7 @@ function tokenizeJsCode(src) {
         continue;
       }
       tokens.push({ type: "punct", value: "}", start, end: i, braceDepth });
-      canStartRegex = true;
+      canStartRegex = kind !== "expr";
       continue;
     }
     if (ch === "(") {

@@ -14,6 +14,50 @@
     "right_label": "Avoidance constructions",
     "disclaimer": "Counts Lean-checked theorems proving forced patterns vs. Lean-checked avoidance witnesses."
   },
+  "impact": {
+    "tier": "research_frontier",
+    "tier_label": "Applied research frontier",
+    "ships_to": "Radio interferometry (VLA/VLBI), phased-array radar, optical WDM channel plans, Erdős Problems Registry",
+    "bottleneck": "Optimal Golomb rulers and Sidon sets eliminate pairwise intermodulation and baseline collisions in physical sensor arrays and fiber-optic frequency allocation, while Ramsey/Schur thresholds benchmark SAT/combinatorial search.",
+    "what_one_step_buys": "A shorter Golomb ruler packs the same number of collision-free baselines into a tighter physical antenna aperture or narrower optical spectrum; pushing R(5,5) above 42 resolves one of Paul Erdős's most famous open problems.",
+    "consumers": [
+      {
+        "name": "Radio Astronomy & Phased-Array Radar",
+        "detail": "Optimal Golomb rulers place N antennas so every pairwise baseline distance is unique, maximizing angular resolution per meter.",
+        "url": "https://en.wikipedia.org/wiki/Golomb_ruler"
+      },
+      {
+        "name": "DWDM Fiber-Optic Channel Spacing",
+        "detail": "Sidon / Golomb frequency spacings eliminate four-wave mixing (FWM) cross-talk between optical carrier channels.",
+        "url": "https://www.erdosproblems.com/156"
+      },
+      {
+        "name": "Erdős Problems Registry (Thomas Bloom)",
+        "detail": "Verified partial results and sharpness witnesses on Erdős #128, #156, Schur S(3)/S(4), and Ramsey R(5,5).",
+        "url": "https://www.erdosproblems.com/"
+      }
+    ],
+    "examples": [
+      {
+        "use_case": "Collision-free antenna & optical WDM channel layouts",
+        "claim_id": "E-rec-gol11",
+        "mechanism": "An 11-mark Golomb ruler specifies 11 exact integer positions whose 55 pairwise differences are all distinct — zero redundant baselines or FWM intermodulation collisions.",
+        "metric": "Verified optimal length 72 in Lean 4 (every mark coordinate mechanically checked distinct)."
+      },
+      {
+        "use_case": "Minimal maximal Sidon sets (jamming / frequency-hopping)",
+        "claim_id": "E-rec-200",
+        "mechanism": "Maximal Sidon sets in {1..N} model saturated collision-free tone allocations where no additional carrier can be inserted without a sum collision.",
+        "metric": "Verified 10-element maximal Sidon set in {1..200} beats greedy and tracks Erdős #156."
+      },
+      {
+        "use_case": "Classic Ramsey R(5,5) avoidance frontier",
+        "claim_id": "E-rec-r55",
+        "mechanism": "42-vertex K5/I5-free graph verified in Lean 4; finding a 43-vertex witness would move a 35-year Ramsey world record.",
+        "metric": "World record 42 verified; upper bound is 46–47."
+      }
+    ]
+  },
   "judge": {
     "type": "lean4",
     "label": "Lean 4.36.0 kernel · frozen statements · zero sorry",

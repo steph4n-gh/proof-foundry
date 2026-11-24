@@ -327,6 +327,7 @@ export function intervalAdd([a,b],[c,d]){ return [nextDown(a+c), nextUp(b+d)]; }
         kind: "proof",
         file: sciArtRel,
         theorem: "interval_add_soundness",
+        signature: "intervalAdd(a, b) : outward-rounded containment for non-representable float64 sums",
         checker: {
           ok: true,
           judge: "command",
@@ -340,6 +341,34 @@ export function intervalAdd([a,b],[c,d]){ return [nextDown(a+c), nextUp(b+d)]; }
     );
     const posR = verifyPrEntries(n14Entries);
     assert(posR.ok && posR.checked === 1 && !posR.eligible_for_auto_merge, "Positive control: honest S-num-002 donor PR passes verify-pr (non-frozen -> not auto-mergeable)", JSON.stringify(posR));
+
+    // N14e-omit (Daybreak P3): omitting required signature on donor proof PR rejected (fail-closed)
+    fs.writeFileSync(
+      path.resolve(n14SubRel),
+      JSON.stringify({
+        schema: "fleet-submission/2",
+        mission: "verified-science-kernels",
+        lemma_id: "S-num-002",
+        kind: "proof",
+        file: sciArtRel,
+        theorem: "interval_add_soundness",
+        checker: {
+          ok: true,
+          judge: "command",
+          file_hash: s2Hash,
+          core_hash: sciCoreHash,
+          statement_frozen: false,
+          axioms: ["containment_battery", "outward_rounding_1e16_plus_1"],
+          by_seat: "donor-test-ok",
+        },
+      })
+    );
+    const omitSigR = verifyPrEntries(n14Entries);
+    assert(
+      !omitSigR.ok && omitSigR.reports[0]?.reason?.includes("signature mismatch"),
+      "N14e-omit (Daybreak P3: omitted sub.signature on donor proof PR rejected fail-closed)",
+      JSON.stringify(omitSigR)
+    );
 
     // N14e (Daybreak P2-1): forged sub.signature or forged checker.statement_hash rejected by verdict binding!
     fs.writeFileSync(
@@ -372,6 +401,41 @@ export function intervalAdd([a,b],[c,d]){ return [nextDown(a+c), nextUp(b+d)]; }
       "N14e (P2-1 forged sub.signature + forged statement_hash) rejected by verdict binding",
       JSON.stringify(forgedMetaR)
     );
+
+    // N14f (Daybreak P2-1/P3): forged and omitted record signature rejected fail-closed on donor record PR
+    const mlRecTmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pf-rec-sig-"));
+    try {
+      const mlArtRel = "missions/ml-math-kernels/artifacts/ML_rec_bf16_exp2_s18.json";
+      const mlSubRel = "missions/ml-math-kernels/submissions/ML-rec-bf16-exp2.record.s18.json";
+      const realSub = JSON.parse(fs.readFileSync(path.resolve(mlSubRel), "utf8"));
+      fs.mkdirSync(path.dirname(path.join(mlRecTmpRoot, mlArtRel)), { recursive: true });
+      fs.mkdirSync(path.dirname(path.join(mlRecTmpRoot, mlSubRel)), { recursive: true });
+      fs.copyFileSync(path.resolve(mlArtRel), path.join(mlRecTmpRoot, mlArtRel));
+      const mlEntries = parseGitRawZ(rawEntry("100644", "A", mlArtRel) + rawEntry("100644", "A", mlSubRel));
+
+      // Forged signature on record PR -> rejected
+      const forgedRecSub = { ...realSub, signature: "FORGED_RECORD_SIGNATURE" };
+      fs.writeFileSync(path.join(mlRecTmpRoot, mlSubRel), JSON.stringify(forgedRecSub, null, 2));
+      const forgedRecR = verifyPrEntries(mlEntries, { rootDir: mlRecTmpRoot });
+      assert(
+        !forgedRecR.ok && forgedRecR.reports[0]?.reason?.includes("signature mismatch"),
+        "N14f-forged (Daybreak P2-1: forged record sub.signature rejected by verdict binding)",
+        JSON.stringify(forgedRecR)
+      );
+
+      // Omitted signature on record PR -> rejected fail-closed
+      const omittedRecSub = { ...realSub };
+      delete omittedRecSub.signature;
+      fs.writeFileSync(path.join(mlRecTmpRoot, mlSubRel), JSON.stringify(omittedRecSub, null, 2));
+      const omittedRecR = verifyPrEntries(mlEntries, { rootDir: mlRecTmpRoot });
+      assert(
+        !omittedRecR.ok && omittedRecR.reports[0]?.reason?.includes("signature mismatch"),
+        "N14f-omit (Daybreak P3: omitted record sub.signature rejected fail-closed)",
+        JSON.stringify(omittedRecR)
+      );
+    } finally {
+      fs.rmSync(mlRecTmpRoot, { recursive: true, force: true });
+    }
 
     // N14c: Command-Judge double sandbox blocks untrusted import/fs escape attempts inside untrusted .mjs!
     fs.writeFileSync(

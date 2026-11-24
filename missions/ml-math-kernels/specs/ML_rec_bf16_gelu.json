@@ -1,0 +1,10 @@
+{
+  "id": "ML-rec-bf16-gelu",
+  "target": "bf16_gelu",
+  "description": "Exhaustive bfloat16 exact GELU activation 0.5*x*(1 + erf(x/sqrt(2))) across all 65,536 bf16 bit patterns (GPT/BERT/ViT FFN hot path) at ≤ 1 ULP using pure FMA + bit-ALU ops (no erf/tanh/exp/div).",
+  "datatype": "bf16",
+  "inputs_checked": 65536,
+  "max_ulp": 1,
+  "unit": "ALU/FMA ops",
+  "artifact_format": "pf.mlkernel.v1"
+}

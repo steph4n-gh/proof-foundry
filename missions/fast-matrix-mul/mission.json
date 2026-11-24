@@ -9,6 +9,50 @@
   "tug_of_war": {
     "enabled": false
   },
+  "impact": {
+    "tier": "direct_production",
+    "tier_label": "Direct production impact",
+    "ships_to": "BLIS / OpenBLAS, CUTLASS / Triton GEMM, GF(2) crypto & erasure coding, NumPy/SciPy",
+    "bottleneck": "General matrix multiplication (GEMM) dominates AI training, scientific simulation, and signal processing. Practical fast matmul is gated not just by scalar product count (rank) but by addition count and unit {-1,0,1} coefficients that preserve FP16/BF16 numerical stability.",
+    "what_one_step_buys": "Cutting 1 scalar multiplication in a 3×3×3 or 4×4×4 base kernel compounds exponentially across recursive block levels (r^L vs 27^L); shaving additions with {-1,0,1} coefficients directly lowers the crossover matrix size where fast GEMM beats schoolbook in real BLAS libraries.",
+    "consumers": [
+      {
+        "name": "BLIS / Fast-Strassen GEMM",
+        "detail": "Fused 1–2 level Strassen and rectangular (3×3×4, 3×4×5) microkernels reduce FLOPs on large dense matrices.",
+        "url": "https://github.com/flame/blis"
+      },
+      {
+        "name": "M4RI / GF(2) Linear Algebra & PQC",
+        "detail": "AlphaTensor's 47-product 4×4 GF(2) scheme directly accelerates binary matrix multiplication in coding theory and post-quantum crypto.",
+        "url": "https://bitbucket.org/malb/m4ri"
+      },
+      {
+        "name": "FMM Catalog (Univ. Lille / AlphaTensor)",
+        "detail": "Authoritative database of exact bilinear algorithms with machine-checked certificates.",
+        "url": "https://fmm.univ-lille.fr/"
+      }
+    ],
+    "examples": [
+      {
+        "use_case": "Hardware-friendly 3×3×3 block GEMM (low addition count)",
+        "claim_id": "MM-rec-3x3x3-hw",
+        "mechanism": "Unit {-1, 0, 1} coefficients avoid rescaling multipliers and keep rounding error bounded; minimizing additions lowers the crossover threshold in BLAS/GPU kernels.",
+        "metric": "Standard Laderman uses 98 additions; sparse unit-coeff schemes cut additions by >30% at the same 23 products."
+      },
+      {
+        "use_case": "50-year Laderman 3×3×3 integer rank frontier",
+        "claim_id": "MM-rec-3x3x3",
+        "mechanism": "Any 22-product integer scheme composes via MM-003 into O(N^{log_3 22}) = O(N^{2.813}) exact matrix multiplication over every ring.",
+        "metric": "Beating 23 products over ℤ would break Laderman's 1976 record (proven LB = 19)."
+      },
+      {
+        "use_case": "Fast GF(2) matrix engines & binary erasure coding",
+        "claim_id": "MM-rec-4x4-f2",
+        "mechanism": "Every verified SchemeF2 4 4 4 compiles straight to bitwise XOR/AND block operations for M4RI and binary ECC decoders.",
+        "metric": "47 products beats two-level Strassen (49) by 4.1% per recursion level; 46 sets a new world record."
+      }
+    ]
+  },
   "judge": {
     "type": "lean4",
     "label": "Lean 4.36.0 kernel · frozen statements · zero sorry",
@@ -75,6 +119,16 @@
             "record_at_most": 47
           }
         }
+      ]
+    },
+    {
+      "id": "OBJ-mm-3x3x3-frontier",
+      "title": "Laderman 3×3×3 Frontier & Hardware-Friendly Addition Minimization",
+      "tier": "Open World Record",
+      "finish_line": "Certify Laderman's 23-product 3×3×3 integer scheme (beat 23 for a 50-year breakthrough!) and minimize direct additions for unit {-1,0,1} schemes.",
+      "required": [
+        { "id": "MM-rec-3x3x3", "expect": { "record_at_most": 23 } },
+        { "id": "MM-rec-3x3x3-hw", "expect": { "record_at_most": 75 } }
       ]
     }
   ]

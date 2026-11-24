@@ -9,6 +9,50 @@
   "tug_of_war": {
     "enabled": false
   },
+  "impact": {
+    "tier": "direct_production",
+    "tier_label": "Direct production impact",
+    "ships_to": "CORE-MATH / glibc / LLVM libm, CGAL / CAD / GIS meshing engines, SciPy / Julia / CFD solvers",
+    "bottleneck": "Silent IEEE-754 rounding failures cause triangulations to crash on near-collinear vertices, finite-element sums to drift under catastrophic cancellation, and elementary math libraries (exp/sin) to lose ULP accuracy on float64 lattices.",
+    "what_one_step_buys": "Tightening float64-lattice minimax polynomial coefficients directly reduces worst-case ULP error in `exp`/`sin` kernels without adding a single FLOP; verified exact predicates eliminate silent geometric corruption in CAD/GIS/meshing.",
+    "consumers": [
+      {
+        "name": "CORE-MATH / LLVM libc / SLEEF",
+        "detail": "Float64-lattice minimax polynomials evaluated via Horner/FMA form the core of correctly rounded `exp` and `sin`.",
+        "url": "https://core-math.gitlabpages.inria.fr/"
+      },
+      {
+        "name": "CGAL / Triangle / PostGIS / CAD Kernels",
+        "detail": "Shewchuk exact `orient2d` prevents self-intersecting meshes and topological crashes on near-collinear geometry.",
+        "url": "https://www.cs.cmu.edu/~quake/robust.html"
+      },
+      {
+        "name": "Scientific Computing & Financial Aggregation",
+        "detail": "Neumaier summation, Knuth TwoSum, and outward-rounded interval arithmetic prevent silent catastrophic cancellation.",
+        "url": "https://en.wikipedia.org/wiki/Kahan_summation_algorithm"
+      }
+    ],
+    "examples": [
+      {
+        "use_case": "Correctly rounded libm / SIMD exp(x) & sin(x)",
+        "claim_id": "S-rec-exp",
+        "mechanism": "Pure float64 polynomial coefficients verified against an exact 128-bit BigInt oracle drop straight into C/Rust/SIMD Horner loops.",
+        "metric": "Verified coefficient vectors beat Taylor by >13× and tighten Chebyshev toward float64-lattice Remez optima."
+      },
+      {
+        "use_case": "Crash-free Delaunay meshing & GIS geometry",
+        "claim_id": "S-num-004",
+        "mechanism": "Adaptive expansion `orient2d` matches exact rational determinant signs even under 1e8 + 2^-53 near-collinear perturbations.",
+        "metric": "Zero sign-flip failures across all 12 adversarial Shewchuk perturbation cases."
+      },
+      {
+        "use_case": "Catastrophic-cancellation-proof scientific sums",
+        "claim_id": "S-num-001",
+        "mechanism": "Neumaier compensated summation preserves exact sums across 1e16 and 1e100 cancellation spikes where naive sums return 0.",
+        "metric": "Verified drop-in primitive for numerical integration, statistics, and physics engines."
+      }
+    ]
+  },
   "judge": {
     "type": "command",
     "label": "Deterministic IEEE-754 Stress Judge",

@@ -1,0 +1,115 @@
+{
+  "slug": "crypto-zk-circuits",
+  "brand": "PROOF FOUNDRY · CRYPTO & ZK",
+  "title": "Cryptographic & ZK/FHE Circuit Minimization",
+  "tagline": "Multiplicative complexity & depth hunts · Lean 4.36.0 kernel",
+  "question": "How few non-linear (AND) gates suffice for AES, Ascon, and PRESENT S-boxes?",
+  "description": "Synthesize and Lean-verify minimal straight-line Boolean circuits for real-world cryptographic S-boxes (FIPS-197 AES, NIST SP 800-232 Ascon, ISO PRESENT, SKINNY). Every non-linear AND gate directly governs FHE bootstrapping noise, MPC Beaver triples, side-channel masking area, and ZK constraint counts.",
+  "verdict": "open world record hunt — accepting token donations.",
+  "tug_of_war": {
+    "enabled": true,
+    "left_key": "circuit_upper",
+    "right_key": "circuit_lower",
+    "left_label": "Smaller verified circuits",
+    "right_label": "Lower-bound impossibility proofs",
+    "disclaimer": "Counts Lean-verified S-box circuit constructions vs. Lean-verified lower bounds."
+  },
+  "impact": {
+    "tier": "direct_production",
+    "tier_label": "Direct production impact",
+    "ships_to": "TFHE / OpenFHE, MP-SPDZ, NIST SP 800-232 Ascon, masked AES silicon, ZK circuits",
+    "bottleneck": "In FHE, MPC, and side-channel-masked hardware, XOR gates are nearly free while every non-linear AND gate costs bootstrapping latency, interactive communication rounds (Beaver triples), or quadratic masking area.",
+    "what_one_step_buys": "Removing 1 AND gate from the AES S-box saves 160 Beaver triples per AES-128 encryption across every MPC protocol and cuts masked ASIC S-box area by ~3%.",
+    "consumers": [
+      {
+        "name": "TFHE-rs / OpenFHE",
+        "detail": "Homomorphic AES transciphering latency scales linearly with S-box AND-depth and AND count.",
+        "url": "https://github.com/zama-ai/tfhe-rs"
+      },
+      {
+        "name": "MP-SPDZ / Garbled Circuits",
+        "detail": "Each AND gate in AES or Ascon consumes one Beaver triple or one garbled row per S-box evaluation.",
+        "url": "https://github.com/data61/MP-SPDZ"
+      },
+      {
+        "name": "NIST SP 800-232 (Ascon)",
+        "detail": "Standardized lightweight AEAD/hash for IoT and embedded ARM/RISC-V; bit-sliced gate count sets cycle count.",
+        "url": "https://csrc.nist.gov/projects/lightweight-cryptography"
+      }
+    ],
+    "examples": [
+      {
+        "use_case": "Homomorphic AES transciphering & MPC",
+        "claim_id": "CZ-rec-aes-and",
+        "mechanism": "Every verified MultiCircuit 8 8 exports directly to a branchless C/Verilog bit-sliced S-box or MPC Bristol-Fashion netlist.",
+        "metric": "Beating Boyar–Peralta's 32 AND gates lowers every garbled-circuit and MPC AES-128 block by 160+ non-linear gates."
+      },
+      {
+        "use_case": "Side-channel-masked hardware AES",
+        "claim_id": "CZ-rec-aes-total",
+        "mechanism": "AND-depth ≤ 4 caps pipeline registers and freshness randomness required for first- and higher-order Boolean masking.",
+        "metric": "Every gate shaved below 113 at depth 4 directly shrinks silicon area in smartcards, HSMs, and TPMs."
+      },
+      {
+        "use_case": "Embedded NIST Ascon AEAD on microcontrollers",
+        "claim_id": "CZ-rec-ascon-gates",
+        "mechanism": "Bit-sliced 5-bit S-box executes 64 S-boxes in parallel per 64-bit word using only bitwise XOR/AND/ANDN instructions.",
+        "metric": "5 AND gates at AND-depth 1 with ≤ 16 total ops compiles straight to 16 single-cycle RISC-V / ARM64 bitwise instructions."
+      }
+    ]
+  },
+  "judge": {
+    "type": "lean4",
+    "label": "Lean 4.36.0 kernel · frozen statements · zero sorry",
+    "lean_dir": "missions/crypto-zk-circuits/lean",
+    "lake_target": "Crypto",
+    "core_file": "missions/crypto-zk-circuits/lean/Crypto/Core.lean",
+    "core_olean": "missions/crypto-zk-circuits/lean/.lake/build/lib/lean/Crypto/Core.olean",
+    "allowed_dirs": [
+      "missions/crypto-zk-circuits/lean/Crypto/Claims",
+      "missions/crypto-zk-circuits/lean/Crypto/Statements"
+    ],
+    "allowed_extensions": [
+      ".lean"
+    ],
+    "allowed_axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ]
+  },
+  "github_repo": "steph4n-gh/proof-foundry",
+  "objectives": [
+    {
+      "id": "OBJ-cz-foundations",
+      "title": "Standardized Lightweight S-Box Foundations (NIST Ascon & ISO PRESENT)",
+      "tier": "Milestone 1",
+      "finish_line": "Verify the 5-AND depth-1 NIST SP 800-232 Ascon S-box and the 4-AND ISO/IEC 29192-2 PRESENT S-box in Lean 4.",
+      "required": [
+        { "id": "CZ-001", "expect": "proof" },
+        { "id": "CZ-002", "expect": "proof" }
+      ]
+    },
+    {
+      "id": "OBJ-cz-lightweight-koth",
+      "title": "Lightweight Bit-Sliced S-Box Minimization (Ascon, PRESENT, SKINNY)",
+      "tier": "Active Frontier",
+      "finish_line": "Ratchet down total B2 gate counts for NIST Ascon (≤16 → 15), PRESENT (≤14 at 4 ANDs), and SKINNY-4 (≤8).",
+      "required": [
+        { "id": "CZ-rec-ascon-gates", "expect": { "record_at_most": 15 } },
+        { "id": "CZ-rec-present-gates", "expect": { "record_at_most": 14 } },
+        { "id": "CZ-rec-skinny4-gates", "expect": { "record_at_most": 8 } }
+      ]
+    },
+    {
+      "id": "OBJ-cz-aes-frontier",
+      "title": "Open World Record Frontier: FIPS-197 AES S-Box (Boyar–Peralta 32 AND & Depth-4)",
+      "tier": "Open World Record",
+      "finish_line": "Certify the 32-AND AES S-box (beat 32 to set a historic world record for MPC/FHE!) and ratchet depth-4 total gates toward 113.",
+      "required": [
+        { "id": "CZ-rec-aes-and", "expect": { "record_at_most": 32 } },
+        { "id": "CZ-rec-aes-total", "expect": { "record_at_most": 113 } }
+      ]
+    }
+  ]
+}
