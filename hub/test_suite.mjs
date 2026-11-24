@@ -150,36 +150,36 @@ function rawEntry(mode, status, filePath, oldPath = null) {
 }
 
 // N3: git mv rename (R100) or delete (D) rejected on donor lane
-const n3Entries = parseGitRawZ(rawEntry("100644", "R100", "missions/erdos-combinatorics/artifacts/x.mjs", "hub/judges/lean4.mjs"));
+const n3Entries = parseGitRawZ(rawEntry("100644", "R100", "missions/ml-math-kernels/artifacts/x.json", "hub/judges/lean4.mjs"));
 const n3Cls = classifyEntries(n3Entries);
 assert(n3Cls.lane === "infra" && n3Cls.reasons.some((r) => r.includes("Disallowed git status")), "N3 (git mv rename) blocked from donor lane", JSON.stringify(n3Cls));
 
 // N4: symlink (mode 120000) rejected on donor lane
-const n4Entries = parseGitRawZ(rawEntry("120000", "A", "missions/erdos-combinatorics/lean/Erdos/Claims/E_sch_004.lean"));
+const n4Entries = parseGitRawZ(rawEntry("120000", "A", "missions/sorting-networks/lean/SortNet/Claims/SN_003.lean"));
 const n4Cls = classifyEntries(n4Entries);
 assert(n4Cls.lane === "infra" && n4Cls.reasons.some((r) => r.includes("120000")), "N4 (symlink mode 120000) blocked from donor lane", JSON.stringify(n4Cls));
 
 // N5: trailing-space submission filename rejected (NEVER passes with checked:0!)
-const n5Entries = parseGitRawZ(rawEntry("100644", "A", "missions/erdos-combinatorics/submissions/E-sch-004.proof.1234567890.json "));
+const n5Entries = parseGitRawZ(rawEntry("100644", "A", "missions/sorting-networks/submissions/SN-003.proof.1234567890.json "));
 const n5Res = verifyPrEntries(n5Entries);
 assert(!n5Res.ok && !n5Res.eligible_for_auto_merge, "N5 (trailing-space submission / checked:0 bypass) rejected", JSON.stringify(n5Res));
 
 // N5b: valid-looking submission path that is MISSING on disk -> HARD FAIL!
-const n5bEntries = parseGitRawZ(rawEntry("100644", "A", "missions/erdos-combinatorics/submissions/E-sch-004.proof.0000000000.json"));
+const n5bEntries = parseGitRawZ(rawEntry("100644", "A", "missions/sorting-networks/submissions/SN-003.proof.0000000000.json"));
 const n5bRes = verifyPrEntries(n5bEntries);
 assert(!n5bRes.ok && n5bRes.reason.includes("missing"), "N5b (missing submission file on disk) rejected with hard failure", JSON.stringify(n5bRes));
 
 // N10: modifying existing submission (status M) rejected (append-only!)
-const n10Entries = parseGitRawZ(rawEntry("100644", "M", "missions/erdos-combinatorics/submissions/E-ram-001.proof.36697e8874.json"));
+const n10Entries = parseGitRawZ(rawEntry("100644", "M", "missions/sorting-networks/submissions/SN-001.proof.2a05a3bbc5.json"));
 const n10Cls = classifyEntries(n10Entries);
 assert(n10Cls.lane === "infra" && n10Cls.reasons.some((r) => r.includes("newly added")), "N10 (modify existing submission) blocked by append-only rule", JSON.stringify(n10Cls));
 
 // N17: deleting submission (status D) rejected
-const n17Entries = parseGitRawZ(rawEntry("000000", "D", "missions/erdos-combinatorics/submissions/E-ram-001.proof.36697e8874.json"));
+const n17Entries = parseGitRawZ(rawEntry("000000", "D", "missions/sorting-networks/submissions/SN-001.proof.2a05a3bbc5.json"));
 const n17Cls = classifyEntries(n17Entries);
 assert(n17Cls.lane === "infra", "N17 (delete existing submission) blocked", JSON.stringify(n17Cls));
 
-// Temporary submission fixtures inside missions/erdos-combinatorics/submissions for N11, N12, N14, N15, N16
+// Temporary submission fixtures for N11, N12, N14, N15, N16
 const tmpSubs = [];
 function writeTmpSub(relPath, obj) {
   const abs = path.resolve(relPath);
@@ -188,45 +188,45 @@ function writeTmpSub(relPath, obj) {
   return parseGitRawZ(rawEntry("100644", "A", relPath));
 }
 try {
-  // N11: duplicate proof for already-checked E-ram-001 rejected!
-  const n11E = writeTmpSub("missions/erdos-combinatorics/submissions/E-ram-001.proof.36697e8874.dup.json", {
+  // N11: duplicate proof for already-checked SN-001 rejected!
+  const n11E = writeTmpSub("missions/sorting-networks/submissions/SN-001.proof.2a05a3bbc5.dup.json", {
     schema: "fleet-submission/2",
-    mission: "erdos-combinatorics",
-    lemma_id: "E-ram-001",
+    mission: "sorting-networks",
+    lemma_id: "SN-001",
     kind: "proof",
-    file: "missions/erdos-combinatorics/lean/Erdos/Claims/E_ram_001.lean",
-    theorem: "Erdos.Claims.E_ram_001.ramsey33_gt_five",
-    checker: { ok: true, judge: "lean4", file_hash: "36697e8874dc55cde871392d0bb97878b0bedd8c27b25152cc7b16e4ff89c350", axioms: [], by_seat: "donor-dup" },
+    file: "missions/sorting-networks/lean/SortNet/Claims/SN_001.lean",
+    theorem: "SortNet.Claims.SN_001.zero_one_principle",
+    checker: { ok: true, judge: "lean4", file_hash: "2a05a3bbc5", axioms: [], by_seat: "donor-dup" },
   });
   const n11R = verifyPrEntries(n11E);
-  assert(!n11R.ok && n11R.reports[0]?.reason?.includes("Duplicate proof"), "N11 (duplicate proof on solved E-ram-001) rejected", JSON.stringify(n11R));
+  assert(!n11R.ok && n11R.reports[0]?.reason?.includes("Duplicate proof"), "N11 (duplicate proof on solved SN-001) rejected", JSON.stringify(n11R));
 
-  // N12: unbound refutation on checked E-ram-001 citing E_ram_002 rejected!
-  const n12E = writeTmpSub("missions/erdos-combinatorics/submissions/E-ram-001.refutation.cf46d9f005.json", {
+  // N12: unbound refutation on checked L-lib-000 (no frozen statement) rejected!
+  const n12E = writeTmpSub("missions/p-vs-np/submissions/L-lib-000.refutation.0f522adda1.json", {
     schema: "fleet-submission/2",
-    mission: "erdos-combinatorics",
-    lemma_id: "E-ram-001",
+    mission: "p-vs-np",
+    lemma_id: "L-lib-000",
     kind: "refutation",
-    file: "missions/erdos-combinatorics/lean/Erdos/Claims/E_ram_002.lean",
-    theorem: "Erdos.Claims.E_ram_002.ramsey33_le_six",
-    refutation: { file_hash: "cf46d9f005", axioms: ["propext"], by_seat: "donor-evil" },
+    file: "lean/PnP/Lemmas/L_lib_001.lean",
+    theorem: "PnP.Lemmas.L_lib_001.monotone_circuit_is_monotone",
+    refutation: { file_hash: "0f522adda1", axioms: ["propext"], by_seat: "donor-evil" },
   });
   const n12R = verifyPrEntries(n12E);
   assert(!n12R.ok && n12R.reports[0]?.reason?.includes("Unbound refutation"), "N12 (unbound refutation on checked claim) rejected", JSON.stringify(n12R));
 
   // N15: self-certifying audit JSON rejected on donor lane!
-  const n15E = writeTmpSub("missions/erdos-combinatorics/submissions/E-erd128-003.audit.1111111111.json", {
+  const n15E = writeTmpSub("missions/sorting-networks/submissions/SN-003.audit.1111111111.json", {
     schema: "fleet-submission/2",
-    mission: "erdos-combinatorics",
-    lemma_id: "E-erd128-003",
+    mission: "sorting-networks",
+    lemma_id: "SN-003",
     kind: "audit",
     audit: { status: "faithful", by_seat: "donor-self", file_hash: "1111111111" },
   });
   const n15R = verifyPrEntries(n15E);
   assert(!n15R.ok && n15R.reports[0]?.reason?.includes("maintainer review"), "N15 (self-certifying audit JSON) rejected", JSON.stringify(n15R));
 
-  // N16: mission directory mismatch (erdos dir claiming p-vs-np) rejected!
-  const n16E = writeTmpSub("missions/erdos-combinatorics/submissions/L-lib-000.proof.0f522adda1.json", {
+  // N16: mission directory mismatch (sorting-networks dir claiming p-vs-np) rejected!
+  const n16E = writeTmpSub("missions/sorting-networks/submissions/L-lib-000.proof.0f522adda1.json", {
     schema: "fleet-submission/2",
     mission: "p-vs-np",
     lemma_id: "L-lib-000",
@@ -238,162 +238,65 @@ try {
   const n16R = verifyPrEntries(n16E);
   assert(!n16R.ok && n16R.reports[0]?.reason?.includes("Mission directory mismatch"), "N16 (mission/dir mismatch) rejected", JSON.stringify(n16R));
 
-  // N14: forged checker.statement_frozen:true & impersonated by_seat:"seat-strat-1" on real valid artifact S_num_001 -> rejected by verdict binding!
-  // Test on unsolved S-num-002 using a temp valid artifact copy!
-  const sciArtRel = "missions/verified-science-kernels/artifacts/S_num_002.mjs";
-  const sciArtAbs = path.resolve(sciArtRel);
-  const hadS2 = fs.existsSync(sciArtAbs);
-  if (!hadS2) {
-    fs.writeFileSync(
-      sciArtAbs,
-      `const buf = new ArrayBuffer(8), f64 = new Float64Array(buf), i64 = new BigInt64Array(buf);
-function nextUp(x){ if(!Number.isFinite(x)) return x; if(x===0) return Number.MIN_VALUE; f64[0]=x; i64[0]+=(x>0?1n:-1n); return f64[0]; }
-function nextDown(x){ if(!Number.isFinite(x)) return x; if(x===0) return -Number.MIN_VALUE; f64[0]=x; i64[0]+=(x>0?-1n:1n); return f64[0]; }
-export function intervalAdd([a,b],[c,d]){ return [nextDown(a+c), nextUp(b+d)]; }
-`
-    );
-    tmpSubs.push(sciArtAbs);
-    const s2Hash = crypto.createHash("sha256").update(fs.readFileSync(sciArtAbs)).digest("hex");
-    const n14SubRel = `missions/verified-science-kernels/submissions/S-num-002.proof.${s2Hash.slice(0, 10)}.json`;
-    const n14Entries = parseGitRawZ(
-      rawEntry("100644", "A", sciArtRel) + rawEntry("100644", "A", n14SubRel)
-    );
-    fs.writeFileSync(
-      path.resolve(n14SubRel),
-      JSON.stringify({
-        schema: "fleet-submission/2",
-        mission: "verified-science-kernels",
-        lemma_id: "S-num-002",
-        kind: "proof",
-        file: sciArtRel,
-        theorem: "interval_add_soundness",
-        checker: {
-          ok: true,
-          judge: "command",
-          file_hash: s2Hash,
-          statement_frozen: true, // FORGED! command judge does not set statement_frozen:true
-          axioms: ["outward_rounding_1e16_plus_1", "containment_battery"],
-          by_seat: "seat-strat-1", // FORGED internal seat impersonation!
-        },
-      })
-    );
-    tmpSubs.push(path.resolve(n14SubRel));
-    const n14R = verifyPrEntries(n14Entries);
+  // N14 (Proof PR verdict binding on real frozen Lean proof CZ-001 in temp rootDir — excludes own receipt from baseState!):
+  const czTmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pf-proof-bind-"));
+  try {
+    const czArtRel = "missions/crypto-zk-circuits/lean/Crypto/Claims/CZ_001.lean";
+    const czSubRel = "missions/crypto-zk-circuits/submissions/CZ-001.proof.bd354ffcce.json";
+    const realCzSub = JSON.parse(fs.readFileSync(path.resolve(czSubRel), "utf8"));
+    fs.mkdirSync(path.dirname(path.join(czTmpRoot, czArtRel)), { recursive: true });
+    fs.mkdirSync(path.dirname(path.join(czTmpRoot, czSubRel)), { recursive: true });
+    fs.copyFileSync(path.resolve(czArtRel), path.join(czTmpRoot, czArtRel));
+    const czEntries = parseGitRawZ(rawEntry("100644", "A", czArtRel) + rawEntry("100644", "A", czSubRel));
+
+    // N14: forged statement_frozen:false + internal seat-strat-1 impersonation -> rejected by verdict binding
+    const forgedSeatSub = structuredClone(realCzSub);
+    forgedSeatSub.checker.statement_frozen = false;
+    forgedSeatSub.checker.by_seat = "seat-strat-1";
+    fs.writeFileSync(path.join(czTmpRoot, czSubRel), JSON.stringify(forgedSeatSub, null, 2));
+    const n14R = verifyPrEntries(czEntries, { rootDir: czTmpRoot });
     assert(
       !n14R.ok && n14R.reports[0]?.reason?.includes("statement_frozen mismatch") && n14R.reports[0]?.reason?.includes("by_seat"),
-      "N14 (forged statement_frozen:true + seat-strat-1 impersonation) rejected by verdict binding",
+      "N14 (forged statement_frozen + seat-strat-1 impersonation) rejected by verdict binding",
       JSON.stringify(n14R)
     );
 
-    // Positive control on S-num-002 with honest fields (including core_hash) -> PASSES!
-    const sciCoreHash = crypto
-      .createHash("sha256")
-      .update(fs.readFileSync(path.resolve("missions/verified-science-kernels/judge/verify.mjs")))
-      .digest("hex");
-
-    // N14b: missing core_hash on donor proof PR -> rejected!
-    fs.writeFileSync(
-      path.resolve(n14SubRel),
-      JSON.stringify({
-        schema: "fleet-submission/2",
-        mission: "verified-science-kernels",
-        lemma_id: "S-num-002",
-        kind: "proof",
-        file: sciArtRel,
-        theorem: "interval_add_soundness",
-        checker: {
-          ok: true,
-          judge: "command",
-          file_hash: s2Hash,
-          statement_frozen: false,
-          axioms: ["containment_battery", "outward_rounding_1e16_plus_1"],
-          by_seat: "donor-test-ok",
-        },
-      })
-    );
-    const missingCoreR = verifyPrEntries(n14Entries);
+    // N14b: missing core_hash on donor proof PR -> rejected
+    const missingCoreSub = structuredClone(realCzSub);
+    missingCoreSub.checker.by_seat = "donor-test-ok";
+    delete missingCoreSub.checker.core_hash;
+    fs.writeFileSync(path.join(czTmpRoot, czSubRel), JSON.stringify(missingCoreSub, null, 2));
+    const missingCoreR = verifyPrEntries(czEntries, { rootDir: czTmpRoot });
     assert(
       !missingCoreR.ok && missingCoreR.reports[0]?.reason?.includes("core_hash mismatch"),
       "N14b (missing core_hash on donor proof PR) rejected by verdict binding",
       JSON.stringify(missingCoreR)
     );
 
-    fs.writeFileSync(
-      path.resolve(n14SubRel),
-      JSON.stringify({
-        schema: "fleet-submission/2",
-        mission: "verified-science-kernels",
-        lemma_id: "S-num-002",
-        kind: "proof",
-        file: sciArtRel,
-        theorem: "interval_add_soundness",
-        signature: "intervalAdd(a, b) : outward-rounded containment for non-representable float64 sums",
-        checker: {
-          ok: true,
-          judge: "command",
-          file_hash: s2Hash,
-          core_hash: sciCoreHash,
-          statement_frozen: false,
-          axioms: ["containment_battery", "outward_rounding_1e16_plus_1"],
-          by_seat: "donor-test-ok",
-        },
-      })
-    );
-    const posR = verifyPrEntries(n14Entries);
-    assert(posR.ok && posR.checked === 1 && !posR.eligible_for_auto_merge, "Positive control: honest S-num-002 donor PR passes verify-pr (non-frozen -> not auto-mergeable)", JSON.stringify(posR));
+    // Positive control: honest CZ-001 donor PR passes verify-pr & is auto-mergeable (frozen statement matched!)
+    const honestSub = structuredClone(realCzSub);
+    honestSub.checker.by_seat = "donor-test-ok";
+    fs.writeFileSync(path.join(czTmpRoot, czSubRel), JSON.stringify(honestSub, null, 2));
+    const posR = verifyPrEntries(czEntries, { rootDir: czTmpRoot });
+    assert(posR.ok && posR.checked === 1 && posR.eligible_for_auto_merge, "Positive control: honest frozen CZ-001 donor PR passes verify-pr", JSON.stringify(posR));
 
     // N14e-omit (Daybreak P3): omitting required signature on donor proof PR rejected (fail-closed)
-    fs.writeFileSync(
-      path.resolve(n14SubRel),
-      JSON.stringify({
-        schema: "fleet-submission/2",
-        mission: "verified-science-kernels",
-        lemma_id: "S-num-002",
-        kind: "proof",
-        file: sciArtRel,
-        theorem: "interval_add_soundness",
-        checker: {
-          ok: true,
-          judge: "command",
-          file_hash: s2Hash,
-          core_hash: sciCoreHash,
-          statement_frozen: false,
-          axioms: ["containment_battery", "outward_rounding_1e16_plus_1"],
-          by_seat: "donor-test-ok",
-        },
-      })
-    );
-    const omitSigR = verifyPrEntries(n14Entries);
+    const omitSigSub = structuredClone(honestSub);
+    delete omitSigSub.signature;
+    fs.writeFileSync(path.join(czTmpRoot, czSubRel), JSON.stringify(omitSigSub, null, 2));
+    const omitSigR = verifyPrEntries(czEntries, { rootDir: czTmpRoot });
     assert(
       !omitSigR.ok && omitSigR.reports[0]?.reason?.includes("signature mismatch"),
       "N14e-omit (Daybreak P3: omitted sub.signature on donor proof PR rejected fail-closed)",
       JSON.stringify(omitSigR)
     );
 
-    // N14e (Daybreak P2-1): forged sub.signature or forged checker.statement_hash rejected by verdict binding!
-    fs.writeFileSync(
-      path.resolve(n14SubRel),
-      JSON.stringify({
-        schema: "fleet-submission/2",
-        mission: "verified-science-kernels",
-        lemma_id: "S-num-002",
-        kind: "proof",
-        file: sciArtRel,
-        theorem: "interval_add_soundness",
-        signature: "FORGED_SIGNATURE_CLAIMING_DIFFERENT_THEOREM",
-        checker: {
-          ok: true,
-          judge: "command",
-          file_hash: s2Hash,
-          core_hash: sciCoreHash,
-          statement_hash: "forged_statement_hash_0000",
-          statement_frozen: false,
-          axioms: ["containment_battery", "outward_rounding_1e16_plus_1"],
-          by_seat: "donor-test-ok",
-        },
-      })
-    );
-    const forgedMetaR = verifyPrEntries(n14Entries);
+    // N14e (Daybreak P2-1): forged sub.signature + forged statement_hash rejected by verdict binding!
+    const forgedMetaSub = structuredClone(honestSub);
+    forgedMetaSub.signature = "FORGED_SIGNATURE_CLAIMING_DIFFERENT_THEOREM";
+    forgedMetaSub.checker.statement_hash = "forged_statement_hash_0000";
+    fs.writeFileSync(path.join(czTmpRoot, czSubRel), JSON.stringify(forgedMetaSub, null, 2));
+    const forgedMetaR = verifyPrEntries(czEntries, { rootDir: czTmpRoot });
     assert(
       !forgedMetaR.ok &&
         forgedMetaR.reports[0]?.reason?.includes("signature mismatch") &&
@@ -401,85 +304,67 @@ export function intervalAdd([a,b],[c,d]){ return [nextDown(a+c), nextUp(b+d)]; }
       "N14e (P2-1 forged sub.signature + forged statement_hash) rejected by verdict binding",
       JSON.stringify(forgedMetaR)
     );
-
-    // N14f (Daybreak P2-1/P3): forged and omitted record signature rejected fail-closed on donor record PR
-    const mlRecTmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pf-rec-sig-"));
-    try {
-      const mlArtRel = "missions/ml-math-kernels/artifacts/ML_rec_bf16_exp2_s18.json";
-      const mlSubRel = "missions/ml-math-kernels/submissions/ML-rec-bf16-exp2.record.s18.json";
-      const realSub = JSON.parse(fs.readFileSync(path.resolve(mlSubRel), "utf8"));
-      fs.mkdirSync(path.dirname(path.join(mlRecTmpRoot, mlArtRel)), { recursive: true });
-      fs.mkdirSync(path.dirname(path.join(mlRecTmpRoot, mlSubRel)), { recursive: true });
-      fs.copyFileSync(path.resolve(mlArtRel), path.join(mlRecTmpRoot, mlArtRel));
-      const mlEntries = parseGitRawZ(rawEntry("100644", "A", mlArtRel) + rawEntry("100644", "A", mlSubRel));
-
-      // Forged signature on record PR -> rejected
-      const forgedRecSub = { ...realSub, signature: "FORGED_RECORD_SIGNATURE" };
-      fs.writeFileSync(path.join(mlRecTmpRoot, mlSubRel), JSON.stringify(forgedRecSub, null, 2));
-      const forgedRecR = verifyPrEntries(mlEntries, { rootDir: mlRecTmpRoot });
-      assert(
-        !forgedRecR.ok && forgedRecR.reports[0]?.reason?.includes("signature mismatch"),
-        "N14f-forged (Daybreak P2-1: forged record sub.signature rejected by verdict binding)",
-        JSON.stringify(forgedRecR)
-      );
-
-      // Omitted signature on record PR -> rejected fail-closed
-      const omittedRecSub = { ...realSub };
-      delete omittedRecSub.signature;
-      fs.writeFileSync(path.join(mlRecTmpRoot, mlSubRel), JSON.stringify(omittedRecSub, null, 2));
-      const omittedRecR = verifyPrEntries(mlEntries, { rootDir: mlRecTmpRoot });
-      assert(
-        !omittedRecR.ok && omittedRecR.reports[0]?.reason?.includes("signature mismatch"),
-        "N14f-omit (Daybreak P3: omitted record sub.signature rejected fail-closed)",
-        JSON.stringify(omittedRecR)
-      );
-    } finally {
-      fs.rmSync(mlRecTmpRoot, { recursive: true, force: true });
-    }
-
-    // N14c: Command-Judge double sandbox blocks untrusted import/fs escape attempts inside untrusted .mjs!
-    fs.writeFileSync(
-      sciArtAbs,
-      `import fs from "node:fs";
-fs.readFileSync("/etc/hosts", "utf8");
-export function intervalAdd([a,b],[c,d]){ return [a+c, b+d]; }
-`
-    );
-    const s2Escape = runJudge(loadMission("verified-science-kernels"), {
-      file: sciArtRel,
-      target: "interval_add_soundness",
-      kind: "proof",
-    });
-    assert(
-      !s2Escape.ok && /cannot use import|ERR_ACCESS_DENIED|Isolated artifact runner failed/.test(s2Escape.reason || ""),
-      "N14c (Command-Judge double sandbox blocks untrusted import/fs escape)",
-      JSON.stringify(s2Escape)
-    );
-
-    // N14d: Pure-data minimax parser rejects executable JS imports/code without ever executing it!
-    const evilRecRel = "missions/verified-science-kernels/artifacts/S_rec_exp_s449.mjs";
-    const evilRecAbs = path.resolve(evilRecRel);
-    fs.writeFileSync(
-      evilRecAbs,
-      `import fs from "node:fs";
-fs.writeFileSync("/tmp/should_never_exist_pf", "pwn");
-export const coeffs = [1, 1, 0.5, 0.16666667, 0.04166667, 0.00833333, 0.00138889, 0.00019841];
-`
-    );
-    tmpSubs.push(evilRecAbs);
-    const evilRecRes = runJudge(loadMission("verified-science-kernels"), {
-      file: evilRecRel,
-      target: "minimax_exp_deg7",
-      kind: "record",
-      expectedScore: 449,
-      statementFile: "missions/verified-science-kernels/specs/S_rec_exp.json",
-    });
-    assert(
-      !evilRecRes.ok && !fs.existsSync("/tmp/should_never_exist_pf"),
-      "N14d (Pure-data minimax parser rejects executable JS with zero code execution)",
-      JSON.stringify(evilRecRes)
-    );
+  } finally {
+    fs.rmSync(czTmpRoot, { recursive: true, force: true });
   }
+
+  // N14f (Daybreak P2-1/P3): forged and omitted record signature rejected fail-closed on donor record PR
+  const mlRecTmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pf-rec-sig-"));
+  try {
+    const mlArtRel = "missions/ml-math-kernels/artifacts/ML_rec_bf16_exp2_s18.json";
+    const mlSubRel = "missions/ml-math-kernels/submissions/ML-rec-bf16-exp2.record.s18.json";
+    const realSub = JSON.parse(fs.readFileSync(path.resolve(mlSubRel), "utf8"));
+    fs.mkdirSync(path.dirname(path.join(mlRecTmpRoot, mlArtRel)), { recursive: true });
+    fs.mkdirSync(path.dirname(path.join(mlRecTmpRoot, mlSubRel)), { recursive: true });
+    fs.copyFileSync(path.resolve(mlArtRel), path.join(mlRecTmpRoot, mlArtRel));
+    const mlEntries = parseGitRawZ(rawEntry("100644", "A", mlArtRel) + rawEntry("100644", "A", mlSubRel));
+
+    // Forged signature on record PR -> rejected
+    const forgedRecSub = { ...realSub, signature: "FORGED_RECORD_SIGNATURE" };
+    fs.writeFileSync(path.join(mlRecTmpRoot, mlSubRel), JSON.stringify(forgedRecSub, null, 2));
+    const forgedRecR = verifyPrEntries(mlEntries, { rootDir: mlRecTmpRoot });
+    assert(
+      !forgedRecR.ok && forgedRecR.reports[0]?.reason?.includes("signature mismatch"),
+      "N14f-forged (Daybreak P2-1: forged record sub.signature rejected by verdict binding)",
+      JSON.stringify(forgedRecR)
+    );
+
+    // Omitted signature on record PR -> rejected fail-closed
+    const omittedRecSub = { ...realSub };
+    delete omittedRecSub.signature;
+    fs.writeFileSync(path.join(mlRecTmpRoot, mlSubRel), JSON.stringify(omittedRecSub, null, 2));
+    const omittedRecR = verifyPrEntries(mlEntries, { rootDir: mlRecTmpRoot });
+    assert(
+      !omittedRecR.ok && omittedRecR.reports[0]?.reason?.includes("signature mismatch"),
+      "N14f-omit (Daybreak P3: omitted record sub.signature rejected fail-closed)",
+      JSON.stringify(omittedRecR)
+    );
+  } finally {
+    fs.rmSync(mlRecTmpRoot, { recursive: true, force: true });
+  }
+
+  // N14d: Pure-data ML kernel judge rejects executable JS imports/code without ever executing it!
+  const evilRecRel = "missions/ml-math-kernels/artifacts/ML_rec_bf16_exp2_s99.json";
+  const evilRecAbs = path.resolve(evilRecRel);
+  fs.writeFileSync(
+    evilRecAbs,
+    `import fs from "node:fs";
+fs.writeFileSync("/tmp/should_never_exist_pf", "pwn");
+`
+  );
+  tmpSubs.push(evilRecAbs);
+  const evilRecRes = runJudge(loadMission("ml-math-kernels"), {
+    file: evilRecRel,
+    target: "bf16_exp2",
+    kind: "record",
+    expectedScore: 99,
+    statementFile: "missions/ml-math-kernels/specs/ML_rec_bf16_exp2.json",
+  });
+  assert(
+    !evilRecRes.ok && !fs.existsSync("/tmp/should_never_exist_pf"),
+    "N14d (Pure-data ML kernel judge rejects executable JS with zero code execution)",
+    JSON.stringify(evilRecRes)
+  );
 } finally {
   for (const f of tmpSubs) {
     try { fs.unlinkSync(f); } catch {}
@@ -500,10 +385,10 @@ try {
 }
 
 // Verify build_site.mjs --offline leaves tracked state.json byte-identical!
-const beforeErdos = fs.readFileSync("missions/erdos-combinatorics/state.json", "utf8");
+const beforeSortNet = fs.readFileSync("missions/sorting-networks/state.json", "utf8");
 const buildRun = spawnSync("node", ["hub/build_site.mjs", "--offline"], { encoding: "utf8" });
-const afterErdos = fs.readFileSync("missions/erdos-combinatorics/state.json", "utf8");
-assert(buildRun.status === 0 && beforeErdos === afterErdos && fs.existsSync("dist/PROOFS.md"), "build_site.mjs is pure (state.json byte-identical) & emits dist/PROOFS.md", buildRun.stderr);
+const afterSortNet = fs.readFileSync("missions/sorting-networks/state.json", "utf8");
+assert(buildRun.status === 0 && beforeSortNet === afterSortNet && fs.existsSync("dist/PROOFS.md"), "build_site.mjs is pure (state.json byte-identical) & emits dist/PROOFS.md", buildRun.stderr);
 
 // Dynamically verify ALL Lean missions: Core builds, ALL frozen Statements/*.lean compile, AND ALL Lean KotH `Record_mono` type-check in exact direction!
 for (const slug of listMissionSlugs()) {
@@ -541,9 +426,9 @@ for (const slug of listMissionSlugs()) {
   }
 }
 
-// Sanity check deriveMissionState idempotence across all missions
-const d1 = deriveMissionState("erdos-combinatorics").state;
-const d2 = deriveMissionState("erdos-combinatorics").state;
+// Sanity check deriveMissionState idempotence across active missions
+const d1 = deriveMissionState("sorting-networks").state;
+const d2 = deriveMissionState("sorting-networks").state;
 assert(JSON.stringify(d1) === JSON.stringify(d2), "deriveMissionState is deterministic & byte-identical across runs");
 
 // ---------------------------------------------------------------------------
@@ -771,28 +656,28 @@ assert(
 
 // 4c. Direction = "max" KotH pure derivation, closure, breakthrough guard & Command-Judge KotH!
 const maxSeed = {
-  meta: { mission: "erdos-combinatorics", updated_at: "2026-01-01T00:00:00Z" },
-  programs: [{ id: "ramsey", key: "ram", title: "Ramsey" }],
+  meta: { mission: "error-correcting-codes", updated_at: "2026-01-01T00:00:00Z" },
+  programs: [{ id: "record_hunt", key: "rec", title: "Record Hunt" }],
   seats: [],
   lemmas: [
     {
-      id: "E-rec-r55",
+      id: "EC-rec-17-6",
       kind: "record",
-      program: "ramsey",
-      title: "R(5,5) Max Hunt",
-      statement_file: "missions/erdos-combinatorics/lean/Erdos/Statements/E_rec_r55.lean",
-      statement_def: "Erdos.Statements.E_rec_r55.Record",
+      program: "record_hunt",
+      title: "A(17,6) Max Hunt",
+      statement_file: "missions/error-correcting-codes/lean/Codes/Statements/EC_rec_17_6.lean",
+      statement_def: "Codes.Statements.EC_rec_17_6.Record",
       record: {
         direction: "max",
-        unit: "vertices",
+        unit: "codewords",
         start_target: 36,
         literature_best: 42,
         literature_upper_bound: 47,
         bound_floor: 48,
-        score_max: 100,
-        file_stem: "E_rec_r55",
-        claims_dir: "missions/erdos-combinatorics/lean/Erdos/Claims",
-        theorem_template: "Erdos.Claims.E_rec_r55_{tag}.record",
+        score_max: 500,
+        file_stem: "EC_rec_17_6",
+        claims_dir: "missions/error-correcting-codes/lean/Codes/Claims",
+        theorem_template: "Codes.Claims.EC_rec_17_6_{tag}.record",
       },
       status: "conjecture",
       deps: [],
@@ -803,12 +688,12 @@ const maxSeed = {
   checker_runs: [],
 };
 function mkMaxSub(kind, score, seat) {
-  const t = computeRecordTargets("erdos-combinatorics", maxSeed.lemmas[0], kind, score);
+  const t = computeRecordTargets("error-correcting-codes", maxSeed.lemmas[0], kind, score);
   return {
     _sub_file: t.submissionBasename,
     schema: "pf.record.v1",
-    mission: "erdos-combinatorics",
-    lemma_id: "E-rec-r55",
+    mission: "error-correcting-codes",
+    lemma_id: "EC-rec-17-6",
     kind,
     score,
     file: t.artifactFile,
@@ -819,14 +704,14 @@ function mkMaxSub(kind, score, seat) {
 }
 const maxHashes = {
   coreHash: "core_ok",
-  statementHashes: { "missions/erdos-combinatorics/lean/Erdos/Statements/E_rec_r55.lean": "max_stmt" },
+  statementHashes: { "missions/error-correcting-codes/lean/Codes/Statements/EC_rec_17_6.lean": "max_stmt" },
 };
 const m38 = mkMaxSub("record", 38, "donor-m1");
 const m42 = mkMaxSub("record", 42, "donor-m2");
 const m48Ub = mkMaxSub("record_bound", 48, "donor-u1");
 const m43Ub = mkMaxSub("record_bound", 43, "donor-u2");
 const maxState = applySubmissionsPure(maxSeed, [m42, m38, m48Ub, m43Ub], {
-  missionSlug: "erdos-combinatorics",
+  missionSlug: "error-correcting-codes",
   gitAddedTs: new Map(), // also exercises missing-git max fallback ordering (38 before 42, 48 before 43!)
   currentHashes: maxHashes,
 }).state.lemmas[0];
@@ -854,65 +739,33 @@ assert(
   JSON.stringify({ maxBrk, maxUbBrk })
 );
 
-// Command-Judge pure-data minimax KotH test (S-rec-exp)
-const sciMission = loadMission("verified-science-kernels");
-const tmpSciDir = fs.mkdtempSync(path.join(os.tmpdir(), "pf-sci-koth-"));
-try {
-  const expArt = path.join(tmpSciDir, "S_rec_exp_s450.mjs");
-  // Degree-7 Chebyshev coefficients on [-ln2/2, ln2/2] (max error ~413 * 1e-13)
-  fs.writeFileSync(
-    expArt,
-    `export const coeffs = [1.0000000000040923, 0.9999999999944174, 0.4999999990773131, 0.1666666668018312, 0.0416666898932322, 0.0083333301573068, 0.0013887439344572, 0.0001984316503399];\n`
-  );
-  // Wait: compute exact Chebyshev inside the test so rounding never drifts!
-  const M = 64, a = Math.LN2 / 2, deg = 7, c = new Array(deg + 1).fill(0);
-  for (let j = 0; j <= deg; j++) {
-    let s = 0;
-    for (let k = 0; k < M; k++) { const th = (Math.PI * (k + 0.5)) / M; s += Math.exp(a * Math.cos(th)) * Math.cos(j * th); }
-    c[j] = (2 / M) * s;
-  }
-  c[0] /= 2;
-  const mono = new Array(deg + 1).fill(0);
-  let Tprev = [1], Tcur = [0, 1 / a];
-  for (let j = 0; j <= deg; j++) {
-    const T = j === 0 ? Tprev : j === 1 ? Tcur : (() => {
-      const nxt = new Array(j + 1).fill(0);
-      for (let k = 0; k < Tcur.length; k++) nxt[k + 1] += (2 / a) * Tcur[k];
-      for (let k = 0; k < Tprev.length; k++) nxt[k] -= Tprev[k];
-      Tprev = Tcur; Tcur = nxt; return nxt;
-    })();
-    for (let k = 0; k < T.length; k++) mono[k] += c[j] * T[k];
-  }
-  fs.writeFileSync(expArt, `export const coeffs = ${JSON.stringify(mono)};\n`);
-  const rCmdPass = checkCommandArtifact(expArt, "minimax_exp_deg7", {
-    judgeConfig: sciMission.judge,
-    kind: "record",
-    statementFile: "missions/verified-science-kernels/specs/S_rec_exp.json",
-    expectedScore: 450,
-    allowTempForTests: true,
-  });
-  const rCmdFail = checkCommandArtifact(expArt, "minimax_exp_deg7", {
-    judgeConfig: sciMission.judge,
-    kind: "record",
-    statementFile: "missions/verified-science-kernels/specs/S_rec_exp.json",
-    expectedScore: 100,
-    allowTempForTests: true,
-  });
-  const rCmdBound = checkCommandArtifact(expArt, "minimax_exp_deg7", {
-    judgeConfig: sciMission.judge,
-    kind: "record_bound",
-    statementFile: "missions/verified-science-kernels/specs/S_rec_exp.json",
-    expectedScore: 390,
-    allowTempForTests: true,
-  });
-  assert(
-    rCmdPass.ok && rCmdPass.score === 450 && rCmdPass.statement_frozen === true && !rCmdFail.ok && !rCmdBound.ok,
-    "Command-Judge KotH (S-rec-exp 128-bit BigInt oracle): passes ≤450, rejects ≤100, rejects record_bound",
-    JSON.stringify({ rCmdPass, rCmdFail, rCmdBound })
-  );
-} finally {
-  fs.rmSync(tmpSciDir, { recursive: true, force: true });
-}
+// Command-Judge pure-data exhaustive BF16 KotH test (ML-rec-bf16-rsqrt)
+const mlMission = loadMission("ml-math-kernels");
+const mlSpecRel = "missions/ml-math-kernels/specs/ML_rec_bf16_rsqrt.json";
+const mlArtPath = path.resolve("missions/ml-math-kernels/artifacts/ML_rec_bf16_rsqrt_s17.json");
+const rCmdPass = checkCommandArtifact(mlArtPath, "bf16_rsqrt", {
+  judgeConfig: mlMission.judge,
+  kind: "record",
+  statementFile: mlSpecRel,
+  expectedScore: 17,
+});
+const rCmdFail = checkCommandArtifact(mlArtPath, "bf16_rsqrt", {
+  judgeConfig: mlMission.judge,
+  kind: "record",
+  statementFile: mlSpecRel,
+  expectedScore: 10,
+});
+const rCmdBound = checkCommandArtifact(mlArtPath, "bf16_rsqrt", {
+  judgeConfig: mlMission.judge,
+  kind: "record_bound",
+  statementFile: mlSpecRel,
+  expectedScore: 10,
+});
+assert(
+  rCmdPass.ok && rCmdPass.score === 17 && rCmdPass.statement_frozen === true && !rCmdFail.ok && !rCmdBound.ok,
+  "Command-Judge KotH (ML-rec-bf16-rsqrt exhaustive 65,536-input judge): passes ≤17, rejects ≤10, rejects record_bound",
+  JSON.stringify({ rCmdPass, rCmdFail, rCmdBound })
+);
 
 // 4d. Breakthrough literature guard in validateRecordImprovement
 const brk = validateRecordImprovement(recSeed.lemmas[0], "record", 44);
@@ -952,18 +805,18 @@ try {
   const rCross1 = verifyPrEntries(parseGitRawZ(rawEntry("100644", "A", kProofArt) + rawEntry("100644", "A", kProofSub)));
   assert(!rCross1.ok && rCross1.reports[0]?.reason?.includes("King-of-the-Hill"), "PR Gate KotH: rejects `proof` on record hunt", JSON.stringify(rCross1));
 
-  // Cross-kind rejection: `record` on normal claim E-ram-001
-  const kRecOnNormArt = safeWriteTmpKoth(`missions/erdos-combinatorics/lean/Erdos/Claims/E_ram_001_s999_${kothSalt}.lean`, "import Erdos.Core\n");
+  // Cross-kind rejection: `record` on normal claim SN-001
+  const kRecOnNormArt = safeWriteTmpKoth(`missions/sorting-networks/lean/SortNet/Claims/SN_001_s999_${kothSalt}.lean`, "import SortNet.Core\n");
   const kRecOnNormSub = safeWriteTmpKoth(
-    `missions/erdos-combinatorics/submissions/E-ram-001.record.s999_${kothSalt}.json`,
+    `missions/sorting-networks/submissions/SN-001.record.s999_${kothSalt}.json`,
     JSON.stringify({
       schema: "pf.record.v1",
-      mission: "erdos-combinatorics",
-      lemma_id: "E-ram-001",
+      mission: "sorting-networks",
+      lemma_id: "SN-001",
       kind: "record",
       score: 999,
       file: kRecOnNormArt,
-      theorem: `Erdos.Claims.E_ram_001_s999_${kothSalt}.record`,
+      theorem: `SortNet.Claims.SN_001_s999_${kothSalt}.record`,
       checker: { ok: true, judge: "lean4", file_hash: "00", by_seat: "donor-x" },
     })
   );

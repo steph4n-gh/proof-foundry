@@ -1,6 +1,6 @@
 # Proof Foundry Formal Verification Suite
 
-Proof Foundry formally verifies its own critical software core across four complementary layers — combining **universally quantified Lean 4.36.0 proofs**, **exhaustive TLA+ / TLC protocol model checking**, **Lean-native AST & compiled `.olean` security auditing**, and **differential equivalence / trace verification** against the running Node.js & browser code.
+Proof Foundry formally verifies its own critical software core across four complementary layers — combining **universally quantified Lean 4.36.0 proofs**, **exhaustive TLA+ / TLC protocol model checking**, **Lean-native AST & compiled `.olean` security auditing**, and **differential equivalence / trace verification** against the running Node.js, C++17 UBSan, & browser code.
 
 Run the entire suite in one command:
 
@@ -16,11 +16,11 @@ In CI (`.github/workflows/judge.yml`), `npm run verify:formal -- --require-tlc` 
 
 | Layer | Covered Product Code | Formal Artifact | Verification Engine | Scope & Result |
 | :--- | :--- | :--- | :--- | :--- |
-| **1. Core State Machine & KotH** | [hub/state_machine.mjs](../hub/state_machine.mjs), [hub/missions.mjs](../hub/missions.mjs) | [PFFormal/StateMachine.lean](./lean/PFFormal/StateMachine.lean), [AxiomCheck.lean](./lean/PFFormal/AxiomCheck.lean), [verify_state_machine_equiv.mjs](./verify_state_machine_equiv.mjs) | Lean 4.36.0 + `pf_state_check` differential oracle | **30 named / 327 swept theorems** (`∀` scores, `∀` histories, arbitrary seat sets, zero `sorry`, standard axioms only) + **2,673 traces / 17,900 steps** exact JS equivalence + **8/8 mutants caught** |
-| **2a. Lean Judge Security Gate** | [hub/judges/lean4.mjs](../hub/judges/lean4.mjs) | Native `Init` pre-compile AST parser + Pass 2 `.olean` import/constant/dependency-closure audit + [hub/test_judge.mjs](../hub/test_judge.mjs) | Lean 4.36.0 parser & kernel environment | **99 judge tests** + **43/43 tracked Lean proofs** audited; zero elaboration before AST pass; blocks forbidden imports, unused axioms, `opaque`/`unsafe` helpers, and `ctorIdx._impl` spoofs |
+| **1. Core State Machine & KotH** | [hub/state_machine.mjs](../hub/state_machine.mjs), [hub/missions.mjs](../hub/missions.mjs) | [PFFormal/StateMachine.lean](./lean/PFFormal/StateMachine.lean), [AxiomCheck.lean](./lean/PFFormal/AxiomCheck.lean), [verify_state_machine_equiv.mjs](./verify_state_machine_equiv.mjs) | Lean 4.36.0 + `pf_state_check` differential oracle | **30 named / 331 swept theorems** (`∀` scores, `∀` histories, arbitrary seat sets, zero `sorry`, standard axioms only) + **2,818 traces / 20,233 steps** exact JS equivalence + **10/10 mutants caught** |
+| **2a. Lean Judge Security Gate** | [hub/judges/lean4.mjs](../hub/judges/lean4.mjs) | Native `Init` pre-compile AST parser + Pass 2 `.olean` import/constant/dependency-closure audit + [hub/test_judge.mjs](../hub/test_judge.mjs) | Lean 4.36.0 parser & kernel environment | **113 judge tests** + **51/51 tracked Lean proofs** across 6 Lean missions audited; zero elaboration before AST pass; blocks forbidden imports, unused axioms, `opaque`/`unsafe` helpers, and `ctorIdx._impl` spoofs |
 | **2b. PR Gate & KotH Concurrency** | [hub/pr_gate.mjs](../hub/pr_gate.mjs), [.github/workflows/judge.yml](../.github/workflows/judge.yml), [.github/workflows/auto-merge.yml](../.github/workflows/auto-merge.yml) | [pr_gate_merge.tla](./pr_gate_merge.tla), [pr_gate_koth.tla](./pr_gate_koth.tla), [claim_seat_lifecycle.tla](./claim_seat_lifecycle.tla) | TLA+ / TLC 2.19 (BFS, deadlock check) | `pr_gate_merge`: **248 gen / 112 distinct** (depth 7, 0 errors, 3 counterexamples)<br>`claim_seat_lifecycle`: **174 gen / 36 distinct** (depth 5, 0 errors)<br>`pr_gate_koth` (2-PR race): **9,462 gen / 2,597 distinct** (depth 11, 0 errors, 6 counterexamples) |
-| **3. 128-Bit BigInt Math Oracle** | [missions/verified-science-kernels/judge/verify.mjs](../missions/verified-science-kernels/judge/verify.mjs) | [PFOracle/MathOracle.lean](./oracle/PFOracle/MathOracle.lean), [AxiomCheck.lean](./oracle/PFOracle/AxiomCheck.lean), [verify_math_oracle.mjs](./verify_math_oracle.mjs) | Lean 4.36.0 + `pf_oracle_check` differential oracle | **28 theorems** (zero `sorry`, standard axioms only): exact dyadic `TwoSum`/`Dot2`/`orient2d`, finite Taylor partial-sum enclosures `< 69/2¹²⁸` (`exp`) and `< 41/2¹²⁸` (`sin`) (`< 10⁻³⁶`), exact ceiling score + **8,194/8,194 bit-for-bit grid matches** + `S-rec-exp = 405` certified (`> 6.7 × 10²²×` margin) |
-| **4. Frontend UI State Machine** | [web/public/ui_machine.js](../web/public/ui_machine.js) | [ui_machine.tla](./ui_machine.tla), [verify_ui_machine.mjs](./verify_ui_machine.mjs) | TLA+ / TLC 2.19 + JS trace/URL/adapter verifier | `ui_machine.tla`: **379,157 gen / 24,856 distinct** (depth 14, 0 errors, 4 counterexamples) + **11,099 fuzzer steps**, **23,296 URL round-trips**, **20,253 adapter states**, **8/8 mutants caught** |
+| **3. BF16 / Dyadic FMA / C++17 ML Oracle** | [missions/ml-math-kernels/judge/verify.mjs](../missions/ml-math-kernels/judge/verify.mjs), [hub/export_dropin.mjs](../hub/export_dropin.mjs) | [PFOracle/BF16Oracle.lean](./oracle/PFOracle/BF16Oracle.lean), [AxiomCheck.lean](./oracle/PFOracle/AxiomCheck.lean), [verify_ml_oracle.mjs](./verify_ml_oracle.mjs) | Lean 4.36.0 + `pf_oracle_check` differential oracle + C++17 UBSan | **27 pure-kernel theorems** (zero `sorry`, zero `bv_decide`, standard axioms only): exact dyadic algebra, universal RNE optimality/tie-to-even/monotonicity, BF16 lattice metric & order-isomorphism, single-rounding `fmaf` dyadic exactness, universal $2^{64}$ UB-free C++17 `ishr_s` & 32-bit wrapping equivalence + **65,536/65,536 BF16 sweep** + **1,840 adversarial checks** + **4/4 mutants caught** |
+| **4. Frontend UI State Machine** | [web/public/ui_machine.js](../web/public/ui_machine.js) | [ui_machine.tla](./ui_machine.tla), [verify_ui_machine.mjs](./verify_ui_machine.mjs) | TLA+ / TLC 2.19 + JS trace/URL/adapter verifier | `ui_machine.tla`: **379,157 gen / 24,856 distinct** (depth 14, 0 errors, 4 counterexamples) + **11,099 fuzzer steps**, **23,296 URL round-trips**, **20,231 adapter states**, **8/8 mutants caught** |
 
 ---
 
@@ -34,7 +34,7 @@ Formal verification was not rubber-stamping — building these proofs uncovered 
    - Closing `search` or `attempt` via `ESCAPE` left a deep-linked `route.claim` stuck in the URL.
    - Switching missions via `MISSION_LOADED` without an explicit `intent.claim` leaked the previous mission's `route.claim` onto the new mission.
    - Unprojected legacy `contradiction` records checked only `record_state.contradiction` in `recordMetaOf` instead of matching `sealOf` (`status === "contradiction" || record_state.contradiction`), and `CATALOG_FAILED` did not preserve an already-committed healthy `activeMission`.
-4. **Command-Judge sandboxing (`missions/verified-science-kernels/judge/verify.mjs`)** — Functional kernel runs now execute in a double-isolated child process under Node `--permission` (with **zero** filesystem, child-process, worker, addon, or WASI permissions) + `--max-old-space-size=256` + an isolated V8 `vm` context (`Object.create(null)`, `codeGeneration: { strings: false, wasm: false }`, pre-captured `Reflect.apply` / `Object.hasOwn` intrinsics, syntax-aware `tokenizeJsCode` rejecting `import` and regex literals while preserving string/template literals verbatim) + a per-run 128-bit random stdout nonce; `S-rec-exp`/`S-rec-sin` coefficient artifacts and `ml-math-kernels` BF16 DAGs are parsed statically as pure data with **zero JS execution**.
+4. **Pure-data ML Judge & UB-free C++17/CUDA emitters (`missions/ml-math-kernels/judge/verify.mjs`, `hub/export_dropin.mjs`)** — Following the Sharp 7 consolidation (retiring all untrusted donor JS execution), `ml-math-kernels` is the sole non-Lean mission and parses declarative JSON (`pf.mlkernel.v1`, 32 KiB cap, symlink rejection, **zero JS execution**). Drop-in C++/CUDA code generation uses formally proved UB-free `uint32_t` modular arithmetic and bounded shifts (`cppIshrS_equiv_sshiftRight`, `cppIshrS_no_ub_shift_bounds`), eliminating signed-overflow undefined behavior on `-0` (`INT32_MIN`) and matching the JS interpreter across all 65,536 BF16 inputs under `-fsanitize=undefined`.
 
 ---
 
@@ -62,20 +62,21 @@ Proved in [formal/lean/PFFormal/StateMachine.lean](./lean/PFFormal/StateMachine.
   - [claim_seat_lifecycle.tla](./claim_seat_lifecycle.tla) (`174` generated / `36` distinct, depth `5`, 0 errors) — seat bijection, sticky & order-independent contradiction, editorial barriers.
   - [pr_gate_koth.tla](./pr_gate_koth.tla) (`9,462` generated / `2,597` distinct, depth `11`, 0 errors) — two competing donor PRs racing on a KotH hunt, crossing bounds, frozen-statement mutations, and non-100644/path escapes; 6 reproduced counterexamples.
 
-### 3. Lean 4 128-Bit Math Oracle Proofs (`formal/oracle/`)
+### 3. Lean 4 BF16 / Dyadic FMA / UB-Free C++17 ML Oracle Proofs (`formal/oracle/`)
 
-Proved in [formal/oracle/PFOracle/MathOracle.lean](./oracle/PFOracle/MathOracle.lean) (`28` audited theorems, zero `sorry`, standard axioms only):
-- Exact dyadic rational algebra (`dyadicAdd_sound`, `dyadicSub_sound`, `dyadicMul_sound`, `dyadicEq_iff`, `dyadicSign_sound`, `exactDot_sound`, `orient2d_sign_exact`).
-- Truncating BigInt division (`Int.tdiv`) error bound `< 1` ULP (`tdiv_error`).
-- `fixed128Exp` (34 terms, `|xFix| ≤ 2¹²⁷`): rounding `< 68/2¹²⁸`, rational remainder tail `< 1/2¹²⁸`, finite partial-sum enclosure `< 69/2¹²⁸ < 10⁻³⁶` for every `34 + n` Taylor partial sum.
-- `fixed128Sin` (20 terms, `|xFix| ≤ ⌊4·2¹²⁸/5⌋`): rounding `< 40/2¹²⁸`, rational remainder tail `< 1/2¹²⁸`, finite partial-sum enclosure `< 41/2¹²⁸ < 10⁻³⁶` for every `20 + n` Taylor partial sum.
-- Exact integer ceiling score (`ceilScore_spec`, `ceilScore_eq_ceil`, `ceilScore_decision_robustness`).
-- Differential harness ([verify_math_oracle.mjs](./verify_math_oracle.mjs)) verifies **bit-for-bit agreement on all 8,194 grid points** (`S-rec-exp` + `S-rec-sin`) plus `173` adversarial cases and certifies winning record `S-rec-exp = 405` (`6.7 × 10²²×` margin above the formal error bound).
+Proved in [formal/oracle/PFOracle/BF16Oracle.lean](./oracle/PFOracle/BF16Oracle.lean) (`27` pure-kernel theorems, zero `sorry`, zero `bv_decide`, standard axioms `[propext, Classical.choice, Quot.sound]` only):
+- **Exact dyadic rational algebra:** `dyadicAdd_sound`, `dyadicSub_sound`, `dyadicMul_sound`, `dyadicEq_iff`, `dyadicSign_sound`.
+- **Universal IEEE-754 Round-to-Nearest-Ties-to-Even (`roundShiftEven`):** error `≤ 1/2` ULP (`roundShiftEven_err_le_half`), global nearest-integer optimality (`roundShiftEven_nearest`), exact halfway tie-to-even (`roundShiftEven_tie_even`), and monotonicity (`roundShiftEven_mono`).
+- **Bit-exact BF16 conversion & NaN canonicalization:** `bf16ToF32_roundtrip`, `bf16ToF32_nan_canonical`, and `f32BitsToBf16RNE_eq_roundShiftEven` (proving the fast bit-twiddling bias formula `u + 0x7fff + ((u >>> 16) &&& 1)` equals exact mathematical RNE for all finite float32 values).
+- **BF16 lattice order-isomorphism & ULP metric:** `bf16LatticeIndex_zero`, `bf16LatticeIndex_strict_mono`, `bf16LatticeIndex_eq_iff`, `bf16UlpDist_zero_pm`, `bf16UlpDist_zero_iff`, `bf16UlpDist_symm`, `bf16UlpDist_triangle`.
+- **Single-rounding float32 FMA (`fmafExact`):** `bf16ToF32_dyadic_exact`, `fmafDyadicSum_sound`, `fmafFiniteBits_sum_eq_exact` — proving `a * b + c` is computed with zero intermediate rounding before final RNE to float32.
+- **Universal $2^{64}$ UB-free C++17 / CUDA emitter equivalence:** `cppIshrS_equiv_sshiftRight`, `cppIshrS_no_ub_shift_bounds`, `cppIadd_two_complement_mod`, `cppIsub_two_complement_mod`, `cppImul_two_complement_mod` — proving the emitted C++17 unsigned wrapping arithmetic and bounded shifts match 32-bit two's-complement / JS `>>` semantics with zero shift-count or signed-overflow UB for every `(a, b) : BitVec 32 × BitVec 32`.
+- **Differential & CLI harness ([verify_ml_oracle.mjs](./verify_ml_oracle.mjs)):** cross-checks all **65,536/65,536** BF16 bit patterns (`65,282` finite/±Inf bit-exact + `254` NaN canonicalization), **1,840** adversarial differential cases (`542` `f32→bf16` + `1,076` `f64→bf16` double-rounding traps + `142` `fmafExact` + `80` `cppIshrS`), certifies all **3** committed pure-data ML kernels (`rsqrt(17)`, `exp2(18)`, `silu(31)`), and catches **4/4** injected judge mutants.
 
 ### 4. Frontend UI State Machine (`formal/ui_machine.*` & `formal/verify_ui_machine.mjs`)
 
 - [ui_machine.tla](./ui_machine.tla) (`379,157` generated / `24,856` distinct states, depth `14`, 0 errors, 0 deadlocks) verifies `SingleOverlayKind`, `HealthyStreamSurvivesFailedSwitch`, `RouteMissionTracksActiveMission`, `NoCrossMissionOverlayAfterCommit`, `StaleMissionResponseIgnored`, `StaleDossierResponseIgnored`, `DossierRouteClaimSync`, and reproduces 4 mutation counterexamples (`CheckMissionSeq`, `CheckDossierSeq`, `PreserveHealthyStream`, `ClearCrossMissionOverlay`).
-- [verify_ui_machine.mjs](./verify_ui_machine.mjs) runs `11,099` randomized/adversarial transitions, `23,296` Cartesian URL route round-trips + `90` legacy hash aliases, `20,253` snapshot adapter checks, and `8` negative mutation self-checks directly against [web/public/ui_machine.js](../web/public/ui_machine.js).
+- [verify_ui_machine.mjs](./verify_ui_machine.mjs) runs `11,099` randomized/adversarial transitions, `23,296` Cartesian URL route round-trips + `90` legacy hash aliases, `20,231` snapshot adapter checks, and `8` negative mutation self-checks directly against [web/public/ui_machine.js](../web/public/ui_machine.js).
 
 ---
 
@@ -83,10 +84,10 @@ Proved in [formal/oracle/PFOracle/MathOracle.lean](./oracle/PFOracle/MathOracle.
 
 Formal verification proves Proof Foundry's logic **up to** the following platform boundary (explicitly assumed, not proved):
 - **Lean 4.36.0 kernel & compiler**, **TLC 2.19**, and **JVM**.
-- **Node.js / V8** (including `--permission`, isolated `vm.createContext`, and `--max-old-space-size=256`), **OS kernel**, **Git**, and **browser DOM/EventSource** implementations.
-- **Analytic series limits (Math Oracle):** `PFOracle/MathOracle.lean` proves exact enclosures against every finite rational Taylor partial sum (`34 + n` for `exp`, `20 + n` for `sin`); the real-analysis convergence of those Taylor series to transcendental $\exp(x)$ and $\sin(x)$ on $[-\tfrac{1}{2}, \tfrac{1}{2}]$ and $[-\tfrac{4}{5}, \tfrac{4}{5}]$ is an explicit external mathematical assumption (not formalized via Mathlib real analysis).
+- **Node.js / V8**, **OS kernel**, **Git**, **C++17 / CUDA compilers**, and **browser DOM/EventSource** implementations.
+- **Transcendental float64 reference functions (`ml-math-kernels`):** `PFOracle/BF16Oracle.lean` proves bit-exact BF16 RNE rounding, ULP metric axioms, exact single-rounding `fmaf` dyadic accumulation, and UB-free C++17 integer emitter semantics; the float64 reference targets (`Math.sqrt`, `Math.pow`, `Math.exp`, `erfExact64`) used to compute reference `bf16` truth tables stay in the JS/V8 libm TCB (with `< 1e-15` accuracy vs `bf16`'s `~7.8e-3` ULP spacing, >10¹²× margin).
 - **GitHub hosted branch rules & merge enforcement:** `pr_gate_merge.tla` and `pr_gate_koth.tla` assume protected `main` without privileged bypass, `strict_required_status_checks_policy: true` on `gate`, and head-SHA-pinned merges (the hosted deferred auto-merge behavior for write-capable contributors remains an external GitHub platform assumption).
-- **Differential equivalence scope:** `verify_state_machine_equiv.mjs` and `verify_math_oracle.mjs` prove properties universally on the Lean executable specifications and verify exact equivalence to the JS implementations across large deterministic/adversarial suites rather than compiling JS via a verified compiler.
+- **Differential equivalence scope:** `verify_state_machine_equiv.mjs` and `verify_ml_oracle.mjs` prove properties universally on the Lean executable specifications and verify exact equivalence to the JS implementations across exhaustive/adversarial suites rather than compiling JS via a verified compiler.
 
 ---
 
@@ -101,7 +102,7 @@ TLA2TOOLS=/path/to/tla2tools.jar JAVA=/path/to/java npm run verify:formal -- --r
 
 # Individual layers
 node formal/verify_state_machine_equiv.mjs
-node formal/verify_math_oracle.mjs
+node formal/verify_ml_oracle.mjs
 node formal/verify_ui_machine.mjs
 npm test
 ```

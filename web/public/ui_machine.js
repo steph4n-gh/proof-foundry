@@ -30,7 +30,7 @@
 export const VIEWS = Object.freeze(["missions", "records", "bounties", "control", "ledger"]);
 export const LEDGER_TABS = Object.freeze(["map", "leaderboard", "refutations", "fleet", "audit"]);
 export const DEFAULT_LEDGER_TAB = "map";
-export const DEFAULT_MISSION = "erdos-combinatorics";
+export const DEFAULT_MISSION = "crypto-zk-circuits";
 
 /** Backwards-compatible hash aliases from the v2 dashboard (keys are hash heads without the leading mark). */
 export const LEGACY_HASH_ALIASES = Object.freeze({

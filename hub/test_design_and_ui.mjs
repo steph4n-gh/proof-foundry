@@ -8,7 +8,7 @@
  *      every JS file parses; every import app.js takes from ui_machine.js is exported.
  *   3. web/public/ui_machine.js unit tests: routes & legacy aliases, strict single overlay,
  *      Esc, failed mission switch keeps the healthy stream, out-of-order reqSeq ignored,
- *      snapshot adapters against the real six-mission data.
+ *      snapshot adapters against the real seven-mission data.
  *
  * Zero dependencies. Run: node hub/test_design_and_ui.mjs
  */
@@ -267,9 +267,9 @@ const {
 } = mod;
 
 // --- routes
-const P = (hash, search = "") => parse({ hash, search }, { defaultMission: "erdos-combinatorics" });
+const P = (hash, search = "") => parse({ hash, search }, { defaultMission: "crypto-zk-circuits" });
 for (const v of VIEWS) assert(P(`#${v}`).view === v, `route #${v} → view ${v}`);
-for (const t of LEDGER_TABS) assert(eq(P(`#ledger/${t}`), { view: "ledger", ledgerTab: t, mission: "erdos-combinatorics", claim: null }), `route #ledger/${t} → ledger/${t}`);
+for (const t of LEDGER_TABS) assert(eq(P(`#ledger/${t}`), { view: "ledger", ledgerTab: t, mission: "crypto-zk-circuits", claim: null }), `route #ledger/${t} → ledger/${t}`);
 const ALIASES = { live: "fleet", map: "map", leaderboard: "leaderboard", graveyard: "refutations", feed: "audit" };
 for (const [h, tab] of Object.entries(ALIASES)) {
   const r = P(`#${h}`, "?mission=p-vs-np");
@@ -281,12 +281,12 @@ assert(P("#does-not-exist").view === "missions", "unknown hash → missions");
 assert(P("#ledger/bogus").ledgerTab === "map", "unknown ledger tab → map");
 assert(P("#LEDGER/Audit").ledgerTab === "audit", "hash parsing is case-insensitive");
 assert(P("#/records").view === "records", "#/records (slash form) accepted");
-assert(P("#records", "?mission=../../etc").mission === "erdos-combinatorics", "malicious mission slug rejected → default");
+assert(P("#records", "?mission=../../etc").mission === "crypto-zk-circuits", "malicious mission slug rejected → default");
 assert(P("#bounties", "?claim=<script>alert(1)</script>").claim === null, "malicious claim id rejected");
 assert(P("#control", "?mission=p-vs-np&claim=L-rec-005").claim === "L-rec-005", "claim param parsed");
 for (const view of VIEWS) {
   for (const tab of view === "ledger" ? LEDGER_TABS : ["map"]) {
-    for (const claim of [null, "E-ram-001"]) {
+    for (const claim of [null, "CZ-001"]) {
       const route = { view, ledgerTab: tab, mission: "fast-matrix-mul", claim };
       const url = serialize(route, { pathname: "/" });
       const [pathAndSearch, hash] = url.split("#");
@@ -299,16 +299,16 @@ assert(serialize({ view: "ledger", ledgerTab: "audit", mission: "p-vs-np" }, { p
 
 // --- overlays: strictly one at a time
 const base = () => {
-  let s = initialUIState({ route: { view: "control", mission: "erdos-combinatorics" } });
+  let s = initialUIState({ route: { view: "control", mission: "crypto-zk-circuits" } });
   s = reduceUI(s, { type: "CATALOG_LOADED", mode: "live" });
-  s = reduceUI(s, { type: "MISSION_REQUESTED", mission: "erdos-combinatorics" });
-  s = reduceUI(s, { type: "MISSION_LOADED", mission: "erdos-combinatorics", reqSeq: s.transport.reqSeq });
-  return reduceUI(s, { type: "SSE_OPEN", mission: "erdos-combinatorics" });
+  s = reduceUI(s, { type: "MISSION_REQUESTED", mission: "crypto-zk-circuits" });
+  s = reduceUI(s, { type: "MISSION_LOADED", mission: "crypto-zk-circuits", reqSeq: s.transport.reqSeq });
+  return reduceUI(s, { type: "SSE_OPEN", mission: "crypto-zk-circuits" });
 };
 const OPENERS = {
-  dossier: { type: "OPEN_DOSSIER", claimId: "E-ram-001", mission: "erdos-combinatorics" },
-  attempt: { type: "OPEN_ATTEMPT", claimId: "E-rec-r55", mission: "erdos-combinatorics", harness: "codex", handle: "ada", recKind: "record", recScore: 43 },
-  search: { type: "OPEN_SEARCH", query: "ramsey" },
+  dossier: { type: "OPEN_DOSSIER", claimId: "CZ-001", mission: "crypto-zk-circuits" },
+  attempt: { type: "OPEN_ATTEMPT", claimId: "CZ-rec-aes-and", mission: "crypto-zk-circuits", harness: "codex", handle: "ada", recKind: "record", recScore: 31 },
+  search: { type: "OPEN_SEARCH", query: "ascon" },
 };
 for (const [a, evA] of Object.entries(OPENERS)) {
   for (const [b, evB] of Object.entries(OPENERS)) {
@@ -318,11 +318,11 @@ for (const [a, evA] of Object.entries(OPENERS)) {
 }
 {
   let s = reduceUI(base(), OPENERS.dossier);
-  assert(s.route.claim === "E-ram-001", "dossier mirrors claim into route");
+  assert(s.route.claim === "CZ-001", "dossier mirrors claim into route");
   s = reduceUI(s, OPENERS.search);
   assert(s.overlay.kind === "search" && s.route.claim === null, "opening search closes the dossier and clears route.claim");
   s = reduceUI(s, OPENERS.attempt);
-  assert(s.overlay.kind === "attempt" && s.overlay.claimId === "E-rec-r55" && s.overlay.harness === "codex", "opening attempt closes search");
+  assert(s.overlay.kind === "attempt" && s.overlay.claimId === "CZ-rec-aes-and" && s.overlay.harness === "codex", "opening attempt closes search");
   s = reduceUI(s, { type: "ESCAPE" });
   assert(s.overlay.kind === "none", "Esc closes the topmost (only) overlay");
   const same = reduceUI(s, { type: "ESCAPE" });
@@ -347,21 +347,21 @@ for (const [a, evA] of Object.entries(OPENERS)) {
   assert(s.overlay.activeIndex === 4, "SEARCH_MOVE wraps upward");
   s = reduceUI(s, { type: "SEARCH_MOVE", delta: 1, count: 5 });
   assert(s.overlay.activeIndex === 0, "SEARCH_MOVE wraps downward");
-  s = reduceUI(reduceUI(s, { type: "SEARCH_MOVE", delta: 3, count: 5 }), { type: "SEARCH_QUERY", query: "golomb" });
-  assert(s.overlay.query === "golomb" && s.overlay.activeIndex === 0, "SEARCH_QUERY resets the active index");
+  s = reduceUI(reduceUI(s, { type: "SEARCH_MOVE", delta: 3, count: 5 }), { type: "SEARCH_QUERY", query: "ascon" });
+  assert(s.overlay.query === "ascon" && s.overlay.activeIndex === 0, "SEARCH_QUERY resets the active index");
 }
 
 // --- dossier reqSeq: out-of-order responses ignored
 {
   let s = reduceUI(base(), OPENERS.dossier);
   const seqA = s.overlay.reqSeq;
-  s = reduceUI(s, { type: "OPEN_DOSSIER", claimId: "E-ram-002", mission: "erdos-combinatorics" });
+  s = reduceUI(s, { type: "OPEN_DOSSIER", claimId: "CZ-002", mission: "crypto-zk-circuits" });
   const seqB = s.overlay.reqSeq;
   assert(seqB === seqA + 1, "dossier reqSeq increments monotonically");
-  const stale = reduceUI(s, { type: "DOSSIER_LOADED", reqSeq: seqA, data: { lemma: { id: "E-ram-001" } } });
+  const stale = reduceUI(s, { type: "DOSSIER_LOADED", reqSeq: seqA, data: { lemma: { id: "CZ-001" } } });
   assert(stale === s && s.overlay.status === "loading", "stale DOSSIER_LOADED (older reqSeq) is ignored");
-  s = reduceUI(s, { type: "DOSSIER_LOADED", reqSeq: seqB, data: { lemma: { id: "E-ram-002" } } });
-  assert(s.overlay.status === "ready" && s.overlay.data.lemma.id === "E-ram-002", "current DOSSIER_LOADED commits");
+  s = reduceUI(s, { type: "DOSSIER_LOADED", reqSeq: seqB, data: { lemma: { id: "CZ-002" } } });
+  assert(s.overlay.status === "ready" && s.overlay.data.lemma.id === "CZ-002", "current DOSSIER_LOADED commits");
   s = reduceUI(s, { type: "CLOSE_OVERLAY" });
   s = reduceUI(s, OPENERS.dossier);
   assert(s.overlay.reqSeq === seqB + 1, "reopening after close never reuses a sequence number");
@@ -378,28 +378,28 @@ for (const [a, evA] of Object.entries(OPENERS)) {
   assert(s.transport.status === "boot" && s.overlay.kind === "none", "initial: transport boot, no overlay");
   s = reduceUI(s, { type: "CATALOG_LOADED", mode: "live" });
   assert(s.transport.status === "live_connecting" && s.transport.mode === "live", "catalog (live) → live_connecting");
-  s = reduceUI(s, { type: "MISSION_REQUESTED", mission: "erdos-combinatorics", intent: { view: "records" } });
+  s = reduceUI(s, { type: "MISSION_REQUESTED", mission: "crypto-zk-circuits", intent: { view: "records" } });
   const s1 = s.transport.reqSeq;
-  s = reduceUI(s, { type: "MISSION_LOADED", mission: "erdos-combinatorics", reqSeq: s1 });
-  assert(s.transport.activeMission === "erdos-combinatorics" && s.route.mission === "erdos-combinatorics" && s.route.view === "records", "MISSION_LOADED commits mission and applies intent view");
-  s = reduceUI(s, { type: "SSE_OPEN", mission: "erdos-combinatorics" });
+  s = reduceUI(s, { type: "MISSION_LOADED", mission: "crypto-zk-circuits", reqSeq: s1 });
+  assert(s.transport.activeMission === "crypto-zk-circuits" && s.route.mission === "crypto-zk-circuits" && s.route.view === "records", "MISSION_LOADED commits mission and applies intent view");
+  s = reduceUI(s, { type: "SSE_OPEN", mission: "crypto-zk-circuits" });
   assert(s.transport.status === "live_connected", "SSE_OPEN → live_connected");
-  s = reduceUI(s, { type: "SSE_ERROR", mission: "erdos-combinatorics" });
+  s = reduceUI(s, { type: "SSE_ERROR", mission: "crypto-zk-circuits" });
   assert(s.transport.status === "live_reconnecting", "SSE_ERROR → live_reconnecting");
-  s = reduceUI(s, { type: "SSE_SNAPSHOT", mission: "erdos-combinatorics" });
+  s = reduceUI(s, { type: "SSE_SNAPSHOT", mission: "crypto-zk-circuits" });
   assert(s.transport.status === "live_connected", "SSE_SNAPSHOT after reconnect → live_connected");
 
   // Failed switch keeps the healthy stream of the committed mission.
   const healthy = s;
   s = reduceUI(s, { type: "MISSION_REQUESTED", mission: "p-vs-np", intent: { view: "control" } });
-  assert(s.transport.status === "live_connected" && s.transport.activeMission === "erdos-combinatorics" && s.transport.pendingMission === "p-vs-np", "switch in flight: still live_connected on the old mission");
+  assert(s.transport.status === "live_connected" && s.transport.activeMission === "crypto-zk-circuits" && s.transport.pendingMission === "p-vs-np", "switch in flight: still live_connected on the old mission");
   const s2 = s.transport.reqSeq;
   s = reduceUI(s, { type: "MISSION_FAILED", mission: "p-vs-np", reqSeq: s2, error: "HTTP 500" });
   assert(s.transport.status === "live_connected", "failed switch: status stays live_connected (stream not killed)");
-  assert(s.transport.activeMission === "erdos-combinatorics" && s.route.mission === "erdos-combinatorics" && s.route.view === healthy.route.view, "failed switch: active mission, route mission and view unchanged");
+  assert(s.transport.activeMission === "crypto-zk-circuits" && s.route.mission === "crypto-zk-circuits" && s.route.view === healthy.route.view, "failed switch: active mission, route mission and view unchanged");
   assert(s.transport.error === "HTTP 500" && s.transport.pendingMission === null, "failed switch: error surfaced, pending cleared");
-  assert(acceptsSnapshot(s, "erdos-combinatorics") && !acceptsSnapshot(s, "p-vs-np"), "failed switch: old mission's SSE snapshots still accepted");
-  s = reduceUI(s, { type: "SSE_SNAPSHOT", mission: "erdos-combinatorics" });
+  assert(acceptsSnapshot(s, "crypto-zk-circuits") && !acceptsSnapshot(s, "p-vs-np"), "failed switch: old mission's SSE snapshots still accepted");
+  s = reduceUI(s, { type: "SSE_SNAPSHOT", mission: "crypto-zk-circuits" });
   assert(s.transport.status === "live_connected", "old stream keeps flowing after the failed switch");
   s = reduceUI(s, { type: "DISMISS_ERROR" });
   assert(s.transport.error === null, "DISMISS_ERROR clears the banner");
@@ -415,8 +415,8 @@ for (const [a, evA] of Object.entries(OPENERS)) {
   assert(reduceUI(s, { type: "MISSION_FAILED", mission: "p-vs-np", reqSeq: sB, error: "late" }) === s, "late MISSION_FAILED for a superseded request is ignored");
   s = reduceUI(s, { type: "MISSION_LOADED", mission: "sorting-networks", reqSeq: sC });
   assert(s.transport.activeMission === "sorting-networks" && s.route.view === "ledger" && s.route.ledgerTab === "fleet" && s.transport.status === "live_connecting", "latest MISSION_LOADED commits with its intent; new stream connecting");
-  assert(reduceUI(s, { type: "SSE_SNAPSHOT", mission: "erdos-combinatorics" }) === s, "SSE events from the previous mission's stream are ignored");
-  assert(!acceptsSnapshot(s, "erdos-combinatorics") && acceptsSnapshot(s, "sorting-networks"), "acceptsSnapshot follows the committed mission");
+  assert(reduceUI(s, { type: "SSE_SNAPSHOT", mission: "crypto-zk-circuits" }) === s, "SSE events from the previous mission's stream are ignored");
+  assert(!acceptsSnapshot(s, "crypto-zk-circuits") && acceptsSnapshot(s, "sorting-networks"), "acceptsSnapshot follows the committed mission");
 }
 {
   let s = reduceUI(initialUIState(), { type: "CATALOG_LOADED", mode: "live" });
@@ -443,7 +443,7 @@ for (const [a, evA] of Object.entries(OPENERS)) {
   assert(s.overlay.kind === "dossier", "dossier stays open while a switch is in flight");
   s = reduceUI(s, { type: "MISSION_LOADED", mission: "p-vs-np", reqSeq: s.transport.reqSeq });
   assert(s.overlay.kind === "none" && s.route.claim === "L-rec-005" && s.route.mission === "p-vs-np", "committed switch closes old-mission dossier and carries the deep-linked claim");
-  s = reduceUI(s, { type: "ROUTE_SYNC", route: { view: "bounties", mission: "erdos-combinatorics", claim: null } });
+  s = reduceUI(s, { type: "ROUTE_SYNC", route: { view: "bounties", mission: "crypto-zk-circuits", claim: null } });
   assert(s.route.view === "bounties" && s.route.mission === "p-vs-np", "ROUTE_SYNC never moves the mission (only MISSION_LOADED does)");
   s = reduceUI(s, { type: "ROUTE_NAVIGATE", route: { view: "ledger", ledgerTab: "refutations" } });
   assert(s.route.view === "ledger" && s.route.ledgerTab === "refutations", "ROUTE_NAVIGATE moves view/tab");
@@ -452,7 +452,7 @@ for (const [a, evA] of Object.entries(OPENERS)) {
   s = reduceUI(s, { type: "OPEN_DOSSIER", claimId: "L-001", mission: "p-vs-np" });
   s = reduceUI(s, { type: "ROUTE_SYNC", route: { view: "ledger", ledgerTab: "refutations", claim: null } });
   assert(s.overlay.kind === "none", "history back to a claim-less URL closes the dossier");
-  s = reduceUI(s, { type: "OPEN_DOSSIER", claimId: "E-rec-r55", mission: "erdos-combinatorics" });
+  s = reduceUI(s, { type: "OPEN_DOSSIER", claimId: "CZ-rec-aes-and", mission: "crypto-zk-circuits" });
   assert(s.overlay.kind === "dossier" && s.route.claim === null, "cross-mission dossier opens without writing a foreign claim into the URL");
 
   // Attempt overlay queueMode transitions (single / mission / all + invalid fallback) & markup/loop prompt checks
@@ -506,7 +506,7 @@ for (const [a, evA] of Object.entries(OPENERS)) {
   assert(eq(seen, [["OPEN_SEARCH", "none", "search"], ["ESCAPE", "search", "none"]]), "createUIMachine notifies only on change and survives a throwing listener", JSON.stringify(seen));
 }
 
-// --- adapters against the real six missions
+// --- adapters against the real seven missions
 console.log("\n— Snapshot adapters (real mission data) —");
 {
   const { sealOf, statusOf, actionsOf, recordMetaOf, freshnessOf, prStateOf, normalizeRecordsPayload, synthesizeRecordsPayload, sortRecords, pickHotRecords, needsOptimalityBound, recommendedRecordAction, recordFrontierPhase, boundIntervalGeometry, ratchetSeries, computeGap, mergeSnapshotIntoRecords, toRoman } = mod;
@@ -546,11 +546,11 @@ console.log("\n— Snapshot adapters (real mission data) —");
   } catch (err) {
     assert(false, "load real mission snapshots", err.message);
   }
-  assert(snaps.length >= 9 && snaps.length === catalog.length, "all nine+ missions load", `${snaps.length}/${catalog.length}`);
+  assert(snaps.length === 7 && snaps.length === catalog.length, "all seven missions load", `${snaps.length}/${catalog.length}`);
   assert(catalog.every((m) => m.impact && m.impact.tier && m.impact.ships_to && Array.isArray(m.impact.examples) && m.impact.examples.length >= 2), "every mission declares structured real-world impact metadata");
   const expectedRecords = snaps.reduce((a, s) => a + s.lemmas.filter((l) => l.kind === "record").length, 0);
   const synth = synthesizeRecordsPayload(snaps, catalog);
-  assert(synth.records.length === expectedRecords && expectedRecords >= 35, `synthesized records board has all ${expectedRecords} King-of-the-Hill hunts`, String(synth.records.length));
+  assert(synth.records.length === expectedRecords && expectedRecords >= 32, `synthesized records board has all ${expectedRecords} King-of-the-Hill hunts`, String(synth.records.length));
   assert(new Set(synth.records.map((r) => r.mission)).size === snaps.length, `records span all ${snaps.length} missions`);
   assert(synth.latest_verified && synth.latest_verified.id && synth.latest_verified.statement, "synthesized latest_verified theorem for the masthead", JSON.stringify(synth.latest_verified?.id));
   assert(synth.totals.missions === snaps.length && synth.totals.checked_total > 0, "synthesized totals for the figure sentence", JSON.stringify(synth.totals));
@@ -565,40 +565,34 @@ console.log("\n— Snapshot adapters (real mission data) —");
   assert(sorted.every((r, i) => i === 0 || sorted[i - 1].gap <= r.gap), "sortRecords('gap') orders by smallest open gap");
   const hot = pickHotRecords(synth.records, 5);
   assert(hot.length === Math.min(5, expectedRecords), "pickHotRecords returns the 5 hottest hunts");
-  // Hunts that already hit literature_bound (e.g. E-rec-gol11=72, L-rec-maj5=10) route to optimality bounds and do not jump ahead of open construction hunts!
-  const gol11 = synth.records.find((r) => r.id === "E-rec-gol11");
+  // Hunts that already hit literature_bound (e.g. L-rec-maj5=10) route to optimality bounds and do not jump ahead of open construction hunts!
   const maj5 = synth.records.find((r) => r.id === "L-rec-maj5");
-  if (gol11 && gol11.best_score === 72 && gol11.proven_bound == null) {
-    assert(needsOptimalityBound(gol11) === true, "E-rec-gol11 at best=72 is flagged as needing an optimality bound");
-    const recAct = recommendedRecordAction(gol11);
-    assert(recAct.kind === "record_bound" && recAct.score === 71, "E-rec-gol11 defaults Attempt to record_bound (¬ Record 71)", JSON.stringify(recAct));
-    assert(recordFrontierPhase(gol11).phase === "needs_bound", "E-rec-gol11 frontier phase is needs_bound");
-    assert(!hot.slice(0, 2).some((r) => r.id === "E-rec-gol11"), "E-rec-gol11 does not take top-2 construction slots on front page");
-  }
   if (maj5 && maj5.best_score === 10 && maj5.proven_bound == null) {
     assert(needsOptimalityBound(maj5) === true, "L-rec-maj5 at best=10 is flagged as needing an optimality bound");
     const recAct = recommendedRecordAction(maj5);
     assert(recAct.kind === "record_bound" && recAct.score === 9, "L-rec-maj5 defaults Attempt to record_bound (¬ Record 9)", JSON.stringify(recAct));
+    assert(recordFrontierPhase(maj5).phase === "needs_bound", "L-rec-maj5 frontier phase is needs_bound");
+    assert(!hot.slice(0, 2).some((r) => r.id === "L-rec-maj5"), "L-rec-maj5 does not take top-2 construction slots on front page");
   }
-  const r55 = synth.records.find((r) => r.id === "E-rec-r55");
-  if (r55 && r55.best_score == null) {
-    assert(recordFrontierPhase(r55).phase === "match_literature" || recordFrontierPhase(r55).phase === "world_record", "E-rec-r55 classifies frontier phase");
+  const aesAnd = synth.records.find((r) => r.id === "CZ-rec-aes-and");
+  if (aesAnd && aesAnd.best_score == null) {
+    assert(recordFrontierPhase(aesAnd).phase === "match_literature" || recordFrontierPhase(aesAnd).phase === "world_record", "CZ-rec-aes-and classifies frontier phase");
   }
   // Regression checks for the 3 UI state-machine edge-case fixes discovered by Track 4 formal verification
   {
     const { initialUIState, reduceUI } = mod;
     // (1) Closing search/attempt clears any dangling route.claim
-    let s1 = initialUIState({ route: { view: "control", mission: "erdos-combinatorics", claim: "E-ram-001" } });
+    let s1 = initialUIState({ route: { view: "control", mission: "crypto-zk-circuits", claim: "CZ-001" } });
     s1 = reduceUI(s1, { type: "OPEN_SEARCH", query: "" });
-    s1 = reduceUI(s1, { type: "ROUTE_SYNC", route: { view: "control", claim: "E-ram-001" } });
+    s1 = reduceUI(s1, { type: "ROUTE_SYNC", route: { view: "control", claim: "CZ-001" } });
     s1 = reduceUI(s1, { type: "ESCAPE" });
     assert(s1.overlay.kind === "none" && s1.route.claim === null, "closing search clears dangling route.claim", JSON.stringify(s1.route));
     // (2) Switching missions without intent.claim does not leak old mission's route.claim
-    let s2 = initialUIState({ route: { view: "control", mission: "erdos-combinatorics", claim: null } });
+    let s2 = initialUIState({ route: { view: "control", mission: "crypto-zk-circuits", claim: null } });
     s2 = reduceUI(s2, { type: "CATALOG_LOADED", mode: "live" });
-    s2 = reduceUI(s2, { type: "MISSION_REQUESTED", mission: "erdos-combinatorics" });
-    s2 = reduceUI(s2, { type: "MISSION_LOADED", mission: "erdos-combinatorics", reqSeq: 1 });
-    s2 = reduceUI(s2, { type: "OPEN_DOSSIER", claimId: "E-ram-001", mission: "erdos-combinatorics" });
+    s2 = reduceUI(s2, { type: "MISSION_REQUESTED", mission: "crypto-zk-circuits" });
+    s2 = reduceUI(s2, { type: "MISSION_LOADED", mission: "crypto-zk-circuits", reqSeq: 1 });
+    s2 = reduceUI(s2, { type: "OPEN_DOSSIER", claimId: "CZ-001", mission: "crypto-zk-circuits" });
     s2 = reduceUI(s2, { type: "MISSION_REQUESTED", mission: "p-vs-np", intent: { view: "control" } });
     s2 = reduceUI(s2, { type: "MISSION_LOADED", mission: "p-vs-np", reqSeq: 2 });
     assert(s2.route.mission === "p-vs-np" && s2.route.claim === null && s2.overlay.kind === "none", "cross-mission switch without intent.claim clears route.claim", JSON.stringify(s2.route));

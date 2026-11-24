@@ -6,7 +6,7 @@ Not every open math problem has the same distance to production systems. We labe
 
 ---
 
-## Portfolio Impact Map (9 Missions · 37 Live King-of-the-Hill Hunts)
+## Portfolio Impact Map (Sharp 7 Missions · 32 Live King-of-the-Hill Hunts)
 
 | Mission | Honest Tier | Ships Directly To | What One Verified Step Buys |
 |---|---|---|---|
@@ -14,10 +14,8 @@ Not every open math problem has the same distance to production systems. We labe
 | `ml-math-kernels` | **Direct production impact** | FlashAttention, Triton, PyTorch Inductor, vLLM, TensorRT-LLM, llama.cpp | −1 branchless FMA/ALU op cuts register pressure & GPU SFU stalls across trillions of tokens with 65,536/65,536 exhaustive ≤1 ULP guarantee |
 | `sorting-networks` | **Direct production impact** | LLVM `libc++ std::sort`, Google Highway (`vqsort`), DuckDB, NVIDIA CUB/Thrust, FPGAs | −1 comparator or −1 parallel layer permanently speeds up 16-lane AVX-512 & GPU warp register sorting with zero branch mispredictions |
 | `fast-matrix-mul` | **Direct production impact** | BLIS, OpenBLAS, CUTLASS GEMM, M4RI GF(2) engines, PQC / erasure coding | −1 product compounds exponentially ($r^L$ vs $27^L$); fewer additions with $\{-1,0,1\}$ coeffs lowers the real BLAS crossover size |
-| `verified-science-kernels` | **Direct production impact** | CORE-MATH, LLVM `libc`, SLEEF, CGAL, PostGIS, SciPy / CFD solvers | Tighter float64-lattice minimax coeffs cut worst-case `exp`/`sin` ULP error at zero extra FLOPs; exact `orient2d` stops meshing crashes |
 | `error-correcting-codes` | **Direct production impact** | DNA multiplexing barcodes, NAND/NVMe short-block ECC, optical FEC, Brouwer's tables | +1 codeword permanently expands error-tolerant multiplexing capacity at fixed block length and constant GC/DC weight |
 | `quantum-codes` | **Applied research frontier** | IBM Bivariate Bicycle (w ≤ 6), QuEra/Atom neutral-atom arrays, Quantinuum ions, Stim | +1 logical qubit $k$ at fixed physical $n$, distance $d$, and check weight $w \le 6$ raises hardware QEC rate with zero extra physical qubits |
-| `erdos-combinatorics` | **Applied research frontier** | VLA/VLBI radio interferometry, phased-array radar, optical DWDM spacing, Erdős Registry | Shorter Golomb rulers / Sidon sets eliminate baseline & four-wave-mixing collisions in smaller physical/spectral apertures |
 | `p-vs-np` | **Foundational / theoretical** | EPFL Mockturtle, Berkeley ABC, SAT proof compression, Kulikov/Knuth tables | Honest: P vs NP itself is long-horizon foundational theory, while exact small-$n$ `MAJ7` / `MOD3_6` B2 circuits feed EDA peephole synthesis |
 
 ---
@@ -117,17 +115,7 @@ Already verified out of the box: `ML-rec-bf16-rsqrt` (17 ops), `ML-rec-bf16-exp2
 
 ---
 
-### 5. Numerical & Geometric Reliability (`verified-science-kernels`)
-
-**The bottleneck:** Silent IEEE-754 rounding errors crash Delaunay triangulators/CAD engines on near-collinear geometry, erase small terms under catastrophic cancellation, and degrade `libm` elementary functions.
-
-**Direct outputs:**
-- `S-rec-exp`, `S-rec-sin` — Float64-lattice minimax polynomial coefficients verified against an exact **128-bit BigInt** oracle (drop straight into `libm`/SIMD Horner FMA loops).
-- `S-num-001`..`S-num-004` — Verified Neumaier summation, outward-rounded interval arithmetic, error-free `TwoSum`/`Dot2`, and Shewchuk exact `orient2d`.
-
----
-
-### 6. Short-Block & Constant-Weight Codes (`error-correcting-codes`)
+### 5. Short-Block & Constant-Weight Codes (`error-correcting-codes`)
 
 **The bottleneck:** Multiplexed DNA sequencing (Illumina/Twist), DNA storage, and DC-balanced optical links need maximal sets of short binary words with fixed Hamming weight (constant GC-content / zero DC bias) and guaranteed Hamming distance $d \ge 6$ or $8$ (correcting 2–3 bit errors).
 
@@ -135,7 +123,7 @@ Already verified out of the box: `ML-rec-bf16-rsqrt` (17 ops), `ML-rec-bf16-exp2
 
 ---
 
-### 7. Low-Weight Quantum LDPC Codes (`quantum-codes`) — *Applied Research Frontier*
+### 6. Low-Weight Quantum LDPC Codes (`quantum-codes`) — *Applied Research Frontier*
 
 **The bottleneck:** Surface codes need hundreds of physical qubits per logical qubit. Low-weight qLDPC CSS codes (`check weight ≤ 6`, matching IBM Bivariate Bicycle and neutral-atom/trapped-ion hardware) slash physical qubit overhead by 5–10×.
 
@@ -144,13 +132,6 @@ Already verified out of the box: `ML-rec-bf16-rsqrt` (17 ops), `ML-rec-bf16-exp2
 
 ---
 
-### 8. Extremal Combinatorics (`erdos-combinatorics`) — *Applied Research Frontier*
-
-- `E-rec-gol11` (verified optimal length 72) & `E-rec-200` (verified 10-element maximal Sidon set) give collision-free sensor/antenna placements for radio interferometry (VLBI/phased-array radar) and DWDM fiber-optic channel plans eliminating four-wave mixing.
-- `E-rec-r55` (verified 42-vertex $K_5/I_5$-free graph), Erdős #128, #156, Schur $S(3)/S(4)$, and van der Waerden bounds advance formal extremal mathematics.
-
----
-
-### 9. P vs NP & Exact Circuit Synthesis (`p-vs-np`) — *Foundational / Theoretical*
+### 7. P vs NP & Exact Circuit Synthesis (`p-vs-np`) — *Foundational / Theoretical*
 
 We keep `p-vs-np` both as the original flagship foundational frontier (formalizing Relativization/Natural Proofs/Algebrization barriers, universal `PHP(n+1, n)`, and Resolution soundness) **and** as an active exact small-$n$ Boolean circuit synthesis arena (`L-rec-mod3-6`, `L-rec-maj7`, `L-rec-005`, `L-rec-maj5`, `L-rec-php4`) whose minimal shared-wire B2 DAG circuits directly benchmark EDA logic synthesizers (EPFL Mockturtle, Berkeley ABC) and SAT proof compression.

@@ -70,7 +70,7 @@ function prCheckState(rollup) {
 
 /**
  * Fetch up to 200 open PRs keyed by `mission/claimId` and bare `claimId`
- * (matches every registered claim ID including MM-rec-4x4-f2, E-rec-r55, S-rec-exp, EC-rec-*, etc.!).
+ * (matches every registered claim ID including MM-rec-4x4-f2, CZ-rec-aes-and, ML-rec-bf16-exp2, EC-rec-*, etc.!).
  */
 export function fetchOpenPRs(repo = "steph4n-gh/proof-foundry") {
   const fetchedAt = new Date().toISOString();
