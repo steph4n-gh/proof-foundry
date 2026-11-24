@@ -929,6 +929,121 @@ try {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 7. FLEET NEXT CONTEXT, COMMAND-JUDGE (.json) FIX, CHAMPION DIAGNOSTICS & SEARCH-LEMMAS
+// ---------------------------------------------------------------------------
+{
+  const runFleetJson = (args) => {
+    const res = spawnSync(process.execPath, ["hub/fleet.mjs", ...args], {
+      cwd: path.resolve(import.meta.dirname, ".."),
+      encoding: "utf8",
+    });
+    assert(res.status === 0, `fleet ${args.join(" ")} exits 0`, res.stderr || res.stdout);
+    return JSON.parse(res.stdout);
+  };
+
+  const mlStateBefore = fs.readFileSync(path.resolve(import.meta.dirname, "..", "missions/ml-math-kernels/state.json"), "utf8");
+  const snStateBefore = fs.readFileSync(path.resolve(import.meta.dirname, "..", "missions/sorting-networks/state.json"), "utf8");
+
+  // 7a. ml-math-kernels pure-data JSON instructions (regression for broken `artifact_ext === ".mjs"` check!)
+  const mlNextGelu = runFleetJson(["next", "--mission", "ml-math-kernels", "--offline"]);
+  assert(
+    mlNextGelu.ok &&
+      mlNextGelu.claim?.id === "ML-rec-bf16-gelu" &&
+      mlNextGelu.instructions.some((l) => l.includes("pure-data .json") && l.includes("ML_rec_bf16_gelu_s")) &&
+      mlNextGelu.instructions.every((l) => !l.includes("Prove `theorem")) &&
+      Array.isArray(mlNextGelu.context?.reusable_lemmas) &&
+      mlNextGelu.context.reusable_lemmas.length >= 3 &&
+      mlNextGelu.context.champion === null,
+    "fleet next (ml-math-kernels unclaimed): emits pure-data .json instructions (no Lean theorem) + 3 reusable sister kernels",
+    JSON.stringify({ id: mlNextGelu.claim?.id, instructions: mlNextGelu.instructions, reusable: mlNextGelu.context?.reusable_lemmas?.length })
+  );
+
+  // 7b. ml-math-kernels incumbent champion + live AlphaEvolve-style BF16 worst-ULP diagnostics
+  const mlNextRsqrt = runFleetJson(["next", "--mission", "ml-math-kernels", "--exclude", "ML-rec-bf16-gelu", "--offline"]);
+  assert(
+    mlNextRsqrt.ok &&
+      mlNextRsqrt.claim?.id === "ML-rec-bf16-rsqrt" &&
+      mlNextRsqrt.context?.champion?.score === 17 &&
+      mlNextRsqrt.context?.champion?.artifact_file === "missions/ml-math-kernels/artifacts/ML_rec_bf16_rsqrt_s17.json" &&
+      mlNextRsqrt.context?.champion?.diagnostics?.tested === 65536 &&
+      mlNextRsqrt.context?.champion?.diagnostics?.op_cost === 17 &&
+      /^0x[0-9a-f]{4}$/.test(mlNextRsqrt.context?.champion?.diagnostics?.worst_input_bits || "") &&
+      mlNextRsqrt.instructions.some((l) => l.includes("ML_rec_bf16_rsqrt_s17.json") && l.includes("mutate from")),
+    "fleet next (ml-math-kernels incumbent): exposes champion artifact + live 65,536-input BF16 diagnostics & mutation instructions",
+    JSON.stringify(mlNextRsqrt.context?.champion)
+  );
+
+  // 7c. sorting-networks updated Tomar 2026 bounds: SN-rec-013 at S(13)=45 routes to record-bound 44 + context.champion.phase === "needs_bound"
+  const snNext = runFleetJson([
+    "next",
+    "--mission",
+    "sorting-networks",
+    "--exclude",
+    "SN-003,SN-004,SN-005,SN-006,SN-007,SN-rec-016,SN-rec-d16,SN-rec-d17",
+    "--offline",
+  ]);
+  assert(
+    snNext.ok &&
+      snNext.claim?.id === "SN-rec-013" &&
+      snNext.context?.champion?.score === 45 &&
+      snNext.context?.champion?.literature_bound === 45 &&
+      snNext.context?.champion?.phase === "needs_bound" &&
+      snNext.instructions.some((l) => l.includes("record-bound") && l.includes("--score 44")) &&
+      Array.isArray(snNext.context?.reusable_lemmas) &&
+      snNext.context.reusable_lemmas.some((l) => l.id === "SN-001"),
+    "fleet next (sorting-networks SN-rec-013): Tomar 2026 S(13)=45 routes to record-bound 44 with reusable lemmas",
+    JSON.stringify({ id: snNext.claim?.id, champion: snNext.context?.champion, instructions: snNext.instructions })
+  );
+
+  // 7d. p-vs-np includes graveyard_dead_ends (refuted + dead claims digest)
+  const pnpNext = runFleetJson(["next", "--mission", "p-vs-np", "--offline"]);
+  assert(
+    pnpNext.ok &&
+      Array.isArray(pnpNext.context?.graveyard_dead_ends) &&
+      pnpNext.context.graveyard_dead_ends.length >= 2 &&
+      pnpNext.context.graveyard_dead_ends.some((d) => d.status === "refuted") &&
+      pnpNext.context.graveyard_dead_ends.some((d) => d.status === "dead"),
+    "fleet next (p-vs-np): surfaces graveyard_dead_ends digest of refuted claims and barriers",
+    JSON.stringify(pnpNext.context?.graveyard_dead_ends)
+  );
+
+  // 7e. fleet search-lemmas: natural-language/keyword discovery over verified lemmas & incumbents
+  const searchRsqrt = runFleetJson(["search-lemmas", "--mission", "all", "--query", "rsqrt rmsnorm"]);
+  assert(
+    searchRsqrt.ok &&
+      searchRsqrt.total_matches >= 1 &&
+      searchRsqrt.lemmas[0]?.id === "ML-rec-bf16-rsqrt" &&
+      searchRsqrt.lemmas[0]?.best_score === 17 &&
+      searchRsqrt.lemmas[0]?.file === "missions/ml-math-kernels/artifacts/ML_rec_bf16_rsqrt_s17.json",
+    "fleet search-lemmas: finds ML-rec-bf16-rsqrt by natural-language query 'rsqrt rmsnorm'",
+    JSON.stringify(searchRsqrt)
+  );
+
+  const searchAscon = runFleetJson(["search-lemmas", "--mission", "crypto-zk-circuits", "--query", "ascon"]);
+  assert(
+    searchAscon.ok &&
+      searchAscon.lemmas.some((l) => l.id === "CZ-001") &&
+      searchAscon.lemmas.some((l) => l.id === "CZ-rec-ascon-gates"),
+    "fleet search-lemmas: finds verified Lean claims & KotH incumbents in crypto-zk-circuits",
+    JSON.stringify(searchAscon.lemmas.map((l) => l.id))
+  );
+
+  const searchDead = runFleetJson(["search-lemmas", "--mission", "p-vs-np", "--status", "dead", "--query", "natural proofs"]);
+  assert(
+    searchDead.ok && searchDead.total_matches >= 1 && searchDead.lemmas.every((l) => l.status === "dead"),
+    "fleet search-lemmas: supports --status dead barrier lookup",
+    JSON.stringify(searchDead)
+  );
+
+  // Pure in-memory guarantee: neither fleet next nor fleet search-lemmas mutates state.json!
+  assert(
+    fs.readFileSync(path.resolve(import.meta.dirname, "..", "missions/ml-math-kernels/state.json"), "utf8") === mlStateBefore &&
+      fs.readFileSync(path.resolve(import.meta.dirname, "..", "missions/sorting-networks/state.json"), "utf8") === snStateBefore,
+    "fleet next + fleet search-lemmas leave state.json byte-identical"
+  );
+}
+
 if (failed > 0) {
   console.error(`\n${failed} suite test(s) failed!`);
   process.exit(1);

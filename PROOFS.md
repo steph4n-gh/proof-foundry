@@ -48,11 +48,11 @@
 | `quantum-codes` | `QC-rec-n16-d4-w6` | King of the Hill: Distance-4 qLDPC [[16, k, 4]] CSS Code (Check Weight ≤ 6) | **2** logical qubits | `≥ 3` | *(lit. ≤ 6)* | `donor-foundry-seed` | ♛ Active Hunt |
 | `quantum-codes` | `QC-rec-n18-d4-w6` | King of the Hill: Distance-4 qLDPC [[18, k, 4]] CSS Code (Check Weight ≤ 6) | *(unclaimed, floor 2)* | `≥ 2` | *(lit. ≤ 8)* | — | ○ Open Hunt |
 | `quantum-codes` | `QC-rec-n20-d4-w6` | King of the Hill: Distance-4 qLDPC [[20, k, 4]] CSS Code (Check Weight ≤ 6) | *(unclaimed, floor 2)* | `≥ 2` | *(lit. ≤ 10)* | — | ○ Open Hunt |
-| `sorting-networks` | `SN-rec-013` | King of the Hill: 13-Wire Sorting Network Size (World Record = 45, Proven Lower Bound = 43) | **45** comparators | `≤ 44` | *(lit. ≥ 43)* | `donor-steph4n-gh` | ♛ Active Hunt |
-| `sorting-networks` | `SN-rec-014` | King of the Hill: 14-Wire Sorting Network Size (World Record = 51, Proven Lower Bound = 47) | **51** comparators | `≤ 50` | *(lit. ≥ 47)* | `donor-steph4n-gh` | ♛ Active Hunt |
-| `sorting-networks` | `SN-rec-015` | King of the Hill: 15-Wire Sorting Network Size (World Record = 56, Proven Lower Bound = 51) | **56** comparators | `≤ 55` | *(lit. ≥ 51)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `sorting-networks` | `SN-rec-013` | King of the Hill: 13-Wire Sorting Network Size (Exact Optimum S(13) = 45 · Tomar 2026 Lean 4 LB = 45) | **45** comparators | `≤ 44` | *(lit. ≥ 45)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `sorting-networks` | `SN-rec-014` | King of the Hill: 14-Wire Sorting Network Size (World Record = 51, Tomar 2026 LB = 50) | **51** comparators | `≤ 50` | *(lit. ≥ 50)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `sorting-networks` | `SN-rec-015` | King of the Hill: 15-Wire Sorting Network Size (World Record = 56, Proven LB = 54) | **56** comparators | `≤ 55` | *(lit. ≥ 54)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `sorting-networks` | `SN-rec-d17` | King of the Hill: 17-Wire Parallel Depth (OPEN WORLD RECORD: Current = 10, Proven LB = 9) | *(unclaimed, ceiling 11)* | `≤ 11` | *(lit. ≥ 9)* | — | ○ Open Hunt |
-| `sorting-networks` | `SN-rec-016` | King of the Hill: 16-Wire AVX-512 / GPU Half-Warp Sorting Network Size (Green 1969 Record = 60, LB = 53) | *(unclaimed, ceiling 62)* | `≤ 62` | *(lit. ≥ 53)* | — | ○ Open Hunt |
+| `sorting-networks` | `SN-rec-016` | King of the Hill: 16-Wire AVX-512 / GPU Half-Warp Sorting Network Size (Green 1969 Record = 60, Tomar 2026 LB = 59) | *(unclaimed, ceiling 62)* | `≤ 62` | *(lit. ≥ 59)* | — | ○ Open Hunt |
 | `sorting-networks` | `SN-rec-d16` | King of the Hill: 16-Wire AVX-512 / FPGA Parallel Depth (Exact Optimum = 9 Layers, Beats Batcher's 10) | *(unclaimed, ceiling 10)* | `≤ 10` | *(lit. ≥ 9)* | — | ○ Open Hunt |
 
 ## Cryptographic & ZK/FHE Circuit Minimization (`crypto-zk-circuits`)

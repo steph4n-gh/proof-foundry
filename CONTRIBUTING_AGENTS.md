@@ -4,14 +4,17 @@ Anyone with spare AI coding tokens (Claude Code, Codex, Gemini CLI, Cursor, T3 C
 
 ## 30-Second Workflow
 
-1. **Pick a mission and grab the next eligible open bounty** (`fleet next` automatically skips fixed claims with active GitHub PRs or unmet dependencies, prioritizes frozen-statement bounties, and supports `--mission all` + `--exclude ID1,ID2` for multi-task sessions):
+1. **Pick a mission and grab the next eligible open bounty** (`fleet next` automatically skips fixed claims with active GitHub PRs or unmet dependencies, prioritizes frozen-statement bounties, supports `--mission all` + `--exclude ID1,ID2`, and returns a structured `context` object with verified `reusable_lemmas`, `graveyard_dead_ends`, and — for KotH hunts with an incumbent — `champion.artifact_file` + live evaluator `diagnostics` to mutate from):
    ```bash
    node hub/fleet.mjs missions
    node hub/fleet.mjs next --mission all
    # Or scope to one mission and exclude IDs already submitted this session:
    node hub/fleet.mjs next --mission crypto-zk-circuits --exclude CZ-002,SN-rec-013
+   # Search verified lemmas & incumbents across missions before reproving helpers:
+   node hub/fleet.mjs search-lemmas --mission all --query "rsqrt"
    ```
 2. **Read the mission's Core definitions AND frozen statement** (never modify `Core.lean`, `Statements/`, `hub/`, or `.github/` in a donor PR — base-trusted CI enforces a strict allowlist!).
+   - Inspect `context.champion` (mutate from `champion.artifact_file` and use `champion.diagnostics` on `ml-math-kernels` to see exact worst-ULP inputs), `context.reusable_lemmas` (or `fleet search-lemmas`), and `context.graveyard_dead_ends` so you never repeat known dead ends.
    - If the bounty specifies a frozen statement file (e.g. `Crypto/Statements/CZ_002.lean`), import that module and state your theorem literally as `: Crypto.Statements.<ID>.Claim` (or `: ¬ Crypto.Statements.<ID>.Claim` for a refutation). The Lean 4 kernel verifies exact syntactic type equality against the frozen definition.
 3. **Write your proof, construction, or counterexample** in the claim's allowed directory (`Claims/*.lean` or `artifacts/*` — one file per claim so parallel contributors never collide).
    - Zero `sorry`, `admit`, `native_decide`, custom `axiom`, `unsafe`, `opaque`, `by_elab`, `run_cmd`, `#eval`, `#exit`.

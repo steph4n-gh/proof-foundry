@@ -10,11 +10,13 @@
     "checker_runs_passed": 0,
     "strategy_note": {
       "seat": "seat-strat-1",
-      "text": "A scheme with s products proves rank ≤ s. Refuting Record s proves rank ≥ s + 1. For AlphaTensor’s factor archives, each column gives one term. Transpose the third factor from (column, row) to (row, column) for MatMul.Term.output. For concrete coefficient tables, unfold IsMatMulSchemeInt or IsMatMulSchemeF2 and use decide +kernel. https://github.com/google-deepmind/alphatensor/tree/1949163da3bef7e3eb268a3ac015fd1c2dbfc767/algorithms",
+      "text": "A scheme with s products proves rank ≤ s. Refuting Record s proves rank ≥ s + 1. Five active hunts span rectangular integer rank ([MM-rec-3x3x4], [MM-rec-3x4x5] — both matched by DeepMind AlphaEvolve arXiv:2506.13131 Table 3), binary 4×4 ([MM-rec-4x4-f2] AlphaTensor 47 over GF(2); AlphaEvolve reached 48 over ℂ), Laderman's 3×3×3 integer frontier ([MM-rec-3x3x3]), and pre-CSE unit-coeff addition minimization ([MM-rec-3x3x3-hw]). For AlphaTensor’s factor archives, each column gives one term; transpose the third factor from (column, row) to (row, column) for MatMul.Term.output. For concrete coefficient tables, unfold IsMatMulSchemeInt or IsMatMulSchemeF2 and use decide +kernel. https://github.com/google-deepmind/alphatensor/tree/1949163da3bef7e3eb268a3ac015fd1c2dbfc767/algorithms",
       "mentions": [
         "MM-rec-3x3x4",
         "MM-rec-4x4-f2",
-        "MM-rec-3x4x5"
+        "MM-rec-3x4x5",
+        "MM-rec-3x3x3",
+        "MM-rec-3x3x3-hw"
       ],
       "at": "2026-11-23T20:33:10.708Z"
     }
@@ -51,7 +53,7 @@
       "color": "#3B82F6",
       "status": "idle",
       "current_lemma": null,
-      "current_whisper": "Three foundation claims and three rank hunts are open.",
+      "current_whisper": "Three foundation claims and five rank/addition hunts are open.",
       "sessions": 0,
       "last_seen": "2026-11-23T20:33:10.708Z",
       "counts": {
@@ -156,7 +158,7 @@
       "rung": 3,
       "proposed_by": "seat-strat-1",
       "claimed_by": null,
-      "paper_notes": "Smirnov gives a 29-product upper bound. The integer witness is also in the AlphaTensor standard-arithmetic archive (key 3,3,4). Wang, Theorem 1, proves a GF(2) lower bound of 25. Reducing integer coefficients modulo two carries that bound to this hunt. https://fmm.univ-lille.fr/3x3x4.html · https://arxiv.org/abs/2603.07280",
+      "paper_notes": "Smirnov gives a 29-product upper bound, matched by both AlphaTensor (standard-arithmetic archive, key 3,3,4) and Google DeepMind AlphaEvolve (arXiv:2506.13131, Table 3); beating 29 (≤ 28) remains an open frontier. Wang, Theorem 1, proves a GF(2) lower bound of 25, which carries to ℤ by mod-2 reduction. https://fmm.univ-lille.fr/3x3x4.html · https://arxiv.org/abs/2506.13131 · https://arxiv.org/abs/2603.07280",
       "created_at": "2026-11-23T20:33:10.708Z",
       "updated_at": "2026-11-23T20:33:10.708Z",
       "checker": null,
@@ -195,7 +197,7 @@
       "rung": 3,
       "proposed_by": "seat-strat-1",
       "claimed_by": null,
-      "paper_notes": "Two levels of Strassen give the 49-product launch ceiling. AlphaTensor gives 47 over GF(2). Bläser’s small-format bound for ⟨n,m,n⟩ is 2mn + 2n − m − 2 for m ≥ n ≥ 3, giving 34 at n = m = 4. https://doi.org/10.1038/s41586-022-05172-4 · https://doi.org/10.1016/S0885-064X(02)00007-9",
+      "paper_notes": "Two levels of Strassen give the 49-product launch ceiling. AlphaTensor gives 47 over GF(2) (while Google DeepMind AlphaEvolve, arXiv:2506.13131, broke Strassen's 49 over ℂ with 48 products, leaving ℤ open and GF(2) at 47). Bläser’s small-format bound for ⟨n,m,n⟩ is 2mn + 2n − m − 2 for m ≥ n ≥ 3, giving 34 at n = m = 4. https://doi.org/10.1038/s41586-022-05172-4 · https://arxiv.org/abs/2506.13131 · https://doi.org/10.1016/S0885-064X(02)00007-9",
       "created_at": "2026-11-23T20:33:10.708Z",
       "updated_at": "2026-11-23T20:33:10.708Z",
       "checker": null,
@@ -234,7 +236,7 @@
       "rung": 3,
       "proposed_by": "seat-strat-1",
       "claimed_by": null,
-      "paper_notes": "AlphaTensor gives 47 products with integer coefficients (standard-arithmetic archive, key 3,4,5). Permute the tensor dimensions to ⟨3,5,4⟩. Bläser’s kl + lm + k − l + m − 3 bound at (k,l,m) = (3,5,4) gives 34. An integer decomposition is also a complex decomposition. https://fmm.univ-lille.fr/3x4x5.html · https://doi.org/10.1007/s000370050028",
+      "paper_notes": "AlphaTensor gives 47 products with integer coefficients (standard-arithmetic archive, key 3,4,5), also matched by Google DeepMind AlphaEvolve (arXiv:2506.13131, Table 3); beating 47 (≤ 46) remains open. Permute the tensor dimensions to ⟨3,5,4⟩: Bläser’s kl + lm + k − l + m − 3 bound at (k,l,m) = (3,5,4) gives 34. An integer decomposition is also a complex decomposition. https://fmm.univ-lille.fr/3x4x5.html · https://arxiv.org/abs/2506.13131 · https://doi.org/10.1007/s000370050028",
       "use_case": "Rectangular block-recursive GEMM microkernel for transformer projection layers and dense BLAS routines.",
       "created_at": "2026-11-23T20:33:10.708Z",
       "updated_at": "2026-11-23T20:33:10.708Z",
@@ -315,7 +317,7 @@
       "proposed_by": "seat-strat-1",
       "claimed_by": null,
       "use_case": "Directly governs the practical crossover size where fast block-recursive GEMM beats schoolbook in BLIS/OpenBLAS/CUTLASS while preserving FP16/BF16 numerical stability.",
-      "paper_notes": "Constrains all factors to unit coefficients {-1, 0, 1} at rank ≤ 23 and minimizes `schemeAdditions` (direct pre-CSE addition count). Classic Laderman uses ~98 additions; sparse unit-coeff decompositions (Courtois–Bard–Hulme / Smirnov–Sedoglavic) reach ~68–75 additions!",
+      "paper_notes": "Constrains all factors to unit coefficients {-1, 0, 1} at rank ≤ 23 and minimizes `schemeAdditions` — the direct PRE-CSE addition count (distinct from 2025–2026 post-CSE rank-23 3×3×3 minimization, which reaches 55 additions using common-subexpression elimination). Classic Laderman uses ~98 pre-CSE additions; sparse unit-coeff decompositions (Courtois–Bard–Hulme / Smirnov–Sedoglavic) reach ~68–75 pre-CSE additions!",
       "created_at": "2026-11-23T20:25:00.000Z",
       "updated_at": "2026-11-23T20:25:00.000Z",
       "checker": null,
@@ -344,7 +346,7 @@
       "id": "w-mm-init",
       "seat": "seat-strat-1",
       "lemma_id": "MM-001",
-      "text": "Opened three foundation claims and three bilinear rank hunts.",
+      "text": "Opened three foundation claims and five bilinear rank/addition hunts.",
       "at": "2026-11-23T20:33:10.708Z"
     }
   ],

@@ -362,8 +362,11 @@ test("global records project all missions and live hunts", () => {
   assert.ok(records.latest_verified?.at);
   assert.equal(new Set(records.records.map((r) => `${r.mission}/${r.id}`)).size, expectedRecords);
   const min = records.records.find((r) => r.id === "SN-rec-013");
-  assert.equal(min.literature_bound, 43);
+  assert.equal(min.literature_bound, 45);
   assert.equal(min.gap, min.closed ? 0 : Math.max(0, (min.best_score ?? min.start_target) - (min.proven_bound ?? min.literature_bound)));
+  assert.equal(records.records.find((r) => r.id === "SN-rec-014")?.literature_bound, 50);
+  assert.equal(records.records.find((r) => r.id === "SN-rec-015")?.literature_bound, 54);
+  assert.equal(records.records.find((r) => r.id === "SN-rec-016")?.literature_bound, 59);
   const max = records.records.find((r) => r.id === "EC-rec-17-6");
   assert.equal(max.literature_bound, 340);
   assert.equal(max.gap, max.closed ? 0 : Math.max(0, (max.proven_bound ?? max.literature_bound) - (max.best_score ?? max.start_target)));
