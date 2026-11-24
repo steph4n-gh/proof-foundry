@@ -1,0 +1,28 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "error-correcting-codes",
+  "lemma_id": "EC-rec-20-8-10",
+  "kind": "record",
+  "score": 176,
+  "file": "missions/error-correcting-codes/lean/Codes/Claims/EC_rec_20_8_10_s176.lean",
+  "theorem": "Codes.Claims.EC_rec_20_8_10_s176.record",
+  "signature": "Codes.Claims.EC_rec_20_8_10_s176.record :\n  Codes.Statements.EC_rec_20_8_10.Record 176",
+  "at": "2026-11-24T00:02:19.679Z",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-24T00:02:19.679Z",
+    "duration_ms": 1847,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "dcb159a438c0dbb0f26092b457b7d41bf463b6439d1872e855231f1a1ad140b1",
+    "core_hash": "8bdb7ec6b7293f6a0d3ff686df332cb257eb7432d58ca01106d912997ea53bcc",
+    "statement_frozen": true,
+    "statement_hash": "2121de06365b6806c74558f17529918ea1061da2e4c091324cc803b87dd3fb18"
+  }
+}
