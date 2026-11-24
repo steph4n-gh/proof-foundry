@@ -1,0 +1,27 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "sorting-networks",
+  "lemma_id": "SN-rec-d17",
+  "kind": "record",
+  "score": 10,
+  "file": "missions/sorting-networks/lean/SortNet/Claims/SN_rec_d17_s10.lean",
+  "theorem": "SortNet.Claims.SN_rec_d17_s10.record",
+  "signature": "SortNet.Claims.SN_rec_d17_s10.record :\n  SortNet.Statements.SN_rec_d17.Record 10",
+  "at": "2026-11-24T17:30:26.759Z",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-24T17:30:26.760Z",
+    "duration_ms": 2617,
+    "axioms": [
+      "propext",
+      "Quot.sound"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "a8b9b1c1478bf25a11d537b4dff38583f28b3e071b03263f3c5215f2ced51af1",
+    "core_hash": "e7ae7b165b4ade57aa829588afa794927e0b77fde9f5738c4923c2d52410637d",
+    "statement_frozen": true,
+    "statement_hash": "44902573a38835d7be2e5f53e343ea7e2ad26c5cdae96234c23a78d2452c5057"
+  }
+}
