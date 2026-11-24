@@ -225,7 +225,7 @@ if (!tlcOnly) {
     process.execPath,
     [path.join(FORMAL_DIR, "verify_ml_oracle.mjs")]
   );
-  results.push({ name: "Lean 4 BF16 ML Oracle + Sweep", status: "PASS", ms: r2.ms, detail: "27 theorems + 65,536/65,536 BF16 + 1,840 diff + 4/4 mutants" });
+  results.push({ name: "Lean 4 BF16 ML Oracle + Sweep", status: "PASS", ms: r2.ms, detail: "34 theorems + 65,536/65,536 BF16 + 2,377 diff + 5/5 mutants" });
 
   const r3 = runStep(
     "3/4 UI State Machine Property, Trace & URL Round-Trip Verifier (formal/verify_ui_machine.mjs)",

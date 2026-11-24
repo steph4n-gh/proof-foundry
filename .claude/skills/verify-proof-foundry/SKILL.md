@@ -1,6 +1,6 @@
 ---
 name: verify-proof-foundry
-description: Formally verify Proof Foundry's core state machine, King-of-the-Hill scoring, Lean Judge security gate, PR-gate concurrency, BF16/FMA/C++17 ML math oracle, and frontend UI state machine. Use before merging any change to hub/state_machine.mjs, hub/missions.mjs, hub/pr_gate.mjs, hub/judges/lean4.mjs, missions/ml-math-kernels/judge/verify.mjs, hub/export_dropin.mjs, web/public/ui_machine.js, or .github/workflows/judge.yml.
+description: Formally verify Proof Foundry's core state machine, King-of-the-Hill scoring, Lean Judge security gate, PR-gate concurrency, BF16/FMA/C++20 ML math oracle, and frontend UI state machine. Use before merging any change to hub/state_machine.mjs, hub/missions.mjs, hub/pr_gate.mjs, hub/judges/lean4.mjs, hub/judges/command.mjs, missions/ml-math-kernels/judge/verify.mjs, hub/export_dropin.mjs, web/public/ui_machine.js, or .github/workflows/judge.yml.
 ---
 
 # Verify Proof Foundry (Formal Verification Skill)
@@ -17,7 +17,7 @@ This skill guards the six software boundaries in Proof Foundry where a bug corru
 | `hub/state_machine.mjs` (`transitionClaim`, `transitionRecord`, `replayRecordSubmissions`, `assignSeatClaim`, `releaseSeatClaim`, `computeTrustSeal`, `isRungConquered`), `hub/missions.mjs` (`recordPointsBySeat`) | Records ratchet strictly monotonically; total KotH points equal the single-jump delta (no 1-step point farming); stale `core_hash` / `statement_hash` receipts receive 0 points, `stale` seal, and never conquer objectives; contradictions are sticky & order-independent (including direct replay calls); exact closure locks permanently; seats and claims stay 1-to-1; contradicted/flagged/stale claims never count as conquered. | `formal/lean/PFFormal/StateMachine.lean`, `formal/lean/PFFormal/AxiomCheck.lean`, `formal/verify_state_machine_equiv.mjs` | `node formal/verify_state_machine_equiv.mjs` |
 | `hub/judges/lean4.mjs` (native `Init` AST gate + Pass 2 `.olean` env/import/dependency audit) | No submitted Lean proof can smuggle forbidden imports (`Lean.*`), `sorry`, `axiom`, `opaque`, `unsafe` helpers, `native_decide`, or metaprograms past the judge before or during compilation. | `hub/test_judge.mjs` (113 checks + 51 tracked Lean proofs across 6 Lean missions) | `node hub/test_judge.mjs` |
 | `hub/pr_gate.mjs` (`classifyEntries`, `validateRecordImprovement`, `evaluateAutoMergeDataOnly`, `verifyPrEntries`), `.github/workflows/judge.yml`, `.github/workflows/auto-merge.yml` | No unjudged commit, stale bounty, duplicate/beaten score, contradiction crossing, non-100644/path escape, mismatched receipt metadata, or frozen-statement edit (outside whole-mission maintainer retirement) can auto-merge under moving PR heads or competing PRs. | `formal/pr_gate_merge.tla`, `formal/pr_gate_koth.tla`, `formal/claim_seat_lifecycle.tla` | `npm run verify:formal -- --tlc-only --require-tlc` (inspect with `/statechart`) |
-| `missions/ml-math-kernels/judge/verify.mjs` (`bf16ToF32`, `f32ToBf16RNE`, `f64ToBf16RNE`, `bf16LatticeIndex`, `fmafExact`), `hub/export_dropin.mjs` (UB-free 32-bit C++/CUDA emitters) | Exact dyadic algebra, universal IEEE-754 RNE optimality/tie-to-even/monotonicity, BF16 lattice order-isomorphism & ULP metric axioms, single-rounding `fmaf` dyadic accumulation, and universal $2^{64}$ UB-free C++17 `ishr_s` & 32-bit wrapping equivalence match the JS judge across all 65,536 BF16 inputs and 1,840 adversarial cases. | `formal/oracle/PFOracle/BF16Oracle.lean`, `formal/oracle/PFOracle/AxiomCheck.lean`, `formal/verify_ml_oracle.mjs` | `node formal/verify_ml_oracle.mjs` |
+| `missions/ml-math-kernels/judge/verify.mjs` (`bf16ToF32`, `f32ToBf16RNE`, `f64ToBf16RNE`, `bf16LatticeIndex`, `fmafExact`, `erfcExact64`), `hub/export_dropin.mjs` (UB-free 32-bit C++/CUDA emitters), `hub/judges/command.mjs` (`allowed_extensions` pre-spawn gate) | Exact dyadic algebra, universal IEEE-754 RNE optimality/tie-to-even/monotonicity, BF16 lattice order-isomorphism & ULP metric axioms, direct real-value RNE & overflow proofs (`f32→bf16`, zero-double-rounding `f64→bf16`, single-rounding `fmaf`), and universal $2^{64}$ UB-free C++ `ishr_s`/`ishl`/`ishr_u` & 32-bit wrapping equivalence match the JS judge across all 65,536 BF16 inputs and 2,377 adversarial cases. | `formal/oracle/PFOracle/BF16Oracle.lean`, `formal/oracle/PFOracle/BF16Rounding.lean`, `formal/oracle/PFOracle/AxiomCheck.lean`, `formal/verify_ml_oracle.mjs` | `node formal/verify_ml_oracle.mjs` |
 | `web/public/ui_machine.js` (`reduceUI`, `parseRouteFromLocation`, `serializeRouteToLocation`, `sealOf`, `recordMetaOf`, `actionsOf`, `computeGap`, `statusOf`) | Only one overlay exists at a time; failed mission switches never tear down an active stream; stale async responses are pure no-ops; `route.mission` moves only on commit; cross-mission overlays clear on commit; URL routes round-trip losslessly. | `formal/ui_machine.tla`, `formal/verify_ui_machine.mjs` | `node formal/verify_ui_machine.mjs` and `/statechart` on `formal/ui_machine.tla` |
 
 ## Quick Check: Did Your Change Touch Verified Code?
@@ -27,7 +27,7 @@ Run from the repository root:
 ```sh
 git diff --name-only <sync-commit>..HEAD -- \
   hub/state_machine.mjs hub/missions.mjs hub/pr_gate.mjs \
-  hub/judges/lean4.mjs missions/ml-math-kernels/judge/verify.mjs hub/export_dropin.mjs \
+  hub/judges/lean4.mjs hub/judges/command.mjs missions/ml-math-kernels/judge/verify.mjs hub/export_dropin.mjs \
   web/public/ui_machine.js .github/workflows/judge.yml .github/workflows/auto-merge.yml \
   formal/
 ```
@@ -55,10 +55,10 @@ npm run verify:formal -- --require-tlc && npm test
 
 ## Honest Scope & Assumptions (TCB)
 
-- **Proved universally (unbounded):** Lean 4 theorems over `PFFormal.StateMachine` (331 swept theorems) and `PFOracle.BF16Oracle` (27 pure-kernel theorems, zero `bv_decide`).
+- **Proved universally (unbounded):** Lean 4 theorems over `PFFormal.StateMachine` (331 swept theorems) and `PFOracle.BF16Oracle` + `PFOracle.BF16Rounding` (34 pure-kernel theorems, zero `bv_decide`).
 - **Proved exhaustively within finite bounds:** TLC models (`pr_gate_merge`: 1 PR, 2 heads, 1 base advance; `claim_seat_lifecycle`: 2 seats, 2 claims; `pr_gate_koth`: 2 competing PRs on 1 hunt; `ui_machine`: 2 missions, 2 claims, seq budget 2).
-- **Verified empirically against the real JS & C++17:** `verify_state_machine_equiv.mjs` (2,818 traces / 20,233 steps, 10 mutants), `verify_ml_oracle.mjs` (65,536/65,536 BF16 sweep + 1,840 adversarial cases + 3 CLI kernels + 4 mutants), `missions/ml-math-kernels/judge/test_verify.mjs` (C++17 `-fsanitize=undefined` 65,536-input cross-check), `verify_ui_machine.mjs` (11,099 trace steps + 23,296 URL round-trips + 20,231 adapter states).
-- **Outside the proof boundary (TCB):** Lean 4.36.0 kernel, Node.js/V8, C++17/CUDA compilers, Linux/macOS, Git, GitHub branch-protection internals (`strict_required_status_checks_policy: true`), float64 transcendental reference targets (`Math.sqrt`/`Math.pow`/`Math.exp`/`erfExact64`), and browsers.
+- **Verified empirically against the real JS & C++20:** `verify_state_machine_equiv.mjs` (2,818 traces / 20,233 steps, 10 mutants), `verify_ml_oracle.mjs` (65,536/65,536 BF16 sweep + 2,377 adversarial cases + 3 CLI kernels + 5 mutants), `missions/ml-math-kernels/judge/test_verify.mjs` (9 tests including C++20 `-fsanitize=undefined` across 6 kernels × 65,536 inputs), `verify_ui_machine.mjs` (11,099 trace steps + 23,296 URL round-trips + 20,231 adapter states).
+- **Outside the proof boundary (TCB):** Lean 4.36.0 kernel, Node.js/V8, C++20/CUDA compilers, Linux/macOS, Git, GitHub branch-protection internals (`strict_required_status_checks_policy: true`), float64 transcendental reference targets (`Math.sqrt`/`Math.pow`/`Math.exp`/`erfExact64`/`erfcExact64`), and browsers.
 
 ## Updating the Sync Commit
 

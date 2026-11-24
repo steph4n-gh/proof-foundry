@@ -2,8 +2,8 @@
 /**
  * formal/verify_ml_oracle.mjs — Track 3 Formal Verification Differential Harness for `ml-math-kernels`.
  *
- * 1. Builds `formal/oracle` (`PFOracle.BF16Oracle` + `PFOracle.AxiomCheck` + `pf_oracle_check`)
- *    under Lean 4.36.0 `--wfail` (zero `sorry`, standard axioms only, 27 audited theorems).
+ * 1. Builds `formal/oracle` (`PFOracle.BF16Oracle` + `PFOracle.BF16Rounding` + `PFOracle.AxiomCheck`
+ *    + `pf_oracle_check`) under Lean 4.36.0 `--wfail` (zero `sorry`, standard axioms only, 34 audited theorems).
  * 2. Exhaustively cross-checks ALL 65,536/65,536 IEEE `bfloat16` bit patterns bit-for-bit
  *    against `missions/ml-math-kernels/judge/verify.mjs` (`bf16ToF32`, `f32ToBf16RNE`,
  *    `f64ToBf16RNE`, `bf16LatticeIndex`, `bf16IsNaN`).
@@ -12,8 +12,8 @@
  *    (catastrophic cancellation, exact ties to even/odd, subnormals, signed zero), and
  *    UB-free 32-bit `ishr_s` equivalence.
  * 4. Verifies all 3 committed pure-data ML kernels via the CLI judge.
- * 5. Runs 4 negative mutation self-checks proving the harness catches broken RNE ties,
- *    broken double-rounding, broken `-0` lattice index, and non-fused `fmaf`.
+ * 5. Runs 5 negative mutation self-checks proving the harness catches broken RNE ties,
+ *    broken double-rounding, broken `-0` lattice index, non-fused `fmaf`, and broken f64 subnormal carry.
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -157,14 +157,28 @@ const f64Values = [
   Number.MAX_VALUE, -Number.MAX_VALUE,
   Math.PI, -Math.E, Math.SQRT2, Math.SQRT1_2,
 ];
-// Also test every single finite bf16 promoted to f64 (spot sample across all exponents + subnormals)
-for (let b = 0; b < 65536; b += 63) f64Values.push(judge.bf16ToF32(b));
+// Also test 512 non-bf16 PRNG float64 values exercising real mantissa rounding, subnormal->normal carries,
+// overflow boundaries, and f64 subnormals (not just already-exact bf16 values!)
+for (let i = 0; i < 512; i++) {
+  const signBit = BigInt(nextU32() & 1) << 63n;
+  // Bias exponents heavily around bf16 interesting ranges: [-140..135] plus full range & f64 subnormals
+  let rawExp;
+  if (i % 8 === 0) rawExp = 0n; // f64 subnormals & ±0
+  else if (i % 8 === 1) rawExp = BigInt(1023 - 134 + (nextU32() % 12)); // bf16 subnormal & carry zone [-134..-123]
+  else if (i % 8 === 2) rawExp = BigInt(1023 + 124 + (nextU32() % 8));  // bf16 overflow zone [124..131]
+  else rawExp = BigInt(1023 - 126 + (nextU32() % 254));                // full bf16 normal range [-126..127]
+  const hiFrac = BigInt(nextU32() & 0xfffff);
+  const loFrac = BigInt(nextU32());
+  const bits = signBit | (rawExp << 52n) | (hiFrac << 32n) | loFrac;
+  f64Values.push(u64ToF64(bits));
+}
+for (let b = 0; b < 65536; b += 127) f64Values.push(judge.bf16ToF32(b));
 for (const [i, x] of f64Values.entries()) {
   const u64 = f64ToU64(x);
   check({ op: "f64ToBf16RNE", u: u64.toString() }, judge.f64ToBf16RNE(x), `f64ToBf16RNE #${i} (${x})`);
 }
 
-// 2c. Adversarial single-rounding float32 FMA (`fmafExact`) cases
+// 2c. Adversarial single-rounding float32 FMA (`fmafExact`) cases — non-bf16 full 24-bit significand triples!
 const fmaTriples = [
   [Math.fround(1 + 2 ** -23), Math.fround(1 - 2 ** -23), -1.0], // exact -2^-46 cancellation trap!
   [Math.fround(1 + 2 ** -22), Math.fround(1 - 2 ** -22), -1.0],
@@ -174,19 +188,27 @@ const fmaTriples = [
   [Math.fround(2 ** 100), Math.fround(2 ** 50), Math.fround(-(2 ** 127))], // overflow product + finite
   [Math.fround(2 ** 64), Math.fround(2 ** 64), Math.fround(-(2 ** 127))],
   [0.0, 5.0, -0.0], [-0.0, 5.0, -0.0], [-0.0, 5.0, 0.0], [1.0, -1.0, 1.0],
+  [Math.fround(-(2 ** -80)), Math.fround(2 ** -80), 0.0], // underflow negative product + (+0) -> -0!
   [Math.fround(1.5), Math.fround(2.5), Math.fround(-3.75)], // exact cancellation -> +0
   [Math.fround(-1.5), Math.fround(2.5), Math.fround(3.75)],
   [Math.fround(1.0), Math.fround(2 ** -24), Math.fround(2 ** -25)], // tie-breaking
   [Math.fround(1 + 2 ** -23), Math.fround(1.0), Math.fround(2 ** -24)], // tie to even (odd LSB)
   [Math.fround(1.0), Math.fround(1.0), Math.fround(2 ** -24)], // tie to even (even LSB)
 ];
-for (let i = 0; i < 128; i++) {
-  const a = judge.bf16ToF32(nextU32() & 0xffff);
-  const b = judge.bf16ToF32(nextU32() & 0xffff);
-  const c = judge.bf16ToF32(nextU32() & 0xffff);
-  if (Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c)) {
-    fmaTriples.push([a, b, c]);
-  }
+// Generate 256 full-24-bit finite float32 triples (so a*b has 48-bit products exercising real single-rounding!)
+function nextFiniteF32() {
+  const s = (nextU32() & 1) << 31;
+  const cls = nextU32() % 5;
+  let exp;
+  if (cls === 0) exp = 0; // subnormal / ±0
+  else if (cls === 1) exp = 1 + (nextU32() % 20); // tiny normal
+  else if (cls === 2) exp = 235 + (nextU32() % 20); // huge near-overflow normal
+  else exp = 115 + (nextU32() % 25); // mid-range cancellation/rounding zone
+  const frac = nextU32() & 0x7fffff;
+  return judge.u32ToF32((s | (exp << 23) | frac) >>> 0);
+}
+for (let i = 0; i < 256; i++) {
+  fmaTriples.push([nextFiniteF32(), nextFiniteF32(), nextFiniteF32()]);
 }
 for (const [i, [a, b, c]] of fmaTriples.entries()) {
   const ua = judge.f32ToU32(a);
@@ -195,17 +217,32 @@ for (const [i, [a, b, c]] of fmaTriples.entries()) {
   const got = judge.f32ToU32(judge.fmafExact(a, b, c));
   check({ op: "fmafFiniteBits", a: String(ua), b: String(ub), c: String(uc) }, got, `fmafExact #${i}`);
 }
+// Non-finite IEEE-754 fmafExact checks
+assert.ok(Number.isNaN(judge.fmafExact(Infinity, 0.0, 1.0)), "fmaf(Inf, 0, 1) must be NaN");
+assert.ok(Number.isNaN(judge.fmafExact(0.0, -Infinity, 1.0)), "fmaf(0, -Inf, 1) must be NaN");
+assert.ok(Number.isNaN(judge.fmafExact(Infinity, 2.0, -Infinity)), "fmaf(Inf, 2, -Inf) must be NaN");
+assert.ok(Number.isNaN(judge.fmafExact(NaN, 1.0, 0.0)), "fmaf(NaN, 1, 0) must be NaN");
+assert.equal(judge.fmafExact(Infinity, 2.0, 1.0), Infinity);
+assert.equal(judge.fmafExact(-Infinity, 2.0, 1.0), -Infinity);
+assert.equal(judge.fmafExact(1.0, 2.0, Infinity), Infinity);
 
-// 2d. UB-free C++ `ishr_s` equivalence cases against JS `>>`
-const shiftPairs = [
+// 2d. UB-free C++ 32-bit integer ops (`ishr_s`, `iadd`, `isub`, `imul`, `ishl`, `ishr_u`) vs JS
+const intPairs = [
   [0, 0], [-1, 0], [-1, 1], [-1, 31], [-1, 32], [-2147483648, 0], [-2147483648, 1],
   [-2147483648, 31], [-2147483648, 33], [2147483647, 0], [2147483647, 1], [2147483647, 31],
+  [2147483647, 2147483647], [-2147483648, -2147483648], [1597463174, -1073741824], // exact rsqrt -0 case!
   [-123456789, 7], [123456789, 7], [-2147483648, -1], [0x55555555, 16],
 ];
-for (let i = 0; i < 64; i++) shiftPairs.push([nextU32() | 0, nextU32() | 0]);
-for (const [i, [a, b]] of shiftPairs.entries()) {
-  const jsOut = (a >> (b & 31)) >>> 0;
-  check({ op: "cppIshrS", a: String(a >>> 0), b: String(b >>> 0) }, jsOut, `cppIshrS #${i}`);
+for (let i = 0; i < 64; i++) intPairs.push([nextU32() | 0, nextU32() | 0]);
+for (const [i, [a, b]] of intPairs.entries()) {
+  const ua = String(a >>> 0);
+  const ub = String(b >>> 0);
+  check({ op: "cppIshrS", a: ua, b: ub }, (a >> (b & 31)) >>> 0, `cppIshrS #${i}`);
+  check({ op: "cppIadd", a: ua, b: ub }, ((a + b) | 0) >>> 0, `cppIadd #${i}`);
+  check({ op: "cppIsub", a: ua, b: ub }, ((a - b) | 0) >>> 0, `cppIsub #${i}`);
+  check({ op: "cppImul", a: ua, b: ub }, Math.imul(a, b) >>> 0, `cppImul #${i}`);
+  check({ op: "cppIshl", a: ua, b: ub }, (a << (b & 31)) >>> 0, `cppIshl #${i}`);
+  check({ op: "cppIshrU", a: ua, b: ub }, (a >>> (b & 31)) >>> 0, `cppIshrU #${i}`);
 }
 
 const results = runLean(requests);
@@ -213,7 +250,7 @@ for (let i = 0; i < results.length; i++) {
   assert.equal(results[i], expected[i], `Differential mismatch on ${labels[i]}: Lean=${results[i]} JS=${expected[i]}`);
 }
 console.log(
-  `Adversarial differential checks: ${f32Patterns.length} f32->bf16 + ${f64Values.length} f64->bf16 + ${fmaTriples.length} fmafExact + ${shiftPairs.length} cppIshrS = ${results.length}/${results.length} exact matches`
+  `Adversarial differential checks: ${f32Patterns.length} f32->bf16 + ${f64Values.length} f64->bf16 + ${fmaTriples.length} fmafExact + ${intPairs.length * 6} cpp32 = ${results.length}/${results.length} exact matches`
 );
 
 // 3. Certify all 3 committed pure-data ML kernels via the CLI judge
@@ -265,6 +302,13 @@ console.log("Committed ML kernels certified via CLI judge: rsqrt(17), exp2(18), 
     const [leanFma] = runLean([{ op: "fmafFiniteBits", a: String(judge.f32ToU32(a)), b: String(judge.f32ToU32(b)), c: String(judge.f32ToU32(-1.0)) }]);
     assert.notEqual(judge.f32ToU32(m4.fmafExact(a, b, -1.0)), leanFma, "Mutant 4 (unfused fmaf) not caught!");
   });
+
+  // Mutant 5: break subnormal->normal carry in f64ToBf16RNE
+  await withMutatedJudge("if (rounded >= 128n) {", "if (rounded >= 129n) {", (m5) => {
+    const x = 127.5 * 2 ** -133;
+    const [leanSub] = runLean([{ op: "f64ToBf16RNE", u: f64ToU64(x).toString() }]);
+    assert.notEqual(m5.f64ToBf16RNE(x), leanSub, "Mutant 5 (broken f64 subnormal->normal carry) not caught!");
+  });
 }
-console.log("Negative mutation self-checks: 4/4 mutants caught (f32 RNE ties, f64 double-rounding, -0 lattice, unfused fmaf)");
+console.log("Negative mutation self-checks: 5/5 mutants caught (f32 RNE ties, f64 double-rounding, -0 lattice, unfused fmaf, f64 subnormal carry)");
 console.log("ALL ML-MATH-KERNELS FORMAL ORACLE CHECKS PASSED!");

@@ -139,7 +139,7 @@ export default {};
     expectedScore: 1,
     allowTempForTests: true,
   });
-  assert(!resN.ok && /pure \.json/i.test(resN.reason), "Attack N1 (JS .mjs + --result forgery) rejected with zero execution", JSON.stringify(resN));
+  assert(!resN.ok && /extension gate|pure \.json/i.test(resN.reason), "Attack N1 (JS .mjs + --result forgery) rejected by extension gate with zero execution", JSON.stringify(resN));
 
   const fakeJsonJs = path.join(tmp, "ForgeJsInsideJson.json");
   fs.writeFileSync(fakeJsonJs, `import fs from "node:fs"; export const x = 1;`);

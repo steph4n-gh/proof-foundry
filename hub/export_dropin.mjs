@@ -36,8 +36,12 @@ function sanitizeIdent(id) {
 }
 
 function formatFloat32Lit(v) {
-  if (Object.is(v, -0)) return "-0.0f";
-  const s = Number(Math.fround(v)).toPrecision(9);
+  const fv = Math.fround(Number(v));
+  if (!Number.isFinite(fv)) {
+    throw new Error(`Non-finite float32 constant: ${v}`);
+  }
+  if (Object.is(fv, -0)) return "-0.0f";
+  const s = fv.toPrecision(9);
   if (s.includes("e") || s.includes("E")) {
     const [m, e] = s.split(/[eE]/);
     return `${m.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, ".0")}e${e}f`;
@@ -95,8 +99,8 @@ function extractMlKernelCuda(lemma, source) {
       case "ishl": outType = "i32"; lines.push(`  const int32_t ${r} = (int32_t)((uint32_t)${a[0]} << ((uint32_t)${a[1]} & 31u));`); break;
       case "ishr_u": outType = "i32"; lines.push(`  const int32_t ${r} = (int32_t)((uint32_t)${a[0]} >> ((uint32_t)${a[1]} & 31u));`); break;
       case "ishr_s": outType = "i32"; lines.push(`  const int32_t ${r} = (int32_t)((((uint32_t)${a[1]} & 31u) == 0u) ? (uint32_t)${a[0]} : (((uint32_t)${a[0]} >> ((uint32_t)${a[1]} & 31u)) | (${a[0]} < 0 ? (~0u << (32u - ((uint32_t)${a[1]} & 31u))) : 0u)));`); break;
-      case "ftoi_trunc": outType = "i32"; lines.push(`  const int32_t ${r} = __float2int_rz(${a[0]});`); break;
-      case "ftoi_round": outType = "i32"; lines.push(`  const int32_t ${r} = __float2int_rn(${a[0]});`); break;
+      case "ftoi_trunc": outType = "i32"; lines.push(`  const int32_t ${r} = (${a[0]} >= -2147483648.0f && ${a[0]} < 2147483648.0f) ? __float2int_rz(${a[0]}) : 0;`); break;
+      case "ftoi_round": outType = "i32"; lines.push(`  const int32_t ${r} = (${a[0]} >= -2147483648.0f && ${a[0]} < 2147483648.0f) ? __float2int_rn(${a[0]}) : 0;`); break;
       case "itof": lines.push(`  const float ${r} = (float)${a[0]};`); break;
       case "lt": outType = "bool"; lines.push(`  const bool ${r} = ${a[0]} < ${a[1]};`); break;
       case "le": outType = "bool"; lines.push(`  const bool ${r} = ${a[0]} <= ${a[1]};`); break;

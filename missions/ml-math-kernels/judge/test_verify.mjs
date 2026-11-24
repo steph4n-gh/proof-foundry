@@ -23,6 +23,8 @@ import {
   f64ToBf16RNE,
   fmafExact,
   erfExact64,
+  erfcExact64,
+  REFERENCE_FNS,
   parseAndValidateKernel,
   evalKernelF32,
   verifyExhaustiveBf16,
@@ -87,6 +89,29 @@ test("erfExact64 achieves < 1e-15 accuracy on standard checkpoints", () => {
   assert.ok(Number.isNaN(erfExact64(NaN)));
 });
 
+test("erfcExact64 & bf16_gelu preserve negative-tail precision without cancellation", () => {
+  // Exact negative-tail checkpoints verified against Python IEEE float64 math.erfc:
+  // x = -8 -> gelu(-8) = -4.976768459417456e-15 (bf16 0xa7b3)
+  // x = -9 -> gelu(-9) = -1.0157295653584581e-18 (bf16 0xa196; old 1+erf gave -0 = 0x8000!)
+  // x = -12 -> gelu(-12) = -2.1317785344932418e-32 (bf16 0x8add)
+  // x = -13.5 -> gelu(-13.5) = -1.0555389862638368e-40 (bf16 0x8001, smallest negative subnormal!)
+  const geluM8 = REFERENCE_FNS.bf16_gelu(-8);
+  const geluM9 = REFERENCE_FNS.bf16_gelu(-9);
+  const geluM12 = REFERENCE_FNS.bf16_gelu(-12);
+  const geluM135 = REFERENCE_FNS.bf16_gelu(-13.5);
+  assert.ok(Math.abs(geluM8 - (-4.976768459417456e-15)) / 4.976768459417456e-15 < 1e-12, `gelu(-8)=${geluM8}`);
+  assert.ok(Math.abs(geluM9 - (-1.0157295653584581e-18)) / 1.0157295653584581e-18 < 1e-12, `gelu(-9)=${geluM9}`);
+  assert.ok(Math.abs(geluM12 - (-2.1317785344932418e-32)) / 2.1317785344932418e-32 < 1e-12, `gelu(-12)=${geluM12}`);
+  assert.ok(Math.abs(geluM135 - (-1.0555389862638368e-40)) / 1.0555389862638368e-40 < 1e-12, `gelu(-13.5)=${geluM135}`);
+  assert.equal(f64ToBf16RNE(geluM8), 0xa7b3);
+  assert.equal(f64ToBf16RNE(geluM9), 0xa196, "bf16_gelu(-9) must round to 0xa196, not -0");
+  assert.equal(f64ToBf16RNE(geluM12), 0x8add);
+  assert.equal(f64ToBf16RNE(geluM135), 0x8001);
+  assert.equal(erfcExact64(0), 1);
+  assert.equal(erfcExact64(Infinity), 0);
+  assert.equal(erfcExact64(-Infinity), 2);
+});
+
 test("committed pure-data JSON kernels pass exhaustive 65,536-input check", () => {
   const cases = [
     ["artifacts/ML_rec_bf16_rsqrt_s17.json", "specs/ML_rec_bf16_rsqrt.json", 17],
@@ -109,26 +134,33 @@ test("committed pure-data JSON kernels pass exhaustive 65,536-input check", () =
   }
 });
 
-test("emitCudaSnippet formats scientific notation and INT32_MIN safely", () => {
-  const k = parseAndValidateKernel(JSON.stringify({
+test("emitCudaSnippet formats scientific notation, -0 underflow, and INT32_MIN safely", () => {
+  const raw = JSON.stringify({
     schema: "pf.mlkernel.v1",
     ops: [
       ["const", 1e-10],
+      ["const", -1e-46],
       ["iconst", -2147483648],
       ["add", 0, 1],
     ],
-    output: 3,
-  }));
+    output: 4,
+  });
+  const k = parseAndValidateKernel(raw);
   assert.equal(k.ok, true);
   const cuda = emitCudaSnippet(k, "pf_test");
+  const dropIn = extractDropInArtifact("ml-math-kernels", { id: "ML-test" }, raw);
   assert.ok(cuda.includes("1e-10f") || cuda.includes("1.0e-10f"), `bad float literal in:\n${cuda}`);
+  assert.ok(cuda.includes("const float r2 = -0.0f;"), `-1e-46 must emit -0.0f in verify.mjs:\n${cuda}`);
+  assert.ok(dropIn.code.includes("const float r2 = -0.0f;"), `-1e-46 must emit -0.0f in export_dropin.mjs:\n${dropIn.code}`);
   assert.ok(cuda.includes("(-2147483647 - 1)"), `INT32_MIN not guarded in:\n${cuda}`);
 });
 
-test("security: rejects JavaScript code, disallowed ops, bad registers, type mismatches", () => {
+test("security: rejects JavaScript code, float32-overflow const, bad max_ulp, disallowed ops, bad registers, type mismatches", () => {
   const badInputs = [
     "export const kernel = (x) => Math.exp(x);",
     JSON.stringify({ schema: "wrong.v1", ops: [["const", 1]], output: 1 }),
+    JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 1e300]], output: 1 }),
+    JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 1e39]], output: 1 }),
     JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["div", 0, 0]], output: 1 }),
     JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["sqrt", 0]], output: 1 }),
     JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["add", 0, 99]], output: 1 }),
@@ -139,6 +171,14 @@ test("security: rejects JavaScript code, disallowed ops, bad registers, type mis
     const res = parseAndValidateKernel(raw);
     assert.equal(res.ok, false, `must reject malicious/malformed input: ${raw}`);
   }
+  const okK = parseAndValidateKernel(JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 1.0]], output: 1 }));
+  assert.equal(verifyExhaustiveBf16(okK, { target: "bf16_exp2", max_ulp: "not-a-number" }).ok, false);
+  assert.equal(verifyExhaustiveBf16(okK, { target: "bf16_exp2", max_ulp: -1 }).ok, false);
+  // Signed-zero min/max parity with IEEE/CUDA fminf/fmaxf
+  const minK = parseAndValidateKernel(JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 0.0], ["min", 0, 1]], output: 2 }));
+  const maxK = parseAndValidateKernel(JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 0.0], ["max", 0, 1]], output: 2 }));
+  assert.equal(Object.is(evalKernelF32(minK, -0.0), -0.0), true, "min(-0, +0) must be -0");
+  assert.equal(Object.is(evalKernelF32(maxK, -0.0), 0.0), true, "max(-0, +0) must be +0");
 });
 
 test("adversarial: rejects kernel that drops NaN propagation on exp2", () => {
@@ -158,14 +198,18 @@ test("adversarial: rejects kernel that drops NaN propagation on exp2", () => {
 
 test("drop-in CUDA/C++ emitters use UB-free unsigned 32-bit wrapping and match JS interpreter on all 65,536 bf16 inputs under UBSan", () => {
   const cases = [
-    { id: "ML-rec-bf16-exp2", fn: "pf_bf16_exp2", art: "artifacts/ML_rec_bf16_exp2_s18.json" },
-    { id: "ML-rec-bf16-rsqrt", fn: "pf_bf16_rsqrt", art: "artifacts/ML_rec_bf16_rsqrt_s17.json" },
-    { id: "ML-rec-bf16-silu", fn: "pf_bf16_silu", art: "artifacts/ML_rec_bf16_silu_s31.json" },
+    { id: "ML-rec-bf16-exp2", fn: "pf_bf16_exp2", raw: fs.readFileSync(path.join(MISSION_DIR, "artifacts/ML_rec_bf16_exp2_s18.json"), "utf8") },
+    { id: "ML-rec-bf16-rsqrt", fn: "pf_bf16_rsqrt", raw: fs.readFileSync(path.join(MISSION_DIR, "artifacts/ML_rec_bf16_rsqrt_s17.json"), "utf8") },
+    { id: "ML-rec-bf16-silu", fn: "pf_bf16_silu", raw: fs.readFileSync(path.join(MISSION_DIR, "artifacts/ML_rec_bf16_silu_s31.json"), "utf8") },
+    // Adversarial synthetic kernels exercising out-of-range/nonfinite ftoi_trunc, ftoi_round, and signed-zero min/bitcast!
+    { id: "ML-adv-ftoi-trunc", fn: "pf_ml_adv_ftoi_trunc", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["ftoi_trunc", 0], ["itof", 1]], output: 2 }) },
+    { id: "ML-adv-ftoi-round", fn: "pf_ml_adv_ftoi_round", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["ftoi_round", 0], ["itof", 1]], output: 2 }) },
+    { id: "ML-adv-min-s0", fn: "pf_ml_adv_min_s0", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 0.0], ["min", 0, 1], ["bitcast_i32", 2], ["itof", 3]], output: 4 }) },
   ];
   const snippets = [];
   const parsedMap = [];
   for (const c of cases) {
-    const raw = fs.readFileSync(path.join(MISSION_DIR, c.art), "utf8");
+    const raw = c.raw;
     const parsed = parseAndValidateKernel(raw);
     assert.equal(parsed.ok, true);
     const fromVerify = emitCudaSnippet(parsed, c.fn);
@@ -180,7 +224,7 @@ test("drop-in CUDA/C++ emitters use UB-free unsigned 32-bit wrapping and match J
     parsedMap.push({ ...c, parsed });
   }
 
-  // Compile and run all 3 emitted functions under UBSan across all 65,536 bf16 bit patterns (including -0.0f on rsqrt!).
+  // Compile and run all 6 emitted functions under UBSan across all 65,536 bf16 bit patterns.
   const cxx = ["c++", "clang++", "g++"].find((bin) => spawnSync(bin, ["--version"], { encoding: "utf8" }).status === 0);
   if (!cxx) {
     console.log("  SKIP: no C++ compiler available for UBSan execution check");
@@ -200,18 +244,30 @@ test("drop-in CUDA/C++ emitters use UB-free unsigned 32-bit wrapping and match J
 #define __device__
 #define __forceinline__ inline
 
+// CUDA PTX min.f32 / max.f32 return the non-NaN operand for ALL NaNs (both qNaN and sNaN),
+// whereas ARM64 C++ std::fminf (fminnm) propagates sNaN. Keep std::fminf/std::fmaxf for finite/±0!
+static inline float pf_ptx_fminf(float a, float b) {
+  if (std::isnan(a)) return b;
+  if (std::isnan(b)) return a;
+  return std::fminf(a, b);
+}
+static inline float pf_ptx_fmaxf(float a, float b) {
+  if (std::isnan(a)) return b;
+  if (std::isnan(b)) return a;
+  return std::fmaxf(a, b);
+}
+#define fminf pf_ptx_fminf
+#define fmaxf pf_ptx_fmaxf
+
 static inline int32_t __float_as_int(float x) { int32_t u; std::memcpy(&u, &x, 4); return u; }
 static inline float __int_as_float(int32_t u) { float x; std::memcpy(&x, &u, 4); return x; }
+// Deliberately NO out-of-range fallback here so UBSan catches any unguarded float->int UB!
 static inline int32_t __float2int_rz(float x) {
-  if (!std::isfinite(x)) return 0;
-  double t = std::trunc((double)x);
-  return (int32_t)(int64_t)t;
+  return static_cast<int32_t>(std::truncf(x));
 }
 static inline int32_t __float2int_rn(float x) {
-  if (!std::isfinite(x)) return 0;
   std::fesetround(FE_TONEAREST);
-  double r = std::nearbyint((double)x);
-  return (int32_t)(int64_t)r;
+  return static_cast<int32_t>(std::nearbyintf(x));
 }
 static inline uint16_t f32_to_bf16_rne(float x) {
   uint32_t u;
@@ -232,24 +288,27 @@ static inline float bf16_to_f32(uint16_t b) {
 ${snippets.join("\n\n")}
 
 int main() {
-  static uint16_t out[3][65536];
+  static uint16_t out[${cases.length}][65536];
   for (uint32_t b = 0; b < 65536u; b++) {
     float x = bf16_to_f32((uint16_t)b);
     out[0][b] = f32_to_bf16_rne(pf_bf16_exp2(x));
     out[1][b] = f32_to_bf16_rne(pf_bf16_rsqrt(x));
     out[2][b] = f32_to_bf16_rne(pf_bf16_silu(x));
+    out[3][b] = f32_to_bf16_rne(pf_ml_adv_ftoi_trunc(x));
+    out[4][b] = f32_to_bf16_rne(pf_ml_adv_ftoi_round(x));
+    out[5][b] = f32_to_bf16_rne(pf_ml_adv_min_s0(x));
   }
-  std::fwrite(out, sizeof(uint16_t), 3 * 65536, stdout);
+  std::fwrite(out, sizeof(uint16_t), ${cases.length} * 65536, stdout);
   return 0;
 }
 `;
     fs.writeFileSync(cppPath, cpp, "utf8");
-    const comp = spawnSync(cxx, ["-std=c++17", "-O2", "-fsanitize=undefined", "-fno-sanitize-recover=all", cppPath, "-o", binPath], { encoding: "utf8" });
+    const comp = spawnSync(cxx, ["-std=c++20", "-O2", "-fsanitize=undefined", "-fno-sanitize-recover=all", cppPath, "-o", binPath], { encoding: "utf8" });
     assert.equal(comp.status, 0, `UBSan compile failed:\n${comp.stderr}`);
     const run = spawnSync(binPath, [], { maxBuffer: 2 * 1024 * 1024 });
     assert.equal(run.status, 0, `UBSan execution failed (status=${run.status}):\n${run.stderr?.toString("utf8")}`);
     const buf = run.stdout;
-    assert.equal(buf.length, 3 * 65536 * 2);
+    assert.equal(buf.length, cases.length * 65536 * 2);
     for (let k = 0; k < parsedMap.length; k++) {
       let mismatches = 0;
       for (let b = 0; b < 65536; b++) {

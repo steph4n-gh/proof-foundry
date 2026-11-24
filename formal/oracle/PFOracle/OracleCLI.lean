@@ -54,6 +54,26 @@ private def evaluate (j : Json) : Except String Json := do
     let a := BitVec.ofNat 32 (← natField j "a")
     let b := BitVec.ofNat 32 (← natField j "b")
     return toJson (cppIshrS a b).toNat
+  | "cppIadd" =>
+    let a := BitVec.ofNat 32 (← natField j "a")
+    let b := BitVec.ofNat 32 (← natField j "b")
+    return toJson (cppIadd a b).toNat
+  | "cppIsub" =>
+    let a := BitVec.ofNat 32 (← natField j "a")
+    let b := BitVec.ofNat 32 (← natField j "b")
+    return toJson (cppIsub a b).toNat
+  | "cppImul" =>
+    let a := BitVec.ofNat 32 (← natField j "a")
+    let b := BitVec.ofNat 32 (← natField j "b")
+    return toJson (cppImul a b).toNat
+  | "cppIshl" =>
+    let a := BitVec.ofNat 32 (← natField j "a")
+    let b := BitVec.ofNat 32 (← natField j "b")
+    return toJson (cppIshl a b).toNat
+  | "cppIshrU" =>
+    let a := BitVec.ofNat 32 (← natField j "a")
+    let b := BitVec.ofNat 32 (← natField j "b")
+    return toJson (cppIshrU a b).toNat
   | op => throw s!"Unknown operation: {op}"
 
 def main : IO Unit := do

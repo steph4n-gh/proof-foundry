@@ -578,6 +578,55 @@ console.log("\n— Snapshot adapters (real mission data) —");
   if (aesAnd && aesAnd.best_score == null) {
     assert(recordFrontierPhase(aesAnd).phase === "match_literature" || recordFrontierPhase(aesAnd).phase === "world_record", "CZ-rec-aes-and classifies frontier phase");
   }
+  // Unconditional synthetic record frontier checks (remain active even as live records advance)
+  {
+    const synthBoundNeeded = {
+      id: "SYN-rec-opt",
+      direction: "min",
+      best_score: 10,
+      next_target: 9,
+      proven_bound: null,
+      literature_best: 10,
+      literature_bound: 10,
+      allow_bound: true,
+      closed: false,
+      contradiction: false,
+    };
+    assert(needsOptimalityBound(synthBoundNeeded) === true, "synthetic at-optimum hunt needs optimality bound");
+    const act = recommendedRecordAction(synthBoundNeeded);
+    assert(act.kind === "record_bound" && act.score === 9, "synthetic at-optimum hunt recommends record_bound 9", JSON.stringify(act));
+    assert(recordFrontierPhase(synthBoundNeeded).phase === "needs_bound", "synthetic at-optimum hunt phase is needs_bound");
+    const synthWorldRecord = {
+      id: "SYN-rec-wr",
+      direction: "min",
+      best_score: 32,
+      next_target: 31,
+      proven_bound: null,
+      literature_best: 32,
+      literature_bound: 12,
+      allow_bound: true,
+      closed: false,
+      contradiction: false,
+    };
+    assert(needsOptimalityBound(synthWorldRecord) === false, "synthetic world-record hunt does not need bound yet");
+    const wrAct = recommendedRecordAction(synthWorldRecord);
+    assert(wrAct.kind === "record" && wrAct.score === 31, "synthetic world-record hunt recommends record 31", JSON.stringify(wrAct));
+    assert(recordFrontierPhase(synthWorldRecord).phase === "world_record", "synthetic world-record hunt classifies world_record");
+    const synthOpen = {
+      id: "SYN-rec-open",
+      direction: "min",
+      best_score: null,
+      start_target: 34,
+      next_target: 34,
+      proven_bound: null,
+      literature_best: 32,
+      literature_bound: 12,
+      allow_bound: true,
+      closed: false,
+      contradiction: false,
+    };
+    assert(recordFrontierPhase(synthOpen).phase === "match_literature", "synthetic unclaimed hunt classifies match_literature");
+  }
   // Regression checks for the 3 UI state-machine edge-case fixes discovered by Track 4 formal verification
   {
     const { initialUIState, reduceUI } = mod;

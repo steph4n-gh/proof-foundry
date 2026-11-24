@@ -20,7 +20,8 @@ drop-in CUDA/C++ code emitters (`hub/export_dropin.mjs`, `emitCudaSnippet`):
      `bf16LatticeIndex` across all finite `bf16` values (subnormals, `±0`, normal boundaries).
    - Metric axioms (`symm`, `triangle`, `zero_iff`) for `bf16UlpDist`.
 4. Exact single-rounding IEEE-754 `float32` FMA (`float32BitsToDyadic`, `dyadicToF32BitsRNE`,
-   `fmafExactBits`): exact zero-intermediate-rounding dyadic accumulation `a*b + c`.
+   `fmafDyadicSum`, `fmafFiniteBits`): exact zero-intermediate-rounding dyadic accumulation `a*b + c`
+   (with universal RNE & overflow proofs in `PFOracle.BF16Rounding`).
 5. Universal 32-bit two's-complement UB-free C++/CUDA emitter equivalence across all `2^64`
    pairs `(a, b : BitVec 32)`, including `cppIshrS = BitVec.sshiftRight` and strict shift bounds.
 -/
@@ -904,8 +905,24 @@ def dyadicToF32BitsRNE (m : Int) (e : Int) : BitVec 32 :=
 def f32IsFinite (u : BitVec 32) : Bool :=
   ((u >>> 23) &&& 0xff#32) != 0xff#32
 
+def f32IsNaN (u : BitVec 32) : Bool :=
+  ((u >>> 23) &&& 0xff#32) == 0xff#32 && (u &&& 0x7fffff#32) != 0#32
+
 def f32IsZero (u : BitVec 32) : Bool :=
   (u &&& 0x7fffffff#32) == 0#32
+
+def f64IsFinite (bits : BitVec 64) : Bool :=
+  ((bits >>> 52) &&& 0x7ff#64) != 0x7ff#64
+
+def float64BitsToDyadic (bits : BitVec 64) : Dyadic :=
+  let sign : Int := if ((bits >>> 63) &&& 1#64) != 0#64 then -1 else 1
+  let rawExp : Nat := ((bits >>> 52) &&& 0x7ff#64).toNat
+  let frac52 : Nat := (bits &&& 0xfffffffffffff#64).toNat
+  if rawExp = 0 then
+    if frac52 = 0 then ⟨0, 0⟩
+    else ⟨sign * (frac52 : Int), -1074⟩
+  else
+    ⟨sign * (((1 <<< 52) + frac52 : Nat) : Int), (rawExp : Int) - 1075⟩
 
 def fmafDyadicSum (a b c : BitVec 32) : Dyadic :=
   dyadicAdd (dyadicMul (float32BitsToDyadic a) (float32BitsToDyadic b)) (float32BitsToDyadic c)
@@ -930,34 +947,9 @@ def fmafFiniteBits (a b c : BitVec 32) : BitVec 32 :=
     let d := dyadicMul (float32BitsToDyadic a) (float32BitsToDyadic b)
     dyadicToF32BitsRNE d.m d.e
   else
-    let da := float32BitsToDyadic a
-    let db := float32BitsToDyadic b
-    let dc := float32BitsToDyadic c
-    let pm := da.m * db.m
-    let pe := da.e + db.e
-    let minE := min pe dc.e
-    let sumM := pm * (2 ^ (pe - minE).toNat : Int) + dc.m * (2 ^ (dc.e - minE).toNat : Int)
-    if sumM = 0 then 0x00000000#32
-    else dyadicToF32BitsRNE sumM minE
-
-/-- Proves that `fmafFiniteBits`'s inline `minE` bit-shift matches `fmafDyadicSum` identically. -/
-theorem fmafFiniteBits_sum_eq_exact (a b c : BitVec 32) :
-    let da := float32BitsToDyadic a
-    let db := float32BitsToDyadic b
-    let dc := float32BitsToDyadic c
-    let pm := da.m * db.m
-    let pe := da.e + db.e
-    let minE := min pe dc.e
-    let sumM := pm * (2 ^ (pe - minE).toNat : Int) + dc.m * (2 ^ (dc.e - minE).toNat : Int)
-    (Dyadic.mk sumM minE).value =
-      (float32BitsToDyadic a).value * (float32BitsToDyadic b).value + (float32BitsToDyadic c).value := by
-  intro da db dc pm pe minE sumM
-  have h1 : minE ≤ pe := Int.min_le_left pe dc.e
-  have h2 : minE ≤ dc.e := Int.min_le_right pe dc.e
-  simp only [Dyadic.value, sumM, pm, pe, Rat.intCast_add, Rat.intCast_mul, Rat.intCast_pow,
-    Rat.intCast_ofNat, Rat.add_mul, Rat.mul_assoc, dyadic_shift h1, dyadic_shift h2]
-  rw [Rat.zpow_add (by decide : (2 : Rat) ≠ 0)]
-  grind
+    let s := fmafDyadicSum a b c
+    if s.m = 0 then 0x00000000#32
+    else dyadicToF32BitsRNE s.m s.e
 
 -- ============================================================================
 -- 6. Universal 32-Bit UB-Free C++/CUDA Emitter Equivalence (All 2^64 Inputs!)
@@ -1069,5 +1061,23 @@ theorem cppIsub_two_complement_mod (a b : BitVec 32) :
 theorem cppImul_two_complement_mod (a b : BitVec 32) :
     (cppImul a b).toInt = (a.toInt * b.toInt).bmod (2 ^ 32) := by
   simp [cppImul, BitVec.toInt_mul]
+
+/-- Proves `cppIshl` masks its shift count strictly into `[0, 31]` (zero shift-count UB). -/
+theorem cppIshl_no_ub_shift_bounds (a b : BitVec 32) :
+    (b &&& 31#32).toNat < 32 ∧ cppIshl a b = a <<< (b.toNat % 32) := by
+  have h1 : (b &&& 31#32).toNat = b.toNat % 32 := bv32_and_pow2_sub_one b 5 (by decide)
+  refine ⟨by omega, ?_⟩
+  unfold cppIshl
+  change a <<< (b &&& 31#32).toNat = a <<< (b.toNat % 32)
+  rw [h1]
+
+/-- Proves `cppIshrU` masks its shift count strictly into `[0, 31]` (zero shift-count UB). -/
+theorem cppIshrU_no_ub_shift_bounds (a b : BitVec 32) :
+    (b &&& 31#32).toNat < 32 ∧ cppIshrU a b = a >>> (b.toNat % 32) := by
+  have h1 : (b &&& 31#32).toNat = b.toNat % 32 := bv32_and_pow2_sub_one b 5 (by decide)
+  refine ⟨by omega, ?_⟩
+  unfold cppIshrU
+  change a >>> (b &&& 31#32).toNat = a >>> (b.toNat % 32)
+  rw [h1]
 
 end PFOracle
