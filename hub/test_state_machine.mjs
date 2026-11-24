@@ -522,15 +522,24 @@ test("fleet next supports --mission all, --exclude, --exclude-file, ranking, PR 
   assert.equal(pp.claim.kind, "record");
 
   // Ranking + open-PR handling via fake `gh` stub:
-  // Fixed claim SN-001 with open PR -> skipped in skipped_active_prs;
-  // KotH hunt SN-rec-013 with open PR -> STILL served when fixed bounties are excluded, listed in active_record_prs,
-  // and ranked AFTER unclaimed KotH hunts with no active PR!
+  // Dynamically pick an actually open fixed claim and an open KotH hunt so solved bounties never break this test.
+  const snAll = deriveMissionState("sorting-networks").state.lemmas;
+  const snById = Object.fromEntries(snAll.map((l) => [l.id, l]));
+  const openFixed = snAll.find(
+    (l) =>
+      l.kind !== "record" &&
+      l.status === "conjecture" &&
+      (l.deps || []).every((d) => !snById[d] || snById[d].status === "checked" || snById[d].status === "refuted")
+  );
+  const openRecs = snAll.filter((l) => l.kind === "record" && !l.record_state?.closed && !l.record_state?.contradiction);
+  assert.ok(openFixed && openRecs.length >= 2, "sorting-networks has an open fixed claim and at least two open KotH hunts");
+  const openRec = openRecs[0];
   const binDir = path.join(dir, "bin");
   fs.mkdirSync(binDir, { recursive: true });
   const fakeGh = path.join(binDir, "gh");
   const fakePrs = [
-    { number: 501, title: "SN-001 witness", url: "https://example.test/501", headRefName: "donor/sn-001", updatedAt: new Date().toISOString(), statusCheckRollup: [] },
-    { number: 502, title: "SN-rec-013 score 46", url: "https://example.test/502", headRefName: "donor/sn-rec-013-s46", updatedAt: new Date().toISOString(), statusCheckRollup: [] },
+    { number: 501, title: `${openFixed.id} witness`, url: "https://example.test/501", headRefName: `donor/${openFixed.id.toLowerCase()}`, updatedAt: new Date().toISOString(), statusCheckRollup: [] },
+    { number: 502, title: `${openRec.id} record attempt`, url: "https://example.test/502", headRefName: `donor/${openRec.id.toLowerCase()}-s46`, updatedAt: new Date().toISOString(), statusCheckRollup: [] },
   ];
   fs.writeFileSync(fakeGh, `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify(fakePrs)}'\n`, { mode: 0o755 });
   const ghEnv = { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}` };
@@ -539,24 +548,23 @@ test("fleet next supports --mission all, --exclude, --exclude-file, ranking, PR 
   assert.equal(snWithPr.status, 0, snWithPr.stderr);
   const snp = JSON.parse(snWithPr.stdout);
   assert.equal(snp.pr_sync_ok, true);
-  assert.ok(snp.skipped_active_prs.some((x) => x.id === "SN-001"), "fixed claim with open PR skipped");
-  assert.ok(snp.active_record_prs.some((x) => x.id === "SN-rec-013"), "KotH hunt with open PR reported");
-  assert.notEqual(snp.claim.id, "SN-001");
+  assert.ok(snp.skipped_active_prs.some((x) => x.id === openFixed.id), "fixed claim with open PR skipped");
+  assert.ok(snp.active_record_prs.some((x) => x.id === openRec.id), "KotH hunt with open PR reported");
+  assert.notEqual(snp.claim.id, openFixed.id);
 
-  // Exclude all fixed claims in sorting-networks AND all other KotH hunts except SN-rec-013 -> SN-rec-013 STILL served!
-  const snAll = deriveMissionState("sorting-networks").state.lemmas;
-  const exExceptRec13 = snAll.filter((l) => l.id !== "SN-rec-013").map((l) => l.id).join(",");
-  const recServed = runNode(["hub/fleet.mjs", "next", "--mission", "sorting-networks", "--exclude", exExceptRec13], { env: ghEnv });
+  // Exclude all fixed claims in sorting-networks AND all other KotH hunts except openRec -> openRec STILL served!
+  const exExceptRec = snAll.filter((l) => l.id !== openRec.id).map((l) => l.id).join(",");
+  const recServed = runNode(["hub/fleet.mjs", "next", "--mission", "sorting-networks", "--exclude", exExceptRec], { env: ghEnv });
   assert.equal(recServed.status, 0, recServed.stderr);
   const rps = JSON.parse(recServed.stdout);
-  assert.equal(rps.claim.id, "SN-rec-013");
-  assert.ok(rps.active_record_prs.some((x) => x.id === "SN-rec-013"));
+  assert.equal(rps.claim.id, openRec.id);
+  assert.ok(rps.active_record_prs.some((x) => x.id === openRec.id));
 
-  // Exclude only fixed claims in sorting-networks -> unclaimed KotH hunt WITHOUT open PR (SN-rec-014) ranks ahead of SN-rec-013 (active PR)
+  // Exclude only fixed claims in sorting-networks -> unclaimed KotH hunt WITHOUT open PR ranks ahead of openRec (active PR)
   const exFixedOnly = snAll.filter((l) => l.kind !== "record").map((l) => l.id).join(",");
   const recRanked = runNode(["hub/fleet.mjs", "next", "--mission", "sorting-networks", "--exclude", exFixedOnly], { env: ghEnv });
   assert.equal(recRanked.status, 0, recRanked.stderr);
-  assert.notEqual(JSON.parse(recRanked.stdout).claim.id, "SN-rec-013", "uncontested KotH hunt ranks ahead of contested KotH hunt");
+  assert.notEqual(JSON.parse(recRanked.stdout).claim.id, openRec.id, "uncontested KotH hunt ranks ahead of contested KotH hunt");
 
   // Clean exhaustion
   const allSortNetIds = snAll.map((l) => l.id).join(",");
