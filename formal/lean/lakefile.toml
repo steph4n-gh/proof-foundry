@@ -1,0 +1,10 @@
+name = "pf_formal"
+version = "0.1.0"
+defaultTargets = ["PFFormal", "pf_state_check"]
+
+[[lean_lib]]
+name = "PFFormal"
+
+[[lean_exe]]
+name = "pf_state_check"
+root = "PFFormal.StateMachineCLI"
