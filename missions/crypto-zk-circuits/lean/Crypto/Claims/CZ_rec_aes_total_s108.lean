@@ -1,0 +1,133 @@
+import Crypto.Core
+import Crypto.Statements.CZ_rec_aes_total
+
+namespace Crypto.Claims.CZ_rec_aes_total_s108
+
+open Crypto Crypto.B2Op
+
+/-- 108-gate, AND-depth-4 (36 non-linear B2 gates) well-formed B2 circuit for the FIPS-197 AES 8-bit S-box.
+    Uses polynomial-Y tower field GF(((2^2)^2)^2), full-B2 asymmetric gate folding (opAnd/opOr/opAndNot/opNotAnd)
+    of both V^2 (0 residuals) and U^2*nu (2 residuals) into Layer 1, OR-folding in GF(2^4) inversion,
+    and Transposition-Principle SLP optimization of the 18->8 bottom linear layer with zero-overhead XNOR 0x63 folding. -/
+def aesCircuit108 : MultiCircuit 8 8 where
+  gates := [
+    ⟨opXor, 2, 3⟩,
+    ⟨opXor, 5, 7⟩,
+    ⟨opXor, 8, 9⟩,
+    ⟨opXor, 1, 10⟩,
+    ⟨opXor, 4, 5⟩,
+    ⟨opXor, 6, 12⟩,
+    ⟨opXor, 8, 13⟩,
+    ⟨opXor, 11, 13⟩,
+    ⟨opXor, 1, 14⟩,
+    ⟨opXor, 0, 14⟩,
+    ⟨opXor, 12, 17⟩,
+    ⟨opXor, 7, 18⟩,
+    ⟨opXor, 2, 15⟩,
+    ⟨opXor, 18, 20⟩,
+    ⟨opXor, 12, 20⟩,
+    ⟨opXor, 7, 20⟩,
+    ⟨opXor, 7, 22⟩,
+    ⟨opOr, 13, 17⟩,
+    ⟨opOr, 14, 21⟩,
+    ⟨opOr, 8, 22⟩,
+    ⟨opOr, 11, 18⟩,
+    ⟨opOr, 1, 19⟩,
+    ⟨opNotAnd, 10, 7⟩,
+    ⟨opOr, 15, 12⟩,
+    ⟨opNotAnd, 16, 23⟩,
+    ⟨opOr, 9, 24⟩,
+    ⟨opXor, 26, 15⟩,
+    ⟨opXor, 28, 14⟩,
+    ⟨opXor, 25, 32⟩,
+    ⟨opXor, 29, 33⟩,
+    ⟨opXor, 27, 31⟩,
+    ⟨opXor, 36, 38⟩,
+    ⟨opXor, 30, 31⟩,
+    ⟨opXor, 37, 40⟩,
+    ⟨opXor, 32, 35⟩,
+    ⟨opXor, 40, 42⟩,
+    ⟨opXor, 37, 42⟩,
+    ⟨opXor, 33, 34⟩,
+    ⟨opXor, 38, 45⟩,
+    ⟨opXor, 36, 45⟩,
+    ⟨opXor, 44, 47⟩,
+    ⟨opAnd, 39, 43⟩,
+    ⟨opOr, 46, 41⟩,
+    ⟨opAnd, 47, 44⟩,
+    ⟨opXor, 51, 50⟩,
+    ⟨opXor, 51, 49⟩,
+    ⟨opXor, 53, 48⟩,
+    ⟨opXor, 54, 52⟩,
+    ⟨opAnd, 43, 52⟩,
+    ⟨opAnd, 41, 54⟩,
+    ⟨opAnd, 44, 55⟩,
+    ⟨opAnd, 39, 52⟩,
+    ⟨opAnd, 46, 54⟩,
+    ⟨opAnd, 47, 55⟩,
+    ⟨opXor, 58, 56⟩,
+    ⟨opXor, 58, 57⟩,
+    ⟨opXor, 56, 57⟩,
+    ⟨opXor, 61, 59⟩,
+    ⟨opXor, 61, 60⟩,
+    ⟨opXor, 59, 60⟩,
+    ⟨opXor, 62, 65⟩,
+    ⟨opXor, 63, 66⟩,
+    ⟨opXor, 64, 67⟩,
+    ⟨opAnd, 13, 62⟩,
+    ⟨opAnd, 14, 63⟩,
+    ⟨opAnd, 8, 64⟩,
+    ⟨opAnd, 11, 65⟩,
+    ⟨opAnd, 1, 66⟩,
+    ⟨opAnd, 10, 67⟩,
+    ⟨opAnd, 15, 68⟩,
+    ⟨opAnd, 16, 69⟩,
+    ⟨opAnd, 9, 70⟩,
+    ⟨opAnd, 17, 62⟩,
+    ⟨opAnd, 21, 63⟩,
+    ⟨opAnd, 22, 64⟩,
+    ⟨opAnd, 18, 65⟩,
+    ⟨opAnd, 19, 66⟩,
+    ⟨opAnd, 7, 67⟩,
+    ⟨opAnd, 12, 68⟩,
+    ⟨opAnd, 23, 69⟩,
+    ⟨opAnd, 24, 70⟩,
+    ⟨opXor, 84, 85⟩,
+    ⟨opXor, 83, 85⟩,
+    ⟨opXor, 80, 82⟩,
+    ⟨opXor, 91, 90⟩,
+    ⟨opXor, 73, 77⟩,
+    ⟨opXor, 75, 72⟩,
+    ⟨opXor, 94, 93⟩,
+    ⟨opXor, 74, 95⟩,
+    ⟨opXor, 78, 96⟩,
+    ⟨opXnor, 97, 92⟩,
+    ⟨opXnor, 88, 98⟩,
+    ⟨opXor, 99, 89⟩,
+    ⟨opXnor, 100, 86⟩,
+    ⟨opXor, 87, 90⟩,
+    ⟨opXnor, 102, 86⟩,
+    ⟨opXor, 81, 82⟩,
+    ⟨opXor, 104, 89⟩,
+    ⟨opXor, 79, 72⟩,
+    ⟨opXor, 71, 106⟩,
+    ⟨opXor, 107, 105⟩,
+    ⟨opXor, 108, 96⟩,
+    ⟨opXnor, 106, 93⟩,
+    ⟨opXnor, 101, 92⟩,
+    ⟨opXnor, 76, 101⟩,
+    ⟨opXor, 112, 95⟩,
+    ⟨opXor, 113, 77⟩,
+    ⟨opXnor, 105, 103⟩
+  ]
+  outputs := [101, 103, 115, 114, 111, 98, 110, 109]
+
+set_option maxRecDepth 8192 in
+theorem record : Crypto.Statements.CZ_rec_aes_total.Record 108 := by
+  refine ⟨aesCircuit108, ?_, ?_, ?_, ?_⟩
+  · decide +kernel
+  · decide +kernel
+  · decide +kernel
+  · exact computes_of_checkSBox (by decide +kernel)
+
+end Crypto.Claims.CZ_rec_aes_total_s108

@@ -1,0 +1,28 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "crypto-zk-circuits",
+  "lemma_id": "CZ-rec-aes-total",
+  "kind": "record",
+  "score": 108,
+  "file": "missions/crypto-zk-circuits/lean/Crypto/Claims/CZ_rec_aes_total_s108.lean",
+  "theorem": "Crypto.Claims.CZ_rec_aes_total_s108.record",
+  "signature": "Crypto.Claims.CZ_rec_aes_total_s108.record :\n  Crypto.Statements.CZ_rec_aes_total.Record 108",
+  "at": "2026-11-24T16:50:21.624Z",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-24T16:50:21.624Z",
+    "duration_ms": 7738,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "6c76ca23ad6920d18d296ce755937f8f3bbea776252590caae2a72dd03cc7488",
+    "core_hash": "1117ad754d7ae7f09cba4b3ed07a5d48d33fd1ba50523b3c84adaeab33d8b54b",
+    "statement_frozen": true,
+    "statement_hash": "7a2e8948d210feda038f57346427a2c956c8f806de44206e5c12c053c3ee81bf"
+  }
+}
