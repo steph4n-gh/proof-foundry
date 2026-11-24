@@ -72,20 +72,36 @@ static inline void pf_cz_rec_ascon_gates_bitslice64(uint64_t out[5], const uint6
 ```cuda
 // Auto-generated from Proof Foundry verified pure-data kernel (18 ops, 65,536/65,536 bf16 inputs checked)
 __device__ __forceinline__ float pf_bf16_exp2(float r0) {
-  const float r10 = fminf(r0, 128.0f);
-  const float r11 = fmaxf(r10, -135.0f);
-  const int32_t r12 = __float2int_rn(r11);
+  const float r1 = 128.0f;
+  const float r2 = -135.0f;
+  const float r3 = 0.0555041097f;
+  const float r4 = 0.240226507f;
+  const float r5 = 0.693147182f;
+  const float r6 = 1.0f;
+  const int32_t r7 = 1;
+  const int32_t r8 = 127;
+  const int32_t r9 = 23;
+  const float r10 = fminf(r0, r1);
+  const float r11 = fmaxf(r10, r2);
+  const int32_t r12 = (r11 >= -2147483648.0f && r11 < 2147483648.0f) ? __float2int_rn(r11) : 0;
   const float r13 = (float)r12;
-  const float r14 = r11 - r13;
-  const float r15 = fmaf(0.0555041097f, r14, 0.240226507f);
-  const float r16 = fmaf(r15, r14, 0.693147182f);
-  const float r17 = fmaf(r16, r14, 1.0f);
-  const int32_t r18 = r12 >> 1;
-  const int32_t r19 = r12 - r18;
-  const float r24 = __int_as_float((r18 + 127) << 23);
-  const float r25 = __int_as_float((r19 + 127) << 23);
-  const float r27 = (r17 * r24) * r25;
-  return (r0 == r0) ? r27 : r0;
+  const float r14 = __fsub_rn(r11, r13);
+  const float r15 = fmaf(r3, r14, r4);
+  const float r16 = fmaf(r15, r14, r5);
+  const float r17 = fmaf(r16, r14, r6);
+  const int32_t r18 = (int32_t)((((uint32_t)r7 & 31u) == 0u) ? (uint32_t)r12 : (((uint32_t)r12 >> ((uint32_t)r7 & 31u)) | (r12 < 0 ? (~0u << (32u - ((uint32_t)r7 & 31u))) : 0u)));
+  const int32_t r19 = (int32_t)((uint32_t)r12 - (uint32_t)r18);
+  const int32_t r20 = (int32_t)((uint32_t)r18 + (uint32_t)r8);
+  const int32_t r21 = (int32_t)((uint32_t)r19 + (uint32_t)r8);
+  const int32_t r22 = (int32_t)((uint32_t)r20 << ((uint32_t)r9 & 31u));
+  const int32_t r23 = (int32_t)((uint32_t)r21 << ((uint32_t)r9 & 31u));
+  const float r24 = __int_as_float(r22);
+  const float r25 = __int_as_float(r23);
+  const float r26 = __fmul_rn(r17, r24);
+  const float r27 = __fmul_rn(r26, r25);
+  const bool r28 = r0 == r0;
+  const float r29 = r28 ? r27 : r0;
+  return r29;
 }
 ```
 

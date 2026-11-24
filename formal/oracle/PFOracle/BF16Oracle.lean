@@ -3,7 +3,7 @@ import Std
 namespace PFOracle
 
 /-!
-# Proof Foundry Track 3 Formal Oracle — `ml-math-kernels` (BF16 / Dyadic FMA / UB-Free C++32)
+# Proof Foundry Track 3 Formal Oracle — `ml-math-kernels` (BF16 / Dyadic FMA / UB-Free C++20 & CUDA)
 
 Universally quantified Lean 4.36.0 proofs (zero `sorry`, standard axioms only) covering the
 mathematical and bit-level primitives of `missions/ml-math-kernels/judge/verify.mjs` and the
@@ -961,7 +961,7 @@ def cppImul (a b : BitVec 32) : BitVec 32 := a * b
 def cppIshl (a b : BitVec 32) : BitVec 32 := a <<< (b &&& 31#32)
 def cppIshrU (a b : BitVec 32) : BitVec 32 := a >>> (b &&& 31#32)
 
-/-- Exact model of the UB-free C++17/CUDA expression emitted for `ishr_s` in `hub/export_dropin.mjs`
+/-- Exact model of the UB-free C++20/CUDA expression emitted for `ishr_s` in `hub/export_dropin.mjs`
     and `missions/ml-math-kernels/judge/verify.mjs`:
     `(int32_t)((((uint32_t)b & 31u) == 0u) ? (uint32_t)a : (((uint32_t)a >> ((uint32_t)b & 31u)) | (a < 0 ? (~0u << (32u - ((uint32_t)b & 31u))) : 0u)))` -/
 def cppIshrS (a b : BitVec 32) : BitVec 32 :=
@@ -1034,7 +1034,7 @@ theorem cppIshrS_equiv_sshiftRight (a b : BitVec 32) :
         simp only [hnotLt]
         exact BitVec.getElem_allOnes (v := 32) (i := i - (32 - s.toNat)) (h := by omega)
 
-/-- Proves both unsigned shift counts in the C++17 `ishr_s` expression are strictly in `[0, 31]`,
+/-- Proves both unsigned shift counts in the C++20/CUDA `ishr_s` expression are strictly in `[0, 31]`,
     ruling out shift-count undefined behavior for EVERY `b : BitVec 32`. -/
 theorem cppIshrS_no_ub_shift_bounds (b : BitVec 32) :
     (b &&& 31#32).toNat < 32 ∧ ((b &&& 31#32) ≠ 0#32 → (32#32 - (b &&& 31#32)).toNat < 32) := by

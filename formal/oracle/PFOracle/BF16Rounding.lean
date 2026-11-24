@@ -1516,9 +1516,10 @@ private theorem f32IsZero_iff_dyadic_m_zero (u : BitVec 32) :
         split <;> omega
       exact absurd hm hnz
 
-/-- Universal single-rounding IEEE-754 FMA correctness theorem proved DIRECTLY on `fmafFiniteBits`. -/
+/-- Universal single-rounding IEEE-754 FMA correctness theorem proved DIRECTLY on `fmafFiniteBits`.
+    (Zero-result sign rules for `-0` remain covered by differential tests in `verify_ml_oracle.mjs`.) -/
 theorem fmafFiniteBits_value_spec (a b c : BitVec 32)
-    (ha : f32IsFinite a = true) (hb : f32IsFinite b = true) (hc : f32IsFinite c = true) :
+    (_ha : f32IsFinite a = true) (_hb : f32IsFinite b = true) (hc : f32IsFinite c = true) :
     let exact := (float32BitsToDyadic a).value * (float32BitsToDyadic b).value + (float32BitsToDyadic c).value
     let res := fmafFiniteBits a b c
     f32IsNaN res = false ∧
@@ -1528,7 +1529,6 @@ theorem fmafFiniteBits_value_spec (a b c : BitVec 32)
       if exact < 0 then res = 0xff800000#32 ∧ exact ≤ -f32OverflowThreshold
       else res = 0x7f800000#32 ∧ f32OverflowThreshold ≤ exact) := by
   intro exact res
-  have _ : f32IsFinite a = true ∧ f32IsFinite b = true := ⟨ha, hb⟩
   have hsum_val : (fmafDyadicSum a b c).value = exact := fmafDyadicSum_sound a b c
   by_cases hab0 : (f32IsZero a || f32IsZero b) = true
   · have hprod0 : (float32BitsToDyadic a).value * (float32BitsToDyadic b).value = 0 := by

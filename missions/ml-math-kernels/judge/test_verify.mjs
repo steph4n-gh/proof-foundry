@@ -27,6 +27,7 @@ import {
   REFERENCE_FNS,
   parseAndValidateKernel,
   evalKernelF32,
+  evalKernelF32Checked,
   verifyExhaustiveBf16,
   emitCudaSnippet,
 } from "./verify.mjs";
@@ -110,6 +111,13 @@ test("erfcExact64 & bf16_gelu preserve negative-tail precision without cancellat
   assert.equal(erfcExact64(0), 1);
   assert.equal(erfcExact64(Infinity), 0);
   assert.equal(erfcExact64(-Infinity), 2);
+  // Exact-tie nudge on tiny subnormal/first-normal odd multiples of 2^-133 (verified vs 90-digit mpmath):
+  // Since silu(x) > x/2 and gelu(x) > x/2 strictly for all x != 0, exact x/2 midpoints must round UP toward +Inf.
+  for (const [inBits, expectedBits] of [[0x0001, 0x0001], [0x0005, 0x0003], [0x8003, 0x8001], [0x8005, 0x8002], [0x8001, 0x8000]]) {
+    const x = bf16ToF32(inBits);
+    assert.equal(f64ToBf16RNE(REFERENCE_FNS.bf16_silu(x)), expectedBits, `bf16_silu tie mismatch at 0x${inBits.toString(16)}`);
+    assert.equal(f64ToBf16RNE(REFERENCE_FNS.bf16_gelu(x)), expectedBits, `bf16_gelu tie mismatch at 0x${inBits.toString(16)}`);
+  }
 });
 
 test("committed pure-data JSON kernels pass exhaustive 65,536-input check", () => {
@@ -172,13 +180,67 @@ test("security: rejects JavaScript code, float32-overflow const, bad max_ulp, di
     assert.equal(res.ok, false, `must reject malicious/malformed input: ${raw}`);
   }
   const okK = parseAndValidateKernel(JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 1.0]], output: 1 }));
-  assert.equal(verifyExhaustiveBf16(okK, { target: "bf16_exp2", max_ulp: "not-a-number" }).ok, false);
-  assert.equal(verifyExhaustiveBf16(okK, { target: "bf16_exp2", max_ulp: -1 }).ok, false);
+  assert.equal(verifyExhaustiveBf16(okK, { target: "toString", max_ulp: 1 }).ok, false, "must reject prototype property target");
+  for (const badUlp of ["not-a-number", -1, null, [], [5], true, "1", 1.5, NaN]) {
+    assert.equal(verifyExhaustiveBf16(okK, { target: "bf16_exp2", max_ulp: badUlp }).ok, false, `must reject bad max_ulp ${JSON.stringify(badUlp)}`);
+  }
   // Signed-zero min/max parity with IEEE/CUDA fminf/fmaxf
   const minK = parseAndValidateKernel(JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 0.0], ["min", 0, 1]], output: 2 }));
   const maxK = parseAndValidateKernel(JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 0.0], ["max", 0, 1]], output: 2 }));
   assert.equal(Object.is(evalKernelF32(minK, -0.0), -0.0), true, "min(-0, +0) must be -0");
   assert.equal(Object.is(evalKernelF32(maxK, -0.0), 0.0), true, "max(-0, +0) must be +0");
+});
+
+test("security: rejects non-portable NaN bit-pattern leaks through bitcast_i32 (sNaN, Inf-Inf, neg(NaN))", () => {
+  // (a) Direct sNaN quiet-bit probe via bitcast_i32
+  const snanProbe = parseAndValidateKernel(JSON.stringify({
+    schema: "pf.mlkernel.v1",
+    ops: [["bitcast_i32", 0], ["iconst", 4194304], ["iand", 1, 2], ["itof", 3]],
+    output: 4,
+  }));
+  assert.equal(snanProbe.ok, true);
+  assert.equal(evalKernelF32Checked(snanProbe, bf16ToF32(0x7f81)).poisoned, true);
+  assert.equal(evalKernelF32Checked(snanProbe, 1.0).poisoned, false);
+
+  // (b) Host-dependent canonical NaN sign probe: sub(Inf, Inf) -> bitcast_i32 -> sign bit
+  const infSubProbe = parseAndValidateKernel(JSON.stringify({
+    schema: "pf.mlkernel.v1",
+    ops: [["sub", 0, 0], ["bitcast_i32", 1], ["iconst", 31], ["ishr_u", 2, 3], ["itof", 4]],
+    output: 5,
+  }));
+  assert.equal(evalKernelF32Checked(infSubProbe, Infinity).poisoned, true);
+  assert.equal(evalKernelF32Checked(infSubProbe, 1.0).poisoned, false);
+
+  // (c) Negated sNaN bitcast_i32 probe
+  const negNanProbe = parseAndValidateKernel(JSON.stringify({
+    schema: "pf.mlkernel.v1",
+    ops: [["neg", 0], ["bitcast_i32", 1], ["iconst", 31], ["ishr_u", 2, 3], ["itof", 4]],
+    output: 5,
+  }));
+  assert.equal(evalKernelF32Checked(negNanProbe, bf16ToF32(0x7f81)).poisoned, true);
+  assert.equal(evalKernelF32Checked(negNanProbe, 1.0).poisoned, false);
+
+  // (d) Committed rsqrt record plus appended sNaN-branch exploit MUST be rejected even though JS returns NaN!
+  const rsqrtJson = JSON.parse(fs.readFileSync(path.join(MISSION_DIR, "artifacts/ML_rec_bf16_rsqrt_s17.json"), "utf8"));
+  const baseOut = rsqrtJson.output;
+  const n0 = rsqrtJson.ops.length;
+  const exploitOps = [
+    ...rsqrtJson.ops,
+    ["bitcast_i32", 0],                  // n0 + 1
+    ["iconst", 0x00400000],              // n0 + 2 (quiet bit)
+    ["iand", n0 + 1, n0 + 2],            // n0 + 3
+    ["iconst", 0],                       // n0 + 4
+    ["eq", n0 + 3, n0 + 4],              // n0 + 5 (true on hardware sNaN, false in JS!)
+    ["eq", 0, 0],                        // n0 + 6 (false on NaN)
+    ["const", 1.0],                      // n0 + 7
+    ["select", n0 + 5, n0 + 7, baseOut], // n0 + 8 (poisoned condition!)
+    ["select", n0 + 6, baseOut, n0 + 8], // n0 + 9
+  ];
+  const exploitK = parseAndValidateKernel(JSON.stringify({ schema: "pf.mlkernel.v1", ops: exploitOps, output: n0 + 9 }));
+  assert.equal(exploitK.ok, true, exploitK.reason);
+  const vExploit = verifyExhaustiveBf16(exploitK, { target: "bf16_rsqrt", max_ulp: 1 });
+  assert.equal(vExploit.ok, false, "must reject rsqrt+sNaN exploit even though JS quietens sNaN");
+  assert.match(vExploit.reason, /NaN bit-pattern leak/i);
 });
 
 test("adversarial: rejects kernel that drops NaN propagation on exp2", () => {
@@ -201,11 +263,12 @@ test("drop-in CUDA/C++ emitters use UB-free unsigned 32-bit wrapping and match J
     { id: "ML-rec-bf16-exp2", fn: "pf_bf16_exp2", raw: fs.readFileSync(path.join(MISSION_DIR, "artifacts/ML_rec_bf16_exp2_s18.json"), "utf8") },
     { id: "ML-rec-bf16-rsqrt", fn: "pf_bf16_rsqrt", raw: fs.readFileSync(path.join(MISSION_DIR, "artifacts/ML_rec_bf16_rsqrt_s17.json"), "utf8") },
     { id: "ML-rec-bf16-silu", fn: "pf_bf16_silu", raw: fs.readFileSync(path.join(MISSION_DIR, "artifacts/ML_rec_bf16_silu_s31.json"), "utf8") },
-    // Adversarial synthetic kernels exercising out-of-range/nonfinite ftoi_trunc, ftoi_round, and signed-zero min/max!
+    // Adversarial synthetic kernels exercising out-of-range/nonfinite ftoi_trunc, ftoi_round, signed-zero min/max, and non-contraction mul+sub!
     { id: "ML-adv-ftoi-trunc", fn: "pf_ml_adv_ftoi_trunc", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["ftoi_trunc", 0], ["itof", 1]], output: 2 }) },
     { id: "ML-adv-ftoi-round", fn: "pf_ml_adv_ftoi_round", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["ftoi_round", 0], ["itof", 1]], output: 2 }) },
     { id: "ML-adv-min-s0", fn: "pf_ml_adv_min_s0", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 0.0], ["min", 0, 1], ["bitcast_i32", 2], ["itof", 3]], output: 4 }) },
     { id: "ML-adv-max-s0", fn: "pf_ml_adv_max_s0", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", -0.0], ["max", 0, 1], ["bitcast_i32", 2], ["itof", 3]], output: 4 }) },
+    { id: "ML-adv-no-contract", fn: "pf_ml_adv_no_contract", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 1.00000011920928955], ["mul", 0, 1], ["sub", 2, 0], ["const", 8388608], ["mul", 3, 4]], output: 5 }) },
   ];
   const snippets = [];
   const parsedMap = [];
@@ -225,9 +288,12 @@ test("drop-in CUDA/C++ emitters use UB-free unsigned 32-bit wrapping and match J
     parsedMap.push({ ...c, parsed });
   }
 
-  // Compile and run all 6 emitted functions under UBSan across all 65,536 bf16 bit patterns.
+  // Compile and run all emitted functions under UBSan across all 65,536 bf16 bit patterns.
   const cxx = ["c++", "clang++", "g++"].find((bin) => spawnSync(bin, ["--version"], { encoding: "utf8" }).status === 0);
   if (!cxx) {
+    if (process.env.CI === "true") {
+      throw new Error("No C++ compiler available in CI for UBSan execution check");
+    }
     console.log("  SKIP: no C++ compiler available for UBSan execution check");
     return;
   }
@@ -244,6 +310,11 @@ test("drop-in CUDA/C++ emitters use UB-free unsigned 32-bit wrapping and match J
 
 #define __device__
 #define __forceinline__ inline
+
+// Non-contracting CUDA device intrinsics (host C++ compiled with -ffp-contract=off).
+static inline float __fadd_rn(float a, float b) { return a + b; }
+static inline float __fsub_rn(float a, float b) { return a - b; }
+static inline float __fmul_rn(float a, float b) { return a * b; }
 
 // CUDA PTX min.f32 / max.f32 guarantee non-NaN preference (for both qNaN and sNaN)
 // and signed-zero ordering (-0.0f < +0.0f). Host C++ std::fminf/std::fmaxf leave
@@ -302,13 +373,14 @@ int main() {
     out[4][b] = f32_to_bf16_rne(pf_ml_adv_ftoi_round(x));
     out[5][b] = f32_to_bf16_rne(pf_ml_adv_min_s0(x));
     out[6][b] = f32_to_bf16_rne(pf_ml_adv_max_s0(x));
+    out[7][b] = f32_to_bf16_rne(pf_ml_adv_no_contract(x));
   }
   std::fwrite(out, sizeof(uint16_t), ${cases.length} * 65536, stdout);
   return 0;
 }
 `;
     fs.writeFileSync(cppPath, cpp, "utf8");
-    const comp = spawnSync(cxx, ["-std=c++20", "-O2", "-fsanitize=undefined", "-fno-sanitize-recover=all", cppPath, "-o", binPath], { encoding: "utf8" });
+    const comp = spawnSync(cxx, ["-std=c++20", "-O2", "-ffp-contract=off", "-fsanitize=undefined", "-fno-sanitize-recover=all", cppPath, "-o", binPath], { encoding: "utf8" });
     assert.equal(comp.status, 0, `UBSan compile failed:\n${comp.stderr}`);
     const run = spawnSync(binPath, [], { maxBuffer: 2 * 1024 * 1024 });
     assert.equal(run.status, 0, `UBSan execution failed (status=${run.status}):\n${run.stderr?.toString("utf8")}`);

@@ -52,7 +52,7 @@ function formatFloat32Lit(v) {
 
 function extractMlKernelCuda(lemma, source) {
   const k = JSON.parse(source);
-  if (!k || k.schema !== "pf.mlkernel.v1" || !Array.isArray(k.ops) || !k.ops.length || !Number.isSafeInteger(k.output)) {
+  if (!k || k.schema !== "pf.mlkernel.v1" || !Array.isArray(k.ops) || !k.ops.length || !Number.isSafeInteger(k.output) || k.output < 0 || k.output > k.ops.length) {
     return null;
   }
   let opCost = 0;
@@ -70,21 +70,26 @@ function extractMlKernelCuda(lemma, source) {
     const inst = k.ops[i];
     const op = inst[0];
     const r = `r${i + 1}`;
-    const a = inst.slice(1).map((x) => `r${x}`);
+    const rawArgs = inst.slice(1);
+    if (op !== "const" && op !== "iconst") {
+      if (rawArgs.some((x) => !Number.isSafeInteger(x) || x < 0 || x > i)) return null;
+    }
+    const a = rawArgs.map((x) => `r${x}`);
     let outType = "f32";
     switch (op) {
       case "const": lines.push(`  const float ${r} = ${formatFloat32Lit(inst[1])};`); break;
       case "iconst": {
         outType = "i32";
+        if (!Number.isSafeInteger(inst[1])) return null;
         const iv = inst[1] | 0;
         lines.push(`  const int32_t ${r} = ${iv === -2147483648 ? "(-2147483647 - 1)" : iv};`);
         break;
       }
       case "bitcast_i32": outType = "i32"; lines.push(`  const int32_t ${r} = __float_as_int(${a[0]});`); break;
       case "bitcast_f32": lines.push(`  const float ${r} = __int_as_float(${a[0]});`); break;
-      case "add": lines.push(`  const float ${r} = ${a[0]} + ${a[1]};`); break;
-      case "sub": lines.push(`  const float ${r} = ${a[0]} - ${a[1]};`); break;
-      case "mul": lines.push(`  const float ${r} = ${a[0]} * ${a[1]};`); break;
+      case "add": lines.push(`  const float ${r} = __fadd_rn(${a[0]}, ${a[1]});`); break;
+      case "sub": lines.push(`  const float ${r} = __fsub_rn(${a[0]}, ${a[1]});`); break;
+      case "mul": lines.push(`  const float ${r} = __fmul_rn(${a[0]}, ${a[1]});`); break;
       case "fma": lines.push(`  const float ${r} = fmaf(${a[0]}, ${a[1]}, ${a[2]});`); break;
       case "abs": lines.push(`  const float ${r} = fabsf(${a[0]});`); break;
       case "neg": lines.push(`  const float ${r} = -${a[0]};`); break;

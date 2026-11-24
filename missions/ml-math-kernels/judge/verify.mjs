@@ -274,6 +274,14 @@ export function erfExact64(x) {
 
 const INV_SQRT2 = Math.SQRT1_2;
 
+/** Return the smallest IEEE-754 float64 strictly greater than finite non-zero `y` (toward +Infinity). */
+function nextUpF64(y) {
+  _f64[0] = y;
+  const u = _u64[0];
+  _u64[0] = y > 0 ? u + 1n : u - 1n;
+  return _f64[0];
+}
+
 export const REFERENCE_FNS = {
   bf16_gelu(x) {
     if (Number.isNaN(x)) return NaN;
@@ -281,17 +289,27 @@ export const REFERENCE_FNS = {
     if (x === -Infinity) return 0;
     if (x === 0) return x;
     // Use erfc(-x / sqrt(2)) on the negative half-line to prevent 1 + erf(...) cancellation!
-    if (x < 0) return 0.5 * x * erfcExact64(-x * INV_SQRT2);
-    return 0.5 * x * (1 + erfExact64(x * INV_SQRT2));
+    const y = x < 0 ? 0.5 * x * erfcExact64(-x * INV_SQRT2) : 0.5 * x * (1 + erfExact64(x * INV_SQRT2));
+    // Exact tie-breaker: for all x != 0, gelu(x) = x/2 + (x/2)*erf(x/sqrt(2)) > x/2 strictly.
+    // When |x| < 2^-50, the positive O(x^2) term underflows float64 relative to x/2, landing on an
+    // exact bf16 midpoint for odd subnormal/first-normal multiples of 2^-133; nudging 1 f64 ULP
+    // toward +Infinity restores exact mathematical RNE rounding across all 65,536 bf16 inputs.
+    return y === 0.5 * x ? nextUpF64(y) : y;
   },
   bf16_silu(x) {
     if (Number.isNaN(x)) return NaN;
     if (x === Infinity) return Infinity;
     if (x === -Infinity) return 0;
     if (x === 0) return x;
-    if (x >= 0) return x / (1 + Math.exp(-x));
-    const ex = Math.exp(x);
-    return (x * ex) / (1 + ex);
+    let y;
+    if (x >= 0) {
+      y = x / (1 + Math.exp(-x));
+    } else {
+      const ex = Math.exp(x);
+      y = (x * ex) / (1 + ex);
+    }
+    // Exact tie-breaker: for all x != 0, silu(x) = x/2 + (x/2)*tanh(x/2) > x/2 strictly.
+    return y === 0.5 * x ? nextUpF64(y) : y;
   },
   bf16_exp2(x) {
     if (Number.isNaN(x)) return NaN;
@@ -301,6 +319,7 @@ export const REFERENCE_FNS = {
   },
   bf16_rsqrt(x) {
     if (Number.isNaN(x) || x < 0) return NaN;
+    // Convention: both +0 and -0 map to +Inf (matches ML-rec-bf16-rsqrt spec & RMSNorm nonnegative variance).
     if (x === 0) return Infinity;
     if (x === Infinity) return 0;
     return 1 / Math.sqrt(x);
@@ -461,10 +480,20 @@ export function parseAndValidateKernel(rawText) {
   return { ok: true, compiled, output: parsed.output, opCost, constCount, target: parsed.target || null, notes: parsed.notes || "" };
 }
 
-/** Deterministic IEEE-754 float32 evaluator for a validated kernel DAG. */
-export function evalKernelF32(kernel, xF32) {
+/**
+ * Deterministic IEEE-754 float32 evaluator with NaN bit-pattern poison tracking.
+ *
+ * Because JS numbers quieten signaling NaNs (126 bf16 sNaN patterns) and CPUs/V8 differ on
+ * canonical NaN sign/payload bits (e.g., Inf - Inf on arm64 vs x86_64), any `bitcast_i32` of a
+ * NaN float marks its output register as poisoned. Non-poisoned `select` discards poisoned
+ * untaken branches (so valid kernels like rsqrt's `x > 0 ? fast : fallback` remain unpoisoned),
+ * while any poisoned value or branch condition reaching the final output is rejected by the judge.
+ */
+export function evalKernelF32Checked(kernel, xF32) {
   const regs = new Array(kernel.compiled.length + 1);
+  const poison = new Array(kernel.compiled.length + 1);
   regs[0] = Math.fround(xF32);
+  poison[0] = false;
   for (let i = 0; i < kernel.compiled.length; i++) {
     const inst = kernel.compiled[i];
     const r = i + 1;
@@ -472,30 +501,43 @@ export function evalKernelF32(kernel, xF32) {
       case "const":
       case "iconst":
         regs[r] = inst.v;
+        poison[r] = false;
         break;
-      case "bitcast_i32":
-        regs[r] = f32ToI32(regs[inst.args[0]]);
+      case "bitcast_i32": {
+        const a0 = inst.args[0];
+        regs[r] = f32ToI32(regs[a0]);
+        poison[r] = poison[a0] || Number.isNaN(regs[a0]);
         break;
-      case "bitcast_f32":
-        regs[r] = i32ToF32(regs[inst.args[0]]);
+      }
+      case "bitcast_f32": {
+        const a0 = inst.args[0];
+        regs[r] = i32ToF32(regs[a0]);
+        poison[r] = poison[a0];
         break;
+      }
       case "add":
         regs[r] = Math.fround(regs[inst.args[0]] + regs[inst.args[1]]);
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "sub":
         regs[r] = Math.fround(regs[inst.args[0]] - regs[inst.args[1]]);
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "mul":
         regs[r] = Math.fround(regs[inst.args[0]] * regs[inst.args[1]]);
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "fma":
         regs[r] = fmafExact(regs[inst.args[0]], regs[inst.args[1]], regs[inst.args[2]]);
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]] || poison[inst.args[2]];
         break;
       case "abs":
         regs[r] = Math.fround(Math.abs(regs[inst.args[0]]));
+        poison[r] = poison[inst.args[0]];
         break;
       case "neg":
         regs[r] = Math.fround(-regs[inst.args[0]]);
+        poison[r] = poison[inst.args[0]];
         break;
       case "min": {
         const a = regs[inst.args[0]], b = regs[inst.args[1]];
@@ -503,6 +545,7 @@ export function evalKernelF32(kernel, xF32) {
         else if (Number.isNaN(b)) regs[r] = a;
         else if (a === 0 && b === 0) regs[r] = (Object.is(a, -0) || Object.is(b, -0)) ? -0 : 0;
         else regs[r] = a < b ? a : b;
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       }
       case "max": {
@@ -511,39 +554,50 @@ export function evalKernelF32(kernel, xF32) {
         else if (Number.isNaN(b)) regs[r] = a;
         else if (a === 0 && b === 0) regs[r] = (Object.is(a, -0) && Object.is(b, -0)) ? -0 : 0;
         else regs[r] = a > b ? a : b;
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       }
       case "iadd":
         regs[r] = (regs[inst.args[0]] + regs[inst.args[1]]) | 0;
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "isub":
         regs[r] = (regs[inst.args[0]] - regs[inst.args[1]]) | 0;
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "imul":
         regs[r] = Math.imul(regs[inst.args[0]], regs[inst.args[1]]);
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "iand":
         regs[r] = regs[inst.args[0]] & regs[inst.args[1]];
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "ior":
         regs[r] = regs[inst.args[0]] | regs[inst.args[1]];
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "ixor":
         regs[r] = regs[inst.args[0]] ^ regs[inst.args[1]];
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "ishl":
         regs[r] = regs[inst.args[0]] << (regs[inst.args[1]] & 31);
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "ishr_u":
         regs[r] = (regs[inst.args[0]] >>> (regs[inst.args[1]] & 31)) | 0;
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "ishr_s":
         regs[r] = regs[inst.args[0]] >> (regs[inst.args[1]] & 31);
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "ftoi_trunc": {
         const v = regs[inst.args[0]];
         // Guard to exact representable int32_t float32 range [-2^31, 2^31) matching emitted C++/CUDA!
         regs[r] = (v >= -2147483648 && v < 2147483648) ? (Math.trunc(v) | 0) : 0;
+        poison[r] = poison[inst.args[0]];
         break;
       }
       case "ftoi_round": {
@@ -557,36 +611,49 @@ export function evalKernelF32(kernel, xF32) {
           const rnd = diff > 0.5 ? fl + 1 : diff < 0.5 ? fl : (fl % 2 === 0 ? fl : fl + 1);
           regs[r] = rnd | 0;
         }
+        poison[r] = poison[inst.args[0]];
         break;
       }
       case "itof":
         regs[r] = Math.fround(regs[inst.args[0]]);
+        poison[r] = poison[inst.args[0]];
         break;
       case "lt":
         regs[r] = regs[inst.args[0]] < regs[inst.args[1]];
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "le":
         regs[r] = regs[inst.args[0]] <= regs[inst.args[1]];
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "eq":
         regs[r] = regs[inst.args[0]] === regs[inst.args[1]];
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
-      case "select":
-        regs[r] = regs[inst.args[0]] ? regs[inst.args[1]] : regs[inst.args[2]];
+      case "select": {
+        const [c, t, f] = inst.args;
+        regs[r] = regs[c] ? regs[t] : regs[f];
+        poison[r] = poison[c] ? true : (regs[c] ? poison[t] : poison[f]);
         break;
+      }
     }
   }
-  return regs[kernel.output];
+  return { value: regs[kernel.output], poisoned: poison[kernel.output] };
+}
+
+/** Deterministic IEEE-754 float32 evaluator for a validated kernel DAG. */
+export function evalKernelF32(kernel, xF32) {
+  return evalKernelF32Checked(kernel, xF32).value;
 }
 
 /** Exhaustively verify a validated kernel over ALL 65,536 IEEE bfloat16 bit patterns! */
 export function verifyExhaustiveBf16(kernel, spec) {
-  const refFn = REFERENCE_FNS[spec.target];
-  if (typeof refFn !== "function") {
-    return { ok: false, reason: `Unknown reference target: ${spec.target}` };
+  if (!spec || typeof spec.target !== "string" || !Object.hasOwn(REFERENCE_FNS, spec.target)) {
+    return { ok: false, reason: `Unknown reference target: ${spec?.target}` };
   }
-  const maxUlpAllowed = spec.max_ulp === undefined ? 1 : Number(spec.max_ulp);
-  if (!Number.isSafeInteger(maxUlpAllowed) || maxUlpAllowed < 0) {
+  const refFn = REFERENCE_FNS[spec.target];
+  const maxUlpAllowed = spec.max_ulp === undefined ? 1 : spec.max_ulp;
+  if (typeof maxUlpAllowed !== "number" || !Number.isSafeInteger(maxUlpAllowed) || maxUlpAllowed < 0) {
     return { ok: false, reason: `Invalid spec.max_ulp: ${JSON.stringify(spec.max_ulp)}` };
   }
   let maxUlpSeen = 0;
@@ -601,7 +668,13 @@ export function verifyExhaustiveBf16(kernel, spec) {
     const x = bf16ToF32(bits);
     const ref64 = refFn(x);
     const refBf16 = f64ToBf16RNE(ref64);
-    const gotF32 = evalKernelF32(kernel, x);
+    const { value: gotF32, poisoned } = evalKernelF32Checked(kernel, x);
+    if (poisoned) {
+      return {
+        ok: false,
+        reason: `Non-portable NaN bit-pattern leak via bitcast_i32 reaching output at bf16 0x${bits.toString(16)} (${x})`,
+      };
+    }
     const gotBf16 = f32ToBf16RNE(gotF32);
     tested++;
 
@@ -661,6 +734,7 @@ export function verifyExhaustiveBf16(kernel, spec) {
     tested,
     exactMatches,
     maxUlpSeen,
+    maxUlpAllowed,
     worstInputBits,
     worstInputVal,
     worstGot,
@@ -700,9 +774,9 @@ export function emitCudaSnippet(kernel, fnName = "pf_kernel") {
       case "iconst": lines.push(`  const int32_t ${r} = ${iLit(inst.v)};`); break;
       case "bitcast_i32": lines.push(`  const int32_t ${r} = __float_as_int(${a[0]});`); break;
       case "bitcast_f32": lines.push(`  const float ${r} = __int_as_float(${a[0]});`); break;
-      case "add": lines.push(`  const float ${r} = ${a[0]} + ${a[1]};`); break;
-      case "sub": lines.push(`  const float ${r} = ${a[0]} - ${a[1]};`); break;
-      case "mul": lines.push(`  const float ${r} = ${a[0]} * ${a[1]};`); break;
+      case "add": lines.push(`  const float ${r} = __fadd_rn(${a[0]}, ${a[1]});`); break;
+      case "sub": lines.push(`  const float ${r} = __fsub_rn(${a[0]}, ${a[1]});`); break;
+      case "mul": lines.push(`  const float ${r} = __fmul_rn(${a[0]}, ${a[1]});`); break;
       case "fma": lines.push(`  const float ${r} = fmaf(${a[0]}, ${a[1]}, ${a[2]});`); break;
       case "abs": lines.push(`  const float ${r} = fabsf(${a[0]});`); break;
       case "neg": lines.push(`  const float ${r} = -${a[0]};`); break;
@@ -796,13 +870,13 @@ if (isMain) {
     ok: true,
     score: expectedScore,
     engine: "Exhaustive 65,536-Input BF16 Pure-Data Judge v1 (zero JS execution)",
-    signature: `${spec.target} ≤ ${expectedScore} ops [actual=${parsed.opCost} ops, max_ulp=${verdict.maxUlpSeen}/${spec.max_ulp}, exact=${verdict.exactMatches}/65536]`,
+    signature: `${spec.target} ≤ ${expectedScore} ops [actual=${parsed.opCost} ops, max_ulp=${verdict.maxUlpSeen}/${verdict.maxUlpAllowed}, exact=${verdict.exactMatches}/65536]`,
     checks: [
       `exhaustive_65536_bf16`,
-      `max_ulp_${verdict.maxUlpSeen}_le_${spec.max_ulp}`,
+      `max_ulp_${verdict.maxUlpSeen}_le_${verdict.maxUlpAllowed}`,
       `pure_data_json_zero_exec`,
       `exact_dyadic_fmaf`,
     ],
-    reason: `Verified all 65,536 bf16 bit patterns (${verdict.exactMatches} exact, max ${verdict.maxUlpSeen} ULP ≤ ${spec.max_ulp}) in ${parsed.opCost} ops (claimed ≤ ${expectedScore})`,
+    reason: `Verified all 65,536 bf16 bit patterns (${verdict.exactMatches} exact, max ${verdict.maxUlpSeen} ULP ≤ ${verdict.maxUlpAllowed}) in ${parsed.opCost} ops (claimed ≤ ${expectedScore})`,
   });
 }

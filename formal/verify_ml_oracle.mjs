@@ -6,11 +6,11 @@
  *    + `pf_oracle_check`) under Lean 4.36.0 `--wfail` (zero `sorry`, standard axioms only, 34 audited theorems).
  * 2. Exhaustively cross-checks ALL 65,536/65,536 IEEE `bfloat16` bit patterns bit-for-bit
  *    against `missions/ml-math-kernels/judge/verify.mjs` (`bf16ToF32`, `f32ToBf16RNE`,
- *    `f64ToBf16RNE`, `bf16LatticeIndex`, `bf16IsNaN`).
- * 3. Cross-checks adversarial `f32ToBf16RNE`, `f64ToBf16RNE` (including double-rounding traps,
- *    subnormal-to-normal carries, overflow-to-Inf, signed zeros, NaN payloads), `fmafExact`
- *    (catastrophic cancellation, exact ties to even/odd, subnormals, signed zero), and
- *    UB-free 32-bit `ishr_s` equivalence.
+ *    `bf16LatticeIndex`, `bf16IsNaN`).
+ * 3. Cross-checks adversarial + PRNG `f32ToBf16RNE`, `f64ToBf16RNE` (including double-rounding
+ *    traps, subnormal-to-normal carries, overflow-to-Inf, signed zeros, NaN payloads, and strided
+ *    BF16 values), `fmafExact` (catastrophic cancellation, exact ties to even/odd, subnormals,
+ *    signed zero), and UB-free 32-bit C++ integer ops (`ishr_s`, `iadd`, `isub`, `imul`, `ishl`, `ishr_u`).
  * 4. Verifies all 3 committed pure-data ML kernels via the CLI judge.
  * 5. Runs 5 negative mutation self-checks proving the harness catches broken RNE ties,
  *    broken double-rounding, broken `-0` lattice index, non-fused `fmaf`, and broken f64 subnormal carry.

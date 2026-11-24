@@ -7,13 +7,13 @@
   "file": "missions/ml-math-kernels/artifacts/ML_rec_bf16_exp2_s18.json",
   "theorem": "bf16_exp2",
   "signature": "bf16_exp2 ≤ 18 ops [actual=18 ops, max_ulp=1/1, exact=65518/65536]",
-  "at": "2026-11-24T01:23:21.490Z",
+  "at": "2026-11-24T05:34:25.328Z",
   "checker": {
     "ok": true,
     "judge": "command",
     "by_seat": "donor-foundry-seed",
-    "checked_at": "2026-11-24T01:23:21.491Z",
-    "duration_ms": 88,
+    "checked_at": "2026-11-24T05:34:25.328Z",
+    "duration_ms": 103,
     "axioms": [
       "exhaustive_65536_bf16",
       "max_ulp_1_le_1",
@@ -22,7 +22,7 @@
     ],
     "lean_version": "Exhaustive 65,536-Input BF16 Pure-Data Judge v1 (zero JS execution)",
     "file_hash": "a10f56cfe54218f3fca584fb226d04daffaca42e260d80964006140270562e77",
-    "core_hash": "96e0fbdfac1de0c8964f910ce494e07bce67d96c160140d553bd13151a471abe",
+    "core_hash": "81d4bbc04efc97ad4524f6ec2a3ff36cbcdc477fa65d6759362e3483c2fea9b8",
     "statement_frozen": true,
     "statement_hash": "98b77abdd0a0afbcca4fb99f62c5c235f8b57319a8a726d363538223a1914c50"
   }
