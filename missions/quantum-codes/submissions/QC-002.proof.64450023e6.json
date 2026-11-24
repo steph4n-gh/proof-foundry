@@ -1,0 +1,27 @@
+{
+  "schema": "fleet-submission/2",
+  "mission": "quantum-codes",
+  "lemma_id": "QC-002",
+  "kind": "proof",
+  "at": "2026-11-24T16:00:43.379Z",
+  "file": "missions/quantum-codes/lean/Quantum/Claims/QC_002.lean",
+  "theorem": "Quantum.Claims.QC_002.hamming_15_7_3",
+  "signature": "Quantum.Claims.QC_002.hamming_15_7_3 :\n  Quantum.Statements.QC_002.Claim",
+  "checker": {
+    "by_seat": "donor-steph4n-gh",
+    "duration_ms": 1894,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "file_hash": "64450023e66745b57af12af37896fd7865dc429b14fbd60fe94b9a61c466f486",
+    "core_hash": "0779146361dbf71df3d88cf8d9584a8178d6e788f67381fb021ba1a4cb7acf70",
+    "statement_frozen": true,
+    "statement_hash": "a14b0106547bceb6b17c8e65b4908d3b0113ce916187f4a1ef06c338deeb8dd3",
+    "ok": true,
+    "judge": "lean4",
+    "checked_at": "2026-11-24T16:00:43.379Z",
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)"
+  }
+}
