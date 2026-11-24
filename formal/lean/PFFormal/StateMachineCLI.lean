@@ -148,6 +148,7 @@ def pHistState (s : String) : P HistState :=
   else if s = "ignored_non_improving" then pure .ignored_non_improving
   else if s = "contradiction" then pure .contradiction
   else if s = "stale_statement" then pure .stale_statement
+  else if s = "stale_core" then pure .stale_core
   else throw s!"unknown history state {s}"
 
 def pHist (v : Json) : P HistEntry := do
@@ -214,6 +215,7 @@ def pLemma (v : Json) : P Lemma := do
     id := ← pStr v "id"
     kind := ← pJStr v "kind"
     status := Status.ofString (← pStr v "status")
+    freshness := ← pJStr v "freshness"
     claimedBy := ← pJStr v "claimed_by"
     updatedAt := ← pJStr v "updated_at"
     epitaph := ← pJObj v "epitaph" pRaw

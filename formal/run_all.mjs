@@ -218,7 +218,7 @@ if (!tlcOnly) {
     process.execPath,
     [path.join(FORMAL_DIR, "verify_state_machine_equiv.mjs")]
   );
-  results.push({ name: "Lean 4 State Machine + JS Equiv", status: "PASS", ms: r1.ms, detail: "30 named / 327 swept theorems + 2,673 traces + 8 mutants" });
+  results.push({ name: "Lean 4 State Machine + JS Equiv", status: "PASS", ms: r1.ms, detail: "30 named / 331 swept theorems + 2,818 traces + 10 mutants" });
 
   const r2 = runStep(
     "2/4 Lean 4 128-Bit Math Oracle Proofs + 8,194-Point Grid Check (formal/verify_math_oracle.mjs)",

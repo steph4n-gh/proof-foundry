@@ -571,6 +571,8 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
       if (imp.requiresMaintainer) requiresMaintainer = true;
 
       referencedArtifacts.add(sub.file);
+      const judgeCoreRel = m.judge?.core_file || m.judge?.harness_file || null;
+      const preJudgeCoreHash = judgeCoreRel ? sha256RelFile(judgeCoreRel) : null;
       const verdict = runJudge(m, {
         file: sub.file,
         target: sub.theorem,
@@ -579,8 +581,12 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
         statementDef: registered.statement_def,
         expectedScore: score,
       });
+      const postJudgeCoreHash = judgeCoreRel ? sha256RelFile(judgeCoreRel) : null;
 
       const bindErrors = [];
+      if (preJudgeCoreHash && postJudgeCoreHash !== preJudgeCoreHash) {
+        bindErrors.push(`Judge core/harness file "${judgeCoreRel}" changed during execution (tampering detected)`);
+      }
       if (verdict.ok) {
         const rec = sub.checker;
         if (!rec || typeof rec !== "object") {
@@ -592,6 +598,9 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
           if (rec.file_hash !== verdict.file_hash) bindErrors.push(`file_hash mismatch`);
           if (rec.statement_hash !== verdict.statement_hash) bindErrors.push(`statement_hash mismatch`);
           if (rec.core_hash !== verdict.core_hash) bindErrors.push(`core_hash mismatch`);
+          if (verdict.signature && ((!allowMeta && !sub.signature) || (sub.signature != null && String(sub.signature).trim() !== String(verdict.signature).trim()))) {
+            bindErrors.push(`signature mismatch: JSON does not match verified Judge signature`);
+          }
           if (rec.statement_frozen !== true || verdict.statement_frozen !== true) bindErrors.push(`statement_frozen must be true`);
           if (!sameSortedStrings(rec.axioms, verdict.axioms)) bindErrors.push(`axioms mismatch`);
           if (!allowMeta && !DONOR_SEAT_RE.test(String(rec.by_seat || ""))) {
@@ -763,6 +772,22 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
           }
           if (verdict.core_hash && ((!allowMeta && rec.core_hash !== verdict.core_hash) || (rec.core_hash != null && rec.core_hash !== verdict.core_hash))) {
             bindErrors.push(`core_hash mismatch: JSON="${rec.core_hash}", computed="${verdict.core_hash}"`);
+          }
+          if (verdict.statement_hash) {
+            if ((!allowMeta && rec.statement_hash !== verdict.statement_hash) || (rec.statement_hash != null && rec.statement_hash !== verdict.statement_hash)) {
+              bindErrors.push(`statement_hash mismatch: JSON="${rec.statement_hash}", computed="${verdict.statement_hash}"`);
+            }
+          } else if (rec.statement_hash != null) {
+            bindErrors.push(`statement_hash mismatch: JSON="${rec.statement_hash}", computed=null`);
+          }
+          if (sub.kind === "proof" && verdict.signature && ((!allowMeta && !sub.signature) || (sub.signature != null && String(sub.signature).trim() !== String(verdict.signature).trim()))) {
+            bindErrors.push(`signature mismatch: JSON does not match verified Judge signature`);
+          }
+          if (sub.kind === "refutation" && verdict.signature && ((!allowMeta && !rec.signature) || (rec.signature != null && String(rec.signature).trim() !== String(verdict.signature).trim()))) {
+            bindErrors.push(`refutation.signature mismatch: JSON does not match verified Judge signature`);
+          }
+          if (sub.kind === "refutation" && verdict.signature && sub.signature != null && String(sub.signature).trim() !== String(verdict.signature).trim()) {
+            bindErrors.push(`signature mismatch: JSON does not match verified Judge signature`);
           }
           if (Boolean(rec.statement_frozen) !== Boolean(verdict.statement_frozen)) {
             bindErrors.push(`statement_frozen mismatch: JSON=${Boolean(rec.statement_frozen)}, judge=${Boolean(verdict.statement_frozen)}`);

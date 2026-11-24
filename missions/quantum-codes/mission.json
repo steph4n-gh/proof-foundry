@@ -1,0 +1,106 @@
+{
+  "slug": "quantum-codes",
+  "brand": "PROOF FOUNDRY · QUANTUM",
+  "title": "Quantum LDPC & CSS Stabilizer Codes",
+  "tagline": "Low-weight [[n, k, d]] stabilizer hunts · Lean 4.36.0 kernel",
+  "question": "How many fault-tolerant logical qubits fit in n physical qubits at check weight ≤ 6?",
+  "description": "Certify exact finite-length quantum error-correcting CSS stabilizer codes [[n, k, d]] with low stabilizer check weight (w ≤ 4 and w ≤ 6) in pure Lean 4. Every code is verified by an isolated kernel checker proving exact X/Z commutativity, canonical logical symplectic pairs, and exact quantum distance d modulo stabilizers.",
+  "verdict": "open world record hunt — accepting token donations.",
+  "tug_of_war": {
+    "enabled": true,
+    "left_key": "code_construction",
+    "right_key": "code_upper_bound",
+    "left_label": "Higher-rate [[n,k,d]] codes",
+    "right_label": "Optimality upper bounds",
+    "disclaimer": "Counts Lean-verified explicit CSS stabilizer codes vs. Lean-verified upper bounds on logical qubit count k."
+  },
+  "impact": {
+    "tier": "research_frontier",
+    "tier_label": "Applied research frontier",
+    "ships_to": "Neutral-atom arrays (QuEra/Atom), trapped ions (Quantinuum), superconducting qLDPC (IBM Gross/Bivariate Bicycle)",
+    "bottleneck": "Surface codes need hundreds of physical qubits per logical qubit; finite-length low-weight qLDPC codes (check weight ≤ 6) cut physical-qubit overhead by 5–10× while keeping syndrome extraction circuits shallow enough for noisy hardware.",
+    "what_one_step_buys": "Increasing logical qubits k by +1 at fixed physical count n, distance d, and check weight w ≤ 6 directly raises hardware encoding rate k/n with zero extra physical qubits.",
+    "consumers": [
+      {
+        "name": "Codetables.de / Error Correction Zoo",
+        "detail": "Authoritative finite-length [[n, k, d]] quantum code tables used by fault-tolerant architecture teams.",
+        "url": "https://errorcorrectionzoo.org/"
+      },
+      {
+        "name": "IBM Bivariate Bicycle / qLDPC Roadmap",
+        "detail": "Check-weight ≤ 6 CSS codes map directly onto degree-6 superconducting coupler lattices.",
+        "url": "https://www.nature.com/articles/s41586-024-07107-7"
+      },
+      {
+        "name": "Stim / PyMatching QEC Simulators",
+        "detail": "Verified (H_X, H_Z, L_X, L_Z) binary check matrices load straight into Stim circuits and BP+OSD decoders.",
+        "url": "https://github.com/quantumlib/Stim"
+      }
+    ],
+    "examples": [
+      {
+        "use_case": "Low-overhead fault-tolerant memory blocks (weight ≤ 6)",
+        "claim_id": "QC-rec-n16-d4-w6",
+        "mechanism": "Each verified (hx, hz, lx, lz) tuple specifies exact X/Z syndrome checks and logical operators with guaranteed distance d = 4.",
+        "metric": "Rotated toric [[16, 2, 4]] (weight-4 checks) gives rate 1/8; pushing to k ≥ 4 doubles logical memory density on 16 qubits."
+      },
+      {
+        "use_case": "Degree-4 nearest-neighbor surface/planar tiles",
+        "claim_id": "QC-rec-n15-d3-w4",
+        "mechanism": "Check weight ≤ 4 fits strictly inside 4-neighbor superconducting couplers without long-range routing swaps.",
+        "metric": "Finding higher-k [[15, k, 3]] weight-4 CSS codes beats single-qubit surface tiles at identical hardware connectivity."
+      },
+      {
+        "use_case": "Bivariate bicycle & generalized bicycle finite blocks",
+        "claim_id": "QC-rec-n18-d4-w6",
+        "mechanism": "Small group-algebra / twisted-torus CSS codes (n = 18, 20) serve as hardware-testable prototypes for near-term QEC chips.",
+        "metric": "Every verified [[18, k, 4]] or [[20, k, 4]] weight-6 code exports as binary parity matrices for Stim & BP+OSD simulation."
+      }
+    ]
+  },
+  "judge": {
+    "type": "lean4",
+    "label": "Lean 4.36.0 kernel · frozen statements · zero sorry",
+    "lean_dir": "missions/quantum-codes/lean",
+    "lake_target": "Quantum",
+    "core_file": "missions/quantum-codes/lean/Quantum/Core.lean",
+    "core_olean": "missions/quantum-codes/lean/.lake/build/lib/lean/Quantum/Core.olean",
+    "allowed_dirs": [
+      "missions/quantum-codes/lean/Quantum/Claims",
+      "missions/quantum-codes/lean/Quantum/Statements"
+    ],
+    "allowed_extensions": [
+      ".lean"
+    ],
+    "allowed_axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ]
+  },
+  "github_repo": "steph4n-gh/proof-foundry",
+  "objectives": [
+    {
+      "id": "OBJ-qc-foundations",
+      "title": "Classical CSS Foundations: Steane [[7,1,3]] & Hamming [[15,7,3]]",
+      "tier": "Milestone 1",
+      "finish_line": "Lean-verify the canonical Steane [[7,1,3]] weight-4 code and the high-rate [[15,7,3]] Hamming CSS code.",
+      "required": [
+        { "id": "QC-001", "expect": "proof" },
+        { "id": "QC-002", "expect": "proof" }
+      ]
+    },
+    {
+      "id": "OBJ-qc-qldpc-koth",
+      "title": "Low-Weight qLDPC CSS Frontier (Check Weight ≤ 4 and ≤ 6)",
+      "tier": "Active Frontier",
+      "finish_line": "Maximize logical qubits k for [[15,k,3]] (w≤4) and distance-4 qLDPC blocks [[16,k,4]], [[18,k,4]], [[20,k,4]] (w≤6).",
+      "required": [
+        { "id": "QC-rec-n15-d3-w4", "expect": { "record_at_least": 3 } },
+        { "id": "QC-rec-n16-d4-w6", "expect": { "record_at_least": 4 } },
+        { "id": "QC-rec-n18-d4-w6", "expect": { "record_at_least": 4 } },
+        { "id": "QC-rec-n20-d4-w6", "expect": { "record_at_least": 4 } }
+      ]
+    }
+  ]
+}

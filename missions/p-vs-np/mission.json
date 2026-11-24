@@ -14,6 +14,50 @@
     "right_label": "Upper bounds / P = NP",
     "disclaimer": "Weight is the count of Lean-checked lemmas whose program aims at each direction. It is not a probability, and neither side is a proof."
   },
+  "impact": {
+    "tier": "foundational",
+    "tier_label": "Foundational / theoretical",
+    "ships_to": "EDA logic synthesis (ABC / Yosys), SAT proof compression (DRAT/LRAT), circuit-complexity benchmarks",
+    "bottleneck": "Separating P from NP is a foundational open problem blocked by Relativization, Natural Proofs, and Algebrization — while exact minimal-gate synthesis for symmetric circuits (MAJ7, MOD3_6) and short Resolution proofs directly benchmark EDA synthesis and SAT proof checkers.",
+    "what_one_step_buys": "Shrinking an exact B2 circuit for MAJ7 or MOD3_6 by 1 gate improves exact peephole rewriting libraries used by logic synthesizers (ABC/Mockturtle) and pins down open entries in Knuth/Kulikov's exact circuit tables.",
+    "consumers": [
+      {
+        "name": "EPFL Mockturtle / Berkeley ABC",
+        "detail": "Exact 5–7 input Boolean DAG databases drive cut-rewriting optimization in FPGA and ASIC synthesis.",
+        "url": "https://github.com/lsils/mockturtle"
+      },
+      {
+        "name": "Knuth TAOCP Vol. 4A & Kulikov Circuit Catalog",
+        "detail": "Reference tables of minimum B2/U2 circuit sizes for symmetric threshold and modular functions.",
+        "url": "https://github.com/alexanderskulikov/circuits"
+      },
+      {
+        "name": "SAT Competition & Proof Complexity",
+        "detail": "Verified PHP(4,3) tree-like Resolution compression and barrier rulings anchor formal SAT proof tooling.",
+        "url": "https://satcompetition.github.io/"
+      }
+    ],
+    "examples": [
+      {
+        "use_case": "Exact peephole synthesis for FPGA / ASIC standard cells",
+        "claim_id": "L-rec-maj7",
+        "mechanism": "Verified 7-input Majority B2 DAG circuits feed directly into exact NPN-class rewriting libraries for hardware logic synthesis.",
+        "metric": "Exact B2 minimum for MAJ7 (best known 16 gates, LB 12) is an active small-n circuit synthesis benchmark."
+      },
+      {
+        "use_case": "Modular arithmetic circuit minimization",
+        "claim_id": "L-rec-mod3-6",
+        "mechanism": "Minimal shared-wire B2 circuits for MOD3=0 on 6 bits compress Hamming-weight residue checkers in ECC and adder trees.",
+        "metric": "Best known is 13 gates (LB 11); every Lean-verified circuit or ¬Record proof tightens the exact table."
+      },
+      {
+        "use_case": "SAT UNSAT proof-size compression",
+        "claim_id": "L-rec-php4",
+        "mechanism": "Optimal pivot ordering shrinks tree-like Resolution refutations of PHP(4,3) from 97 toward 85 nodes (and beyond).",
+        "metric": "Demonstrates mechanically checked Resolution proof minimization directly inside Lean 4."
+      }
+    ]
+  },
   "judge": {
     "type": "lean4",
     "label": "Lean 4.36.0 kernel · zero sorry",
@@ -87,6 +131,16 @@
         { "id": "L-rec-005", "expect": { "record_at_most": 10 } },
         { "id": "L-rec-maj5", "expect": { "record_at_most": 10 } },
         { "id": "L-rec-php4", "expect": { "record_at_most": 97 } }
+      ]
+    },
+    {
+      "id": "OBJ-pnp-open-synthesis",
+      "title": "Open Small-n Exact B2 Circuit Frontier (MOD3_6 & MAJ7)",
+      "tier": "Open Synthesis Frontier",
+      "finish_line": "Ratchet down well-formed B2 circuit size for MOD3_6 (best known 13, LB 11) and 7-bit Majority MAJ7 (best known 16, LB 12).",
+      "required": [
+        { "id": "L-rec-mod3-6", "expect": { "record_at_most": 13 } },
+        { "id": "L-rec-maj7", "expect": { "record_at_most": 16 } }
       ]
     }
   ]

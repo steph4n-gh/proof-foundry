@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Spare AI tokens -> mechanically verified open science (Lean 4 + Pluggable Judges).",
   "scripts": {
-    "test": "node hub/test_judge.mjs && node hub/test_suite.mjs && node hub/test_state_machine.mjs && node hub/test_design_and_ui.mjs",
+    "test": "node hub/test_judge.mjs && node missions/ml-math-kernels/judge/test_verify.mjs && node hub/test_suite.mjs && node hub/test_state_machine.mjs && node hub/test_design_and_ui.mjs",
     "verify:formal": "node formal/run_all.mjs",
     "build": "node hub/build_site.mjs",
     "build:offline": "node hub/build_site.mjs --offline",

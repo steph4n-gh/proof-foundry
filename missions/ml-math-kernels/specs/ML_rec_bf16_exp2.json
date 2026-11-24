@@ -1,0 +1,10 @@
+{
+  "id": "ML-rec-bf16-exp2",
+  "target": "bf16_exp2",
+  "description": "Exhaustive bfloat16 base-2 exponential exp2(x) = 2^x across all 65,536 bf16 bit patterns (FlashAttention softmax hot path; including subnormals, overflow -> +Inf, underflow -> +0, NaN -> NaN) at ≤ 1 ULP using pure FMA + bit-ALU ops.",
+  "datatype": "bf16",
+  "inputs_checked": 65536,
+  "max_ulp": 1,
+  "unit": "ALU/FMA ops",
+  "artifact_format": "pf.mlkernel.v1"
+}

@@ -1,0 +1,10 @@
+{
+  "id": "ML-rec-bf16-rsqrt",
+  "target": "bf16_rsqrt",
+  "description": "Exhaustive bfloat16 reciprocal square root rsqrt(x) = 1/sqrt(x) across all 65,536 bf16 bit patterns (including subnormals, +0 -> +Inf, +Inf -> +0, negative/NaN -> NaN) at ≤ 1 ULP using pure FMA + bit-ALU ops (no div/sqrt).",
+  "datatype": "bf16",
+  "inputs_checked": 65536,
+  "max_ulp": 1,
+  "unit": "ALU/FMA ops",
+  "artifact_format": "pf.mlkernel.v1"
+}

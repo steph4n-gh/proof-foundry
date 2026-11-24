@@ -1,0 +1,10 @@
+{
+  "id": "ML-rec-bf16-silu",
+  "target": "bf16_silu",
+  "description": "Exhaustive bfloat16 SiLU / Swish activation x / (1 + exp(-x)) across all 65,536 bf16 bit patterns (Llama/Qwen/Mistral FFN hot path) at ≤ 1 ULP using pure FMA + bit-ALU ops (no exp/div).",
+  "datatype": "bf16",
+  "inputs_checked": 65536,
+  "max_ulp": 1,
+  "unit": "ALU/FMA ops",
+  "artifact_format": "pf.mlkernel.v1"
+}

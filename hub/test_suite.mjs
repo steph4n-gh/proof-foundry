@@ -327,6 +327,7 @@ export function intervalAdd([a,b],[c,d]){ return [nextDown(a+c), nextUp(b+d)]; }
         kind: "proof",
         file: sciArtRel,
         theorem: "interval_add_soundness",
+        signature: "intervalAdd(a, b) : outward-rounded containment for non-representable float64 sums",
         checker: {
           ok: true,
           judge: "command",
@@ -341,7 +342,102 @@ export function intervalAdd([a,b],[c,d]){ return [nextDown(a+c), nextUp(b+d)]; }
     const posR = verifyPrEntries(n14Entries);
     assert(posR.ok && posR.checked === 1 && !posR.eligible_for_auto_merge, "Positive control: honest S-num-002 donor PR passes verify-pr (non-frozen -> not auto-mergeable)", JSON.stringify(posR));
 
-    // N14c: Command-Judge --permission sandbox blocks fs read/write escape attempts inside untrusted .mjs!
+    // N14e-omit (Daybreak P3): omitting required signature on donor proof PR rejected (fail-closed)
+    fs.writeFileSync(
+      path.resolve(n14SubRel),
+      JSON.stringify({
+        schema: "fleet-submission/2",
+        mission: "verified-science-kernels",
+        lemma_id: "S-num-002",
+        kind: "proof",
+        file: sciArtRel,
+        theorem: "interval_add_soundness",
+        checker: {
+          ok: true,
+          judge: "command",
+          file_hash: s2Hash,
+          core_hash: sciCoreHash,
+          statement_frozen: false,
+          axioms: ["containment_battery", "outward_rounding_1e16_plus_1"],
+          by_seat: "donor-test-ok",
+        },
+      })
+    );
+    const omitSigR = verifyPrEntries(n14Entries);
+    assert(
+      !omitSigR.ok && omitSigR.reports[0]?.reason?.includes("signature mismatch"),
+      "N14e-omit (Daybreak P3: omitted sub.signature on donor proof PR rejected fail-closed)",
+      JSON.stringify(omitSigR)
+    );
+
+    // N14e (Daybreak P2-1): forged sub.signature or forged checker.statement_hash rejected by verdict binding!
+    fs.writeFileSync(
+      path.resolve(n14SubRel),
+      JSON.stringify({
+        schema: "fleet-submission/2",
+        mission: "verified-science-kernels",
+        lemma_id: "S-num-002",
+        kind: "proof",
+        file: sciArtRel,
+        theorem: "interval_add_soundness",
+        signature: "FORGED_SIGNATURE_CLAIMING_DIFFERENT_THEOREM",
+        checker: {
+          ok: true,
+          judge: "command",
+          file_hash: s2Hash,
+          core_hash: sciCoreHash,
+          statement_hash: "forged_statement_hash_0000",
+          statement_frozen: false,
+          axioms: ["containment_battery", "outward_rounding_1e16_plus_1"],
+          by_seat: "donor-test-ok",
+        },
+      })
+    );
+    const forgedMetaR = verifyPrEntries(n14Entries);
+    assert(
+      !forgedMetaR.ok &&
+        forgedMetaR.reports[0]?.reason?.includes("signature mismatch") &&
+        forgedMetaR.reports[0]?.reason?.includes("statement_hash mismatch"),
+      "N14e (P2-1 forged sub.signature + forged statement_hash) rejected by verdict binding",
+      JSON.stringify(forgedMetaR)
+    );
+
+    // N14f (Daybreak P2-1/P3): forged and omitted record signature rejected fail-closed on donor record PR
+    const mlRecTmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pf-rec-sig-"));
+    try {
+      const mlArtRel = "missions/ml-math-kernels/artifacts/ML_rec_bf16_exp2_s18.json";
+      const mlSubRel = "missions/ml-math-kernels/submissions/ML-rec-bf16-exp2.record.s18.json";
+      const realSub = JSON.parse(fs.readFileSync(path.resolve(mlSubRel), "utf8"));
+      fs.mkdirSync(path.dirname(path.join(mlRecTmpRoot, mlArtRel)), { recursive: true });
+      fs.mkdirSync(path.dirname(path.join(mlRecTmpRoot, mlSubRel)), { recursive: true });
+      fs.copyFileSync(path.resolve(mlArtRel), path.join(mlRecTmpRoot, mlArtRel));
+      const mlEntries = parseGitRawZ(rawEntry("100644", "A", mlArtRel) + rawEntry("100644", "A", mlSubRel));
+
+      // Forged signature on record PR -> rejected
+      const forgedRecSub = { ...realSub, signature: "FORGED_RECORD_SIGNATURE" };
+      fs.writeFileSync(path.join(mlRecTmpRoot, mlSubRel), JSON.stringify(forgedRecSub, null, 2));
+      const forgedRecR = verifyPrEntries(mlEntries, { rootDir: mlRecTmpRoot });
+      assert(
+        !forgedRecR.ok && forgedRecR.reports[0]?.reason?.includes("signature mismatch"),
+        "N14f-forged (Daybreak P2-1: forged record sub.signature rejected by verdict binding)",
+        JSON.stringify(forgedRecR)
+      );
+
+      // Omitted signature on record PR -> rejected fail-closed
+      const omittedRecSub = { ...realSub };
+      delete omittedRecSub.signature;
+      fs.writeFileSync(path.join(mlRecTmpRoot, mlSubRel), JSON.stringify(omittedRecSub, null, 2));
+      const omittedRecR = verifyPrEntries(mlEntries, { rootDir: mlRecTmpRoot });
+      assert(
+        !omittedRecR.ok && omittedRecR.reports[0]?.reason?.includes("signature mismatch"),
+        "N14f-omit (Daybreak P3: omitted record sub.signature rejected fail-closed)",
+        JSON.stringify(omittedRecR)
+      );
+    } finally {
+      fs.rmSync(mlRecTmpRoot, { recursive: true, force: true });
+    }
+
+    // N14c: Command-Judge double sandbox blocks untrusted import/fs escape attempts inside untrusted .mjs!
     fs.writeFileSync(
       sciArtAbs,
       `import fs from "node:fs";
@@ -355,8 +451,8 @@ export function intervalAdd([a,b],[c,d]){ return [a+c, b+d]; }
       kind: "proof",
     });
     assert(
-      !s2Escape.ok && /ERR_ACCESS_DENIED|Isolated artifact runner failed/.test(s2Escape.reason || ""),
-      "N14c (Command-Judge --permission sandbox blocks untrusted fs.readFileSync escape)",
+      !s2Escape.ok && /cannot use import|ERR_ACCESS_DENIED|Isolated artifact runner failed/.test(s2Escape.reason || ""),
+      "N14c (Command-Judge double sandbox blocks untrusted import/fs escape)",
       JSON.stringify(s2Escape)
     );
 
@@ -632,7 +728,7 @@ assert(
   JSON.stringify({ con1: con1.lemmas[0].record_state, con3: con3.lemmas[0].record_state })
 );
 
-// Missing statement/core hashes mark receipts stale (NEVER awarded as matching!), while additive Core edits preserve history!
+// Missing or mismatched statement/core hashes mark receipts stale (NEVER awarded, scored, or conquered!)
 const noStmtHashRes = applySubmissionsPure(recSeed, [r44], {
   missionSlug: "sorting-networks",
   currentHashes: { coreHash: "core_ok", statementHashes: {} },
@@ -641,18 +737,21 @@ const noCoreHashRes = applySubmissionsPure(recSeed, [r44], {
   missionSlug: "sorting-networks",
   currentHashes: { coreHash: null, statementHashes: curHashes.statementHashes },
 }).state.lemmas[0];
-const additiveCoreRes = applySubmissionsPure(recSeed, [r44], {
+const staleCoreRes = applySubmissionsPure(recSeed, [r44], {
   missionSlug: "sorting-networks",
-  currentHashes: { coreHash: "core_WAVE6_ADDITIVE", statementHashes: curHashes.statementHashes },
+  currentHashes: { coreHash: "core_NEW_REVISED", statementHashes: curHashes.statementHashes },
 }).state.lemmas[0];
 assert(
   noStmtHashRes.record_state.best === null &&
     noStmtHashRes.record_state.history[0]?.state === "stale_statement" &&
     noCoreHashRes.record_state.best === null &&
-    noCoreHashRes.record_state.history[0]?.state === "stale_statement" &&
-    additiveCoreRes.record_state.best?.score === 44,
-  "KotH rejects missing statement/core hashes as stale while additive Core.lean updates preserve history",
-  JSON.stringify({ noStmt: noStmtHashRes.record_state, noCore: noCoreHashRes.record_state, addCore: additiveCoreRes.record_state })
+    noCoreHashRes.record_state.history[0]?.state === "stale_core" &&
+    staleCoreRes.record_state.best === null &&
+    staleCoreRes.record_state.history[0]?.state === "stale_core" &&
+    Object.keys(staleCoreRes.record_state.points_by_seat).length === 0 &&
+    isRungConquered(staleCoreRes, { record_at_most: 45 }) === false,
+  "KotH rejects missing AND mismatched core_hash/statement_hash receipts as stale with zero points",
+  JSON.stringify({ noStmt: noStmtHashRes.record_state, noCore: noCoreHashRes.record_state, staleCore: staleCoreRes.record_state })
 );
 
 // Missing git timestamps fallback sorts in improving score order (45 before 44 -> points split 2 + 1!)

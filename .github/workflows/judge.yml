@@ -26,16 +26,16 @@ jobs:
       frozen_ok: ${{ steps.cls.outputs.frozen_ok }}
     steps:
       - name: Checkout trusted base
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "22"
+          node-version: "22.23.5"
 
       - name: Classify diff strictly via git raw -z (never executes PR code)
         id: cls
@@ -65,7 +65,7 @@ jobs:
             echo "same_repo=false" >> "$GITHUB_OUTPUT"
           fi
 
-          git fetch --no-tags origin "refs/pull/$PR_NUM/head:pr-head"
+          git fetch --no-tags origin "$BASE_SHA" "refs/pull/$PR_NUM/head:pr-head"
           if [ "$(git rev-parse pr-head)" != "$HEAD_SHA" ]; then
             echo "PR head moved since this workflow was queued (expected $HEAD_SHA)." >&2
             exit 1
@@ -100,38 +100,46 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout trusted base
-        uses: actions/checkout@v4
+      - name: Checkout trusted base (donor lane) or pinned PR head (same-repo infra lane)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ needs.classify.outputs.lane == 'infra' && needs.classify.outputs.same_repo == 'true' && github.event.pull_request.head.sha || github.event.pull_request.base.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "22"
+          node-version: "22.23.5"
 
-      - name: Stage ONLY verified allowlisted 100644 files via Node
+      - name: Compute pinned git raw -z diff and stage allowlisted 100644 files (donor lane)
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_NUM: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LANE: ${{ needs.classify.outputs.lane }}
+          SAME_REPO: ${{ needs.classify.outputs.same_repo }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "refs/pull/$PR_NUM/head:pr-head"
+          git fetch --no-tags origin "$BASE_SHA" "refs/pull/$PR_NUM/head:pr-head"
           if [ "$(git rev-parse pr-head)" != "$HEAD_SHA" ]; then
             echo "PR head moved since this workflow was queued (expected $HEAD_SHA)." >&2
             exit 1
           fi
           git diff -z --no-renames --raw "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/diff.rawz"
-          node hub/fleet.mjs stage-pr --git-raw-z "$RUNNER_TEMP/diff.rawz" --ref "$HEAD_SHA"
+          if [ "$LANE" != "infra" ] || [ "$SAME_REPO" != "true" ]; then
+            node hub/fleet.mjs stage-pr --git-raw-z "$RUNNER_TEMP/diff.rawz" --ref "$HEAD_SHA"
+          fi
 
       - name: Install Lean 4 (elan) if needed
         if: needs.classify.outputs.needs_lean == 'true'
         run: |
           set -euo pipefail
-          curl -sSfL --retry 5 --retry-delay 2 --retry-all-errors https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain leanprover/lean4:v4.36.0
+          curl -sSfL --retry 5 --retry-delay 2 --retry-all-errors \
+            -o "$RUNNER_TEMP/elan-init.sh" \
+            https://raw.githubusercontent.com/leanprover/elan/3cc76985a1becb3c03cd65c1c5007e6f186ae474/elan-init.sh
+          echo "a620ff1641616222c8d37c54845492004bb84d6877cdbc944dd65c1aa685bf53  $RUNNER_TEMP/elan-init.sh" | sha256sum -c -
+          sh "$RUNNER_TEMP/elan-init.sh" -y --default-toolchain leanprover/lean4:v4.36.0
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Run Trusted Base Mechanical Judge
@@ -169,27 +177,31 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout PR head (same-repo maintainer PR or push to main)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "22"
+          node-version: "22.23.5"
 
       - name: Install Lean 4 (elan)
         run: |
           set -euo pipefail
-          curl -sSfL --retry 5 --retry-delay 2 --retry-all-errors https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain leanprover/lean4:v4.36.0
+          curl -sSfL --retry 5 --retry-delay 2 --retry-all-errors \
+            -o "$RUNNER_TEMP/elan-init.sh" \
+            https://raw.githubusercontent.com/leanprover/elan/3cc76985a1becb3c03cd65c1c5007e6f186ae474/elan-init.sh
+          echo "a620ff1641616222c8d37c54845492004bb84d6877cdbc944dd65c1aa685bf53  $RUNNER_TEMP/elan-init.sh" | sha256sum -c -
+          sh "$RUNNER_TEMP/elan-init.sh" -y --default-toolchain leanprover/lean4:v4.36.0
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Run npm test
         run: npm test
 
       - name: Setup Java 21 for TLC model checking
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: "21"

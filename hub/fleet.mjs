@@ -9,6 +9,7 @@
  * - Re-checks state-transition guards inside writeback lock on `verify` and `refute`.
  * - `fleet next` skips claims that already have an active GitHub PR (<72h) or unmet dependencies!
  */
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -43,22 +44,51 @@ function sleepMs(ms) {
 }
 
 function withMissionLock(lockDir, fn) {
-  const deadline = Date.now() + 20000;
+  const deadline = Date.now() + 30000;
+  const ownerToken = `${process.pid}-${Date.now()}-${crypto.randomBytes(8).toString("hex")}`;
+  const ownerFile = path.join(lockDir, "owner.json");
+  let ownerWritten = false;
   while (true) {
     try {
       fs.mkdirSync(lockDir);
+      try {
+        fs.writeFileSync(ownerFile, JSON.stringify({ pid: process.pid, token: ownerToken, created_at: Date.now() }), "utf8");
+        ownerWritten = true;
+      } catch {}
       break;
     } catch (err) {
       if (err.code !== "EEXIST") throw err;
       try {
         const st = fs.statSync(lockDir);
-        if (Date.now() - st.mtimeMs > 25000) {
+        const ageMs = Date.now() - st.mtimeMs;
+        let staleToken = null;
+        let hasValidPid = false;
+        let ownerAlive = false;
+        try {
+          const info = JSON.parse(fs.readFileSync(ownerFile, "utf8"));
+          staleToken = info.token || null;
+          if (typeof info.pid === "number" && info.pid > 0) {
+            hasValidPid = true;
+            try {
+              process.kill(info.pid, 0);
+              ownerAlive = true;
+            } catch (ke) {
+              ownerAlive = ke.code === "EPERM";
+            }
+          }
+        } catch {}
+        // Reclaim promptly (1s grace) if owner PID is confirmed dead; fall back to 25s only when owner.json is absent/unreadable.
+        const canReclaim = !ownerAlive && ((hasValidPid && ageMs > 1000) || ageMs > 25000);
+        if (canReclaim) {
           const tomb = `${lockDir}.stale.${process.pid}.${Date.now()}`;
           try {
-            fs.renameSync(lockDir, tomb);
-            fs.rmSync(tomb, { recursive: true, force: true });
+            const curToken = fs.existsSync(ownerFile) ? JSON.parse(fs.readFileSync(ownerFile, "utf8")).token || null : null;
+            if (curToken === staleToken) {
+              fs.renameSync(lockDir, tomb);
+              fs.rmSync(tomb, { recursive: true, force: true });
+              continue;
+            }
           } catch {}
-          continue;
         }
       } catch {}
       if (Date.now() > deadline) throw new Error("Timed out waiting for mission state lock");
@@ -69,7 +99,11 @@ function withMissionLock(lockDir, fn) {
     return fn();
   } finally {
     try {
-      fs.rmSync(lockDir, { recursive: true, force: true });
+      // Only remove the lock directory if we still own it.
+      const info = fs.existsSync(ownerFile) ? JSON.parse(fs.readFileSync(ownerFile, "utf8")) : null;
+      if (ownerWritten ? info?.token === ownerToken : !info) {
+        fs.rmSync(lockDir, { recursive: true, force: true });
+      }
     } catch {}
   }
 }
@@ -889,7 +923,7 @@ if (cmd === "audit") {
 }
 
 if (cmd === "compile") {
-  const res = compileSubmissionsIntoState(mission.slug);
+  const res = withMissionLock(mission.paths.lockDir, () => compileSubmissionsIntoState(mission.slug));
   console.log(JSON.stringify({ ok: true, mission: mission.slug, applied: res.applied }, null, 2));
   process.exit(0);
 }

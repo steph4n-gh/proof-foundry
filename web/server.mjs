@@ -17,6 +17,7 @@ import {
   readMissionStatementFile,
 } from "../hub/missions.mjs";
 import { buildMissionSnapshot, fetchOpenPRs, renderMasterProofsMarkdown } from "../hub/build_site.mjs";
+import { extractDropInArtifact } from "../hub/export_dropin.mjs";
 import { projectGlobalRecords } from "../hub/state_machine.mjs";
 
 const PUBLIC_DIR = path.join(ROOT, "web", "public");
@@ -44,8 +45,19 @@ const CSP_HEADER =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'";
 
 function isAllowedHost(hostHeader) {
-  if (!hostHeader) return true;
-  const host = String(hostHeader).toLowerCase().split(":")[0];
+  if (!hostHeader || typeof hostHeader !== "string") return false;
+  const raw = hostHeader.trim().toLowerCase();
+  if (!raw) return false;
+  let host;
+  if (raw.startsWith("[")) {
+    const m = raw.match(/^(\[[^\]]+\])(?::\d+)?$/);
+    if (!m) return false;
+    host = m[1];
+  } else {
+    const m = raw.match(/^([^:]+)(?::\d+)?$/);
+    if (!m) return false;
+    host = m[1];
+  }
   return host === "127.0.0.1" || host === "localhost" || host === "[::1]";
 }
 
@@ -237,6 +249,7 @@ const server = http.createServer((req, res) => {
       JSON.stringify({
         lemma,
         leanSource,
+        dropInArtifact: extractDropInArtifact(slug, lemma, leanSource),
         refutationSource,
         statementSource,
         relatedMessages,
@@ -247,17 +260,30 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Static files
-  let filePath = path.resolve(PUBLIC_DIR, pathname === "/" ? "index.html" : pathname.replace(/^\/+/, ""));
-  if (!filePath.startsWith(PUBLIC_DIR + path.sep) && filePath !== PUBLIC_DIR) {
+  // Static files (reject symlinks & verify canonical realpath confinement)
+  const realPublicDir = fs.realpathSync(PUBLIC_DIR);
+  let filePath = path.resolve(realPublicDir, pathname === "/" ? "index.html" : pathname.replace(/^\/+/, ""));
+  if (!filePath.startsWith(realPublicDir + path.sep) && filePath !== realPublicDir) {
     res.writeHead(403, { "Content-Type": "text/plain" });
     res.end("Forbidden");
     return;
   }
   try {
-    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-      filePath = path.join(PUBLIC_DIR, "index.html");
+    if (!fs.existsSync(filePath) || fs.lstatSync(filePath).isDirectory()) {
+      filePath = path.join(realPublicDir, "index.html");
     }
+    if (fs.lstatSync(filePath).isSymbolicLink()) {
+      res.writeHead(403, { "Content-Type": "text/plain" });
+      res.end("Forbidden");
+      return;
+    }
+    const realFile = fs.realpathSync(filePath);
+    if (!realFile.startsWith(realPublicDir + path.sep) && realFile !== realPublicDir) {
+      res.writeHead(403, { "Content-Type": "text/plain" });
+      res.end("Forbidden");
+      return;
+    }
+    filePath = realFile;
   } catch {
     res.writeHead(404, { "Content-Type": "text/plain" });
     res.end("Not found");

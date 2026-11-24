@@ -95,6 +95,7 @@ export function loadAllMissionsSummary(snapshots = []) {
       description: mission.description || "",
       judge_type: mission.judge?.type || "lean4",
       judge_label: mission.judge?.label || mission.judge?.type || "Judge",
+      impact: mission.impact || null,
       counts,
       objectives: {
         total: (mission.objectives || []).length,

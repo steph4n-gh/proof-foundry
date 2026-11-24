@@ -117,7 +117,7 @@ try {
     try { fs.unlinkSync(symlinkPath); } catch {}
   }
 
-  // Attack N (Opus P0 #5): Command Judge child-process isolation blocks `--result` forgery
+  // Attack N (Opus P0 #5 + Daybreak P1-1): Command Judge double isolation blocks imports, `--result` forgery, stdout/exit spoofing, Function escape, prototype tampering, and accessors
   const sci = loadMission("verified-science-kernels");
   const fakeArtifact = path.join(tmp, "ForgeResult.mjs");
   fs.writeFileSync(
@@ -132,7 +132,133 @@ export function compensatedSum() { return 0; }
 `
   );
   const resN = checkCommandArtifact(fakeArtifact, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
-  assert(!resN.ok && resN.reason.includes("Precision failure"), "Attack N (Opus P0 #5: Command Judge --result forgery) defeated by child isolation", JSON.stringify(resN));
+  assert(!resN.ok && /import/i.test(resN.reason), "Attack N (import + --result forgery) rejected before execution", JSON.stringify(resN));
+
+  // Attack N2 (Daybreak P1-1): top-level stdout/exit protocol forgery with ZERO imports
+  const forgeStdoutArt = path.join(tmp, "ForgeStdout.mjs");
+  fs.writeFileSync(
+    forgeStdoutArt,
+    `try { process.stdout.write(JSON.stringify({ ok: true, outputs: [10000, 2] })); process.exit(0); } catch {}
+export function compensatedSum() { return 0; }
+`
+  );
+  const resN2 = checkCommandArtifact(forgeStdoutArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(!resN2.ok && resN2.reason.includes("Precision failure"), "Attack N2 (P1-1 stdout/exit protocol forgery) defeated by VM + nonce isolation", JSON.stringify(resN2));
+
+  // Attack N3 (Daybreak P1-1): Function constructor escape blocked by codeGeneration.strings=false
+  const fnEscapeArt = path.join(tmp, "FnEscape.mjs");
+  fs.writeFileSync(
+    fnEscapeArt,
+    `export function compensatedSum() {
+  const proc = ({}).constructor.constructor("return process")();
+  return proc ? 10000 : 0;
+}
+`
+  );
+  const resN3 = checkCommandArtifact(fnEscapeArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(!resN3.ok && /Code generation from strings disallowed|Sandboxed kernel error/i.test(resN3.reason), "Attack N3 (P1-1 Function constructor escape) blocked by V8 vm codeGeneration", JSON.stringify(resN3));
+
+  // Attack N4 (Daybreak P1-1 + Codex PR #46 P1): prototype & serializer tampering (Function.prototype.call / Object.prototype.value / toJSON / Number.prototype.toString)
+  const protoTamperArt = path.join(tmp, "ProtoTamper.mjs");
+  fs.writeFileSync(
+    protoTamperArt,
+    `const origApply = Reflect.apply;
+let step = 0;
+Function.prototype.call = function (thisArg, ...args) {
+  if (this === Number.prototype.toString) return step++ === 0 ? "10000" : "2";
+  return origApply(this, thisArg, args);
+};
+Object.prototype.value = 10000;
+Array.prototype.toJSON = () => [10000, 2];
+Number.prototype.toString = () => "10000";
+export function compensatedSum() { return 0; }
+`
+  );
+  const resN4 = checkCommandArtifact(protoTamperArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(!resN4.ok && resN4.reason.includes("Precision failure"), "Attack N4 (Function.prototype.call + Object.prototype.value + serializer tampering) defeated", JSON.stringify(resN4));
+
+  // Attack N4b (Codex PR #46 P1): comment-like sequence inside string literal must be preserved byte-for-byte
+  const strLiteralGuardArt = path.join(tmp, "StringLiteralGuard.mjs");
+  const realKahanSrc = fs.readFileSync(path.resolve("missions/verified-science-kernels/artifacts/S_num_001.mjs"), "utf8");
+  fs.writeFileSync(
+    strLiteralGuardArt,
+    realKahanSrc.replace(
+      "export function compensatedSum(xs) {",
+      'export function compensatedSum(xs) { if ("/*not a comment*/" !== " ") return 0;'
+    )
+  );
+  const resN4b = checkCommandArtifact(strLiteralGuardArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(!resN4b.ok && resN4b.reason.includes("Precision failure"), "Attack N4b (Codex P1: string literal containing /*...*/ preserved verbatim)", JSON.stringify(resN4b));
+
+  // Attack N4c: dynamic import inside template literal expression `${import(...)}` still rejected
+  const tmplImportArt = path.join(tmp, "TmplImport.mjs");
+  fs.writeFileSync(
+    tmplImportArt,
+    "export function compensatedSum() { const s = `${import('node:fs')}`; return s.length; }\n"
+  );
+  const resN4c = checkCommandArtifact(tmplImportArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(!resN4c.ok && /import/i.test(resN4c.reason), "Attack N4c (dynamic import inside template expression) rejected", JSON.stringify(resN4c));
+
+  // Attack N4d (Daybreak Blue P2): division after object literal `{}` cannot disguise `import(...)` as regex
+  const braceDivImportArt = path.join(tmp, "BraceDivImport.mjs");
+  fs.writeFileSync(
+    braceDivImportArt,
+    `const q = {} / 1; import("node:fs").catch(() => {}) / 2;
+export function compensatedSum() { return 0; }
+`
+  );
+  const resN4d = checkCommandArtifact(braceDivImportArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(!resN4d.ok && /import/i.test(resN4d.reason), "Attack N4d (Daybreak P2: {} / 1; import(...) / 2) rejected by lexer", JSON.stringify(resN4d));
+
+  // Attack N4e (Daybreak Blue P2): regex literals are rejected fail-closed in numerical kernels
+  const regexLitArt = path.join(tmp, "RegexLit.mjs");
+  fs.writeFileSync(
+    regexLitArt,
+    `export function compensatedSum() { const r = /import/; return r.source.length; }\n`
+  );
+  const resN4e = checkCommandArtifact(regexLitArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(!resN4e.ok && /Regex literals are not permitted/i.test(resN4e.reason), "Attack N4e (regex literal fail-closed rejection) blocked", JSON.stringify(resN4e));
+
+  // Positive control: aliased export list `export { impl as compensatedSum }` + harmless string `"import fake"` passes
+  const aliasedExportArt = path.join(tmp, "AliasedExport.mjs");
+  fs.writeFileSync(
+    aliasedExportArt,
+    realKahanSrc.replace("export function compensatedSum(xs) {", 'const note = "import /* not real */ export";\nfunction impl(xs) {') +
+      "\nexport { impl as compensatedSum };\n"
+  );
+  const resAliasOk = checkCommandArtifact(aliasedExportArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(resAliasOk.ok, "Positive control: aliased export list + string containing comment/import text passes", JSON.stringify(resAliasOk));
+
+  // Attack N5 (Daybreak P1-1): accessor getter on returned tuple rejected without executing getter
+  const getterArt = path.join(tmp, "GetterTuple.mjs");
+  fs.writeFileSync(
+    getterArt,
+    `export function intervalAdd() {
+  const out = [0, 0];
+  Object.defineProperty(out, 0, { get() { return 0.3; } });
+  return out;
+}
+`
+  );
+  const resN5 = checkCommandArtifact(getterArt, "interval_add_soundness", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(!resN5.ok && /accessor|Non-numeric/i.test(resN5.reason), "Attack N5 (P1-1 accessor getter on output tuple) rejected", JSON.stringify(resN5));
+
+  // Attack N6 (Daybreak P1-1): private unexported helper cannot impersonate target export
+  const unexportedArt = path.join(tmp, "UnexportedHelper.mjs");
+  fs.writeFileSync(
+    unexportedArt,
+    `function compensatedSum() { return 10000; }
+export function other() { return 1; }
+`
+  );
+  const resN6 = checkCommandArtifact(unexportedArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(!resN6.ok && resN6.reason.includes("Missing exported function"), "Attack N6 (unexported private helper impersonation) rejected", JSON.stringify(resN6));
+
+  // Attack N7: symlink artifact rejected by verify.mjs
+  const sciSymlink = path.join(tmp, "SymlinkKernel.mjs");
+  fs.symlinkSync(path.resolve("missions/verified-science-kernels/artifacts/S_num_001.mjs"), sciSymlink);
+  const resN7 = checkCommandArtifact(sciSymlink, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(!resN7.ok && /symlink/i.test(resN7.reason), "Attack N7 (Command Judge symlink artifact) rejected", JSON.stringify(resN7));
 
   // Positive control for Command Judge: legitimate S_num_001.mjs passes isolated child harness!
   const resSciOk = checkCommandArtifact("missions/verified-science-kernels/artifacts/S_num_001.mjs", "kahan_compensated_sum", { judgeConfig: sci.judge });

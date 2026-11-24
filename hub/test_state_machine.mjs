@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -11,8 +12,10 @@ import {
   assignSeatClaim,
   computeClaimFreshness,
   computeRecordTargets,
+  isRungConquered,
   projectClaimView,
   projectGlobalRecords,
+  projectMissionSnapshot,
   releaseSeatClaim,
   sha256RelFile,
   transitionClaim,
@@ -130,11 +133,22 @@ test("freshness checks both frozen statements and Core or harness receipts", (t)
 
   fs.appendFileSync(core, "\nnew Core definitions");
   const refreshedRecord = projectClaimView(recordMission, record);
+  const refreshedFixed = projectClaimView(fixedMission, fixed);
   assert.equal(computeClaimFreshness(fixedMission, fixed), "stale_core");
+  assert.equal(refreshedFixed.seal, "stale");
+  assert.equal(isRungConquered(refreshedFixed), false);
   assert.equal(refreshedRecord.freshness, "stale_core");
+  assert.equal(isRungConquered(refreshedRecord, "record_any"), false);
   assert.equal(refreshedRecord.record_meta.best_score, 5);
   assert.deepEqual(refreshedRecord.record_state.history, [{ state: "accepted" }]);
   assert.equal(computeClaimFreshness(recordMission, boundOnly), "stale_core");
+
+  // Snapshot counts & latest_verified exclude stale_core claims
+  const snap = projectMissionSnapshot(fixedMission, { meta: {}, programs: [], seats: [], lemmas: [fixed] }, []);
+  assert.equal(snap.counts.trusted, 0);
+  assert.equal(snap.counts.frozen_matched, 0);
+  assert.equal(projectGlobalRecords([snap], at).totals.trusted_proofs, 0);
+  assert.equal(projectGlobalRecords([snap], at).latest_verified, null);
 
   fs.appendFileSync(statement, "\nstatement edit");
   assert.equal(computeClaimFreshness(fixedMission, fixed), "stale_statement");
@@ -307,21 +321,25 @@ test("CLI rejects lifecycle conflicts and moves actual seat claims", (t) => {
   assert.ok(persisted.seats.every((seat) => seat.current_lemma == null && seat.status === "idle"));
 });
 
-test("global records project all six missions and eighteen hunts", () => {
-  const snapshots = listMissionSlugs().map((slug) => {
+test("global records project all missions and live hunts", () => {
+  const slugs = listMissionSlugs();
+  const snapshots = slugs.map((slug) => {
     const mission = loadMission(slug);
     const snap = buildMissionSnapshot(mission);
     return snap;
   });
+  const expectedRecords = snapshots.reduce((sum, s) => sum + s.lemmas.filter((l) => l.kind === "record").length, 0);
   const records = projectGlobalRecords(snapshots, at);
   assert.equal(records.generated_at, at);
-  assert.equal(records.totals.missions, 6);
-  assert.equal(records.records.length, 18);
-  assert.equal(records.totals.records_active + records.totals.records_closed, 18);
+  assert.equal(records.totals.missions, slugs.length);
+  assert.ok(slugs.length >= 9, `expected >= 9 missions, got ${slugs.length}`);
+  assert.equal(records.records.length, expectedRecords);
+  assert.ok(expectedRecords >= 35, `expected >= 35 record hunts, got ${expectedRecords}`);
+  assert.equal(records.totals.records_active + records.totals.records_closed, expectedRecords);
   assert.ok(records.totals.trusted_proofs > 0);
   assert.ok(records.latest_verified?.file);
   assert.ok(records.latest_verified?.at);
-  assert.equal(new Set(records.records.map((r) => `${r.mission}/${r.id}`)).size, 18);
+  assert.equal(new Set(records.records.map((r) => `${r.mission}/${r.id}`)).size, expectedRecords);
   const min = records.records.find((r) => r.id === "SN-rec-013");
   assert.equal(min.literature_bound, 43);
   assert.equal(min.gap, min.closed ? 0 : Math.max(0, (min.best_score ?? min.start_target) - (min.proven_bound ?? min.literature_bound)));
@@ -330,9 +348,10 @@ test("global records project all six missions and eighteen hunts", () => {
   assert.equal(max.gap, max.closed ? 0 : Math.max(0, (max.proven_bound ?? max.literature_bound) - (max.best_score ?? max.start_target)));
 
   const missions = loadAllMissionsSummary(snapshots);
-  assert.equal(missions.length, 6);
+  assert.equal(missions.length, slugs.length);
   for (const mission of missions) {
     assert.ok(mission.description);
+    assert.ok(mission.impact?.tier && mission.impact?.ships_to, `mission ${mission.slug} missing impact metadata`);
     assert.equal(mission.objectives_detail.length, mission.objectives.total);
     for (const objective of mission.objectives_detail) {
       assert.ok(objective.id && objective.title && objective.tier);
@@ -393,7 +412,7 @@ esac
   const { generated_at: staticAt, ...siteRecords } = staticRecords;
   assert.ok(Number.isFinite(Date.parse(liveAt)) && Number.isFinite(Date.parse(staticAt)));
   assert.deepEqual(liveRecords, siteRecords);
-  assert.equal(liveRecords.records.length, 18);
+  assert.ok(liveRecords.records.length >= 37, `expected >= 37 live records, got ${liveRecords.records.length}`);
   assert.equal(liveRecords.records.find((r) => r.id === passing.claim).open_prs[0].check_state, "passing");
 
   async function json(url) {
@@ -508,15 +527,24 @@ test("fleet next supports --mission all, --exclude, --exclude-file, ranking, PR 
   assert.equal(pp.claim.kind, "record");
 
   // Ranking + open-PR handling via fake `gh` stub:
-  // Fixed claim SN-001 with open PR -> skipped in skipped_active_prs;
-  // KotH hunt SN-rec-013 with open PR -> STILL served when fixed bounties are excluded, listed in active_record_prs,
-  // and ranked AFTER unclaimed KotH hunts with no active PR!
+  // Dynamically pick an actually open fixed claim and an open KotH hunt so solved bounties never break this test.
+  const snAll = deriveMissionState("sorting-networks").state.lemmas;
+  const snById = Object.fromEntries(snAll.map((l) => [l.id, l]));
+  const openFixed = snAll.find(
+    (l) =>
+      l.kind !== "record" &&
+      l.status === "conjecture" &&
+      (l.deps || []).every((d) => !snById[d] || snById[d].status === "checked" || snById[d].status === "refuted")
+  );
+  const openRecs = snAll.filter((l) => l.kind === "record" && !l.record_state?.closed && !l.record_state?.contradiction);
+  assert.ok(openFixed && openRecs.length >= 2, "sorting-networks has an open fixed claim and at least two open KotH hunts");
+  const openRec = openRecs[0];
   const binDir = path.join(dir, "bin");
   fs.mkdirSync(binDir, { recursive: true });
   const fakeGh = path.join(binDir, "gh");
   const fakePrs = [
-    { number: 501, title: "SN-001 witness", url: "https://example.test/501", headRefName: "donor/sn-001", updatedAt: new Date().toISOString(), statusCheckRollup: [] },
-    { number: 502, title: "SN-rec-013 score 46", url: "https://example.test/502", headRefName: "donor/sn-rec-013-s46", updatedAt: new Date().toISOString(), statusCheckRollup: [] },
+    { number: 501, title: `${openFixed.id} witness`, url: "https://example.test/501", headRefName: `donor/${openFixed.id.toLowerCase()}`, updatedAt: new Date().toISOString(), statusCheckRollup: [] },
+    { number: 502, title: `${openRec.id} record attempt`, url: "https://example.test/502", headRefName: `donor/${openRec.id.toLowerCase()}-s46`, updatedAt: new Date().toISOString(), statusCheckRollup: [] },
   ];
   fs.writeFileSync(fakeGh, `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify(fakePrs)}'\n`, { mode: 0o755 });
   const ghEnv = { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}` };
@@ -525,24 +553,23 @@ test("fleet next supports --mission all, --exclude, --exclude-file, ranking, PR 
   assert.equal(snWithPr.status, 0, snWithPr.stderr);
   const snp = JSON.parse(snWithPr.stdout);
   assert.equal(snp.pr_sync_ok, true);
-  assert.ok(snp.skipped_active_prs.some((x) => x.id === "SN-001"), "fixed claim with open PR skipped");
-  assert.ok(snp.active_record_prs.some((x) => x.id === "SN-rec-013"), "KotH hunt with open PR reported");
-  assert.notEqual(snp.claim.id, "SN-001");
+  assert.ok(snp.skipped_active_prs.some((x) => x.id === openFixed.id), "fixed claim with open PR skipped");
+  assert.ok(snp.active_record_prs.some((x) => x.id === openRec.id), "KotH hunt with open PR reported");
+  assert.notEqual(snp.claim.id, openFixed.id);
 
-  // Exclude all fixed claims in sorting-networks AND all other KotH hunts except SN-rec-013 -> SN-rec-013 STILL served!
-  const snAll = deriveMissionState("sorting-networks").state.lemmas;
-  const exExceptRec13 = snAll.filter((l) => l.id !== "SN-rec-013").map((l) => l.id).join(",");
-  const recServed = runNode(["hub/fleet.mjs", "next", "--mission", "sorting-networks", "--exclude", exExceptRec13], { env: ghEnv });
+  // Exclude all fixed claims in sorting-networks AND all other KotH hunts except openRec -> openRec STILL served!
+  const exExceptRec = snAll.filter((l) => l.id !== openRec.id).map((l) => l.id).join(",");
+  const recServed = runNode(["hub/fleet.mjs", "next", "--mission", "sorting-networks", "--exclude", exExceptRec], { env: ghEnv });
   assert.equal(recServed.status, 0, recServed.stderr);
   const rps = JSON.parse(recServed.stdout);
-  assert.equal(rps.claim.id, "SN-rec-013");
-  assert.ok(rps.active_record_prs.some((x) => x.id === "SN-rec-013"));
+  assert.equal(rps.claim.id, openRec.id);
+  assert.ok(rps.active_record_prs.some((x) => x.id === openRec.id));
 
-  // Exclude only fixed claims in sorting-networks -> unclaimed KotH hunt WITHOUT open PR (SN-rec-014) ranks ahead of SN-rec-013 (active PR)
+  // Exclude only fixed claims in sorting-networks -> unclaimed KotH hunt WITHOUT open PR ranks ahead of openRec (active PR)
   const exFixedOnly = snAll.filter((l) => l.kind !== "record").map((l) => l.id).join(",");
   const recRanked = runNode(["hub/fleet.mjs", "next", "--mission", "sorting-networks", "--exclude", exFixedOnly], { env: ghEnv });
   assert.equal(recRanked.status, 0, recRanked.stderr);
-  assert.notEqual(JSON.parse(recRanked.stdout).claim.id, "SN-rec-013", "uncontested KotH hunt ranks ahead of contested KotH hunt");
+  assert.notEqual(JSON.parse(recRanked.stdout).claim.id, openRec.id, "uncontested KotH hunt ranks ahead of contested KotH hunt");
 
   // Clean exhaustion
   const allSortNetIds = snAll.map((l) => l.id).join(",");
@@ -570,4 +597,112 @@ test("fleet next supports --mission all, --exclude, --exclude-file, ranking, PR 
 
   // `next` never mutated any tracked state.json
   assert.deepEqual(stateFiles.map((f) => sha256RelFile(f)), hashesBefore);
+});
+
+test("direct replay transitionClaim enforces top-level contradiction guard before transitionRecord (P3-4)", () => {
+  const lemma = {
+    id: "R",
+    kind: "record",
+    status: "contradiction",
+    statement_file: "record.lean",
+    record: { direction: "min", start_target: 10, bound_floor: 0 },
+    record_state: { direction: "min", best: null, refuted: null, next_target: 10, closed: false, contradiction: false, history: [], points_by_seat: {} },
+  };
+  const targets = computeRecordTargets("test", lemma, "record", 8);
+  const ev = {
+    kind: "record",
+    score: 8,
+    lemma_id: "R",
+    _sub_file: targets.submissionBasename,
+    file: targets.artifactFile,
+    theorem: targets.theoremName,
+    checker: { ok: true, statement_hash: "S1", core_hash: "C1", by_seat: "donor-a" },
+  };
+  const res = transitionClaim(lemma, ev, { mode: "replay", missionSlug: "test", statementHash: "S1", coreHash: "C1" });
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /status is "contradiction"/);
+  assert.deepEqual(res.lemma, lemma);
+});
+
+test("web server rejects missing Host, supports IPv6 [::1]:port, and blocks symlinks in web/public (P3-1/P3-2)", { timeout: 15_000 }, async (t) => {
+  const server = spawn(process.execPath, ["web/server.mjs"], { cwd: ROOT, env: { ...process.env, PORT: "0" }, stdio: ["ignore", "pipe", "pipe"] });
+  const serverExit = once(server, "exit");
+  t.after(async () => {
+    server.kill();
+    await serverExit;
+  });
+  const [started] = await once(server.stdout, "data", { signal: AbortSignal.timeout(5000) });
+  const port = Number(started.toString().match(/http:\/\/127\.0\.0\.1:(\d+)/)?.[1]);
+  assert.ok(Number.isInteger(port) && port > 0, started.toString());
+
+  async function rawHttp(rawReq) {
+    return new Promise((resolve, reject) => {
+      const sock = net.createConnection({ host: "127.0.0.1", port }, () => sock.write(rawReq));
+      let data = "";
+      sock.setEncoding("utf8");
+      sock.on("data", (chunk) => { data += chunk; });
+      sock.on("end", () => resolve(data));
+      sock.on("error", reject);
+      sock.setTimeout(3000, () => { sock.destroy(); reject(new Error("rawHttp timeout")); });
+    });
+  }
+
+  // Missing Host header on HTTP/1.0 -> 403 Forbidden (fail closed!)
+  const noHost = await rawHttp("GET /api/records HTTP/1.0\r\nConnection: close\r\n\r\n");
+  assert.match(noHost, /^HTTP\/1\.1 403 /);
+
+  // Non-loopback Host header -> 403 Forbidden
+  const evilHost = await rawHttp("GET /api/records HTTP/1.1\r\nHost: evil.example:443\r\nConnection: close\r\n\r\n");
+  assert.match(evilHost, /^HTTP\/1\.1 403 /);
+
+  // Bracketed IPv6 loopback Host: [::1]:<port> -> 200 OK
+  const ipv6Host = await rawHttp(`GET /api/records HTTP/1.1\r\nHost: [::1]:${port}\r\nConnection: close\r\n\r\n`);
+  assert.match(ipv6Host, /^HTTP\/1\.1 200 /);
+
+  // Symlink inside web/public -> 403 Forbidden (never follows symlink outside web/public!)
+  const symName = `.test-symlink-${process.pid}-${Date.now()}.txt`;
+  const symPath = path.join(ROOT, "web/public", symName);
+  fs.symlinkSync(path.join(ROOT, "package.json"), symPath);
+  t.after(() => { try { fs.unlinkSync(symPath); } catch {} });
+  const symRes = await fetch(`http://127.0.0.1:${port}/${symName}`, { signal: AbortSignal.timeout(5000) });
+  assert.equal(symRes.status, 403);
+});
+
+test("fleet compile recovers dead-PID stale locks without clobbering live owners (P2-5)", (t) => {
+  const dir = tempDir(t);
+  fs.cpSync(path.join(ROOT, "hub"), path.join(dir, "hub"), { recursive: true });
+  const missionDir = path.join(dir, "missions/locktest");
+  fs.mkdirSync(path.join(missionDir, "submissions"), { recursive: true });
+  fs.writeFileSync(path.join(missionDir, "mission.json"), JSON.stringify({ title: "Lock Test", judge: { type: "command" } }));
+  fs.writeFileSync(path.join(missionDir, "state.json"), JSON.stringify({ meta: {}, seats: [], lemmas: [], messages: [], whispers: [], checker_runs: [] }));
+  fs.writeFileSync(path.join(missionDir, "events.ndjson"), "");
+
+  // Plant a stale lock owned by a dead PID (>1s old) -> compile reclaims cleanly and succeeds!
+  const lockDir = path.join(missionDir, ".state.lock");
+  fs.mkdirSync(lockDir);
+  fs.writeFileSync(path.join(lockDir, "owner.json"), JSON.stringify({ pid: 99999999, token: "dead-owner", created_at: Date.now() - 5000 }));
+  const past = new Date(Date.now() - 5000);
+  fs.utimesSync(lockDir, past, past);
+
+  const ok = runNode(["hub/fleet.mjs", "compile", "--mission", "locktest"], { cwd: dir });
+  assert.equal(ok.status, 0, ok.stderr || ok.stdout);
+  assert.equal(fs.existsSync(lockDir), false, "lock cleaned up after compile");
+});
+
+test("dashboard URL sanitizers reject non-HTTPS and non-GitHub PR schemes (P3-3)", () => {
+  const appSrc = fs.readFileSync(path.join(ROOT, "web/public/app.js"), "utf8");
+  const fnGithub = appSrc.match(/function safeGithubUrl[\s\S]*?\n\}/)?.[0];
+  const fnHttps = appSrc.match(/function safeHttpsUrl[\s\S]*?\n\}/)?.[0];
+  assert.ok(fnGithub && fnHttps, "safeGithubUrl and safeHttpsUrl exist in web/public/app.js");
+  const { safeGithubUrl, safeHttpsUrl } = new Function(`${fnGithub}\n${fnHttps}\nreturn { safeGithubUrl, safeHttpsUrl };`)();
+
+  for (const bad of ["javascript:alert(1)", "data:text/html,<script>alert(1)</script>", "http://github.com/org/repo/pull/1", "https://evil.github.com/org/repo/pull/1", "https://example.com/pull/1", ""]) {
+    assert.equal(safeGithubUrl(bad), null, `safeGithubUrl must reject ${bad}`);
+  }
+  assert.equal(safeGithubUrl("https://github.com/steph4n-gh/proof-foundry/pull/46"), "https://github.com/steph4n-gh/proof-foundry/pull/46");
+
+  for (const bad of ["javascript:alert(1)", "data:text/html,x", "http://insecure.example/docs", "ftp://example.com/file"]) {
+    assert.equal(safeHttpsUrl(bad), null, `safeHttpsUrl must reject ${bad}`);
+  }
+  assert.equal(safeHttpsUrl("https://arxiv.org/abs/2401.00001"), "https://arxiv.org/abs/2401.00001");
 });

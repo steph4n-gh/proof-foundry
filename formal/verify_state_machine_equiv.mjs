@@ -247,8 +247,8 @@ function perturbSub(sub, slug, lemma) {
   else if (r < 0.20) sub.checker.ok = false;
   else if (r < 0.21) delete sub.checker;
   else if (r < 0.24) sub.checker.statement_hash = pick(["S0-stale", null, ""]);
-  else if (r < 0.26) delete sub.checker.core_hash;
-  else if (r < 0.27) sub.checker.core_hash = "";
+  else if (r < 0.25) delete sub.checker.core_hash;
+  else if (r < 0.27) sub.checker.core_hash = pick(["", "C0-stale"]);
   else if (r < 0.29) sub.checker.by_seat = pick(["", undefined]);
   else if (r < 0.30) sub.at = pick(["", undefined]);
   else if (r < 0.31) delete sub.checker.axioms;
@@ -302,8 +302,9 @@ function genTs(subs) {
 
 function genHashes() {
   const r = rng();
-  if (r < 0.85) return { statementHashes: { [STMT_FILE]: "S1", other: "S9" }, coreHash: "C1" };
-  if (r < 0.90) return { statementHashes: { [STMT_FILE]: "S2" }, coreHash: "C1" };
+  if (r < 0.80) return { statementHashes: { [STMT_FILE]: "S1", other: "S9" }, coreHash: "C1" };
+  if (r < 0.85) return { statementHashes: { [STMT_FILE]: "S2" }, coreHash: "C1" };
+  if (r < 0.90) return { statementHashes: { [STMT_FILE]: "S1" }, coreHash: "C2" };
   if (r < 0.94) return { coreHash: "C1" };
   if (r < 0.97) return { statementHashes: { [STMT_FILE]: "S1" }, coreHash: "" };
   return { statementHashes: { [STMT_FILE]: "S1" } };
@@ -350,6 +351,7 @@ scenario("duplicate score, second seat ignored", MIN(), [["record", 6, { seat: "
 scenario("duplicate submission file deduplicated", MIN(), [["record", 6, { seat: "donor-a" }], ["record", 6, { seat: "donor-b" }]]);
 scenario("non-improving score ignored", MIN(), [["record", 6, { ts: 1 }], ["record", 8, { seat: "donor-b", ts: 2 }]]);
 scenario("stale statement hash", MIN(), [["record", 6, { mutate: (s) => { s.checker.statement_hash = "OLD"; } }], ["record", 7]]);
+scenario("stale core hash", MIN(), [["record", 6, { mutate: (s) => { s.checker.core_hash = "C0-stale"; } }], ["record", 7]]);
 scenario("missing core hash", MIN(), [["record", 6, { mutate: (s) => { delete s.checker.core_hash; } }]]);
 scenario("current core hash missing", MIN(), [["record", 6]], { hashes: { statementHashes: { [STMT_FILE]: "S1" } } });
 scenario("statement hash table missing", MIN(), [["record", 6]], { hashes: { coreHash: "C1" } });
@@ -413,6 +415,7 @@ function genStdLemma() {
     if (chance(0.3)) lemma[k] = pick(["", "x.lean", "Stmt", null]);
   }
   if (chance(0.05)) lemma.record_state = null;
+  if (chance(0.25)) lemma.freshness = pick(["fresh", "stale_core", "stale_statement", null]);
   return lemma;
 }
 
@@ -508,7 +511,7 @@ for (let i = 0; i < 350 * RANDOM_SCALE; i++) {
       const score = Math.max(0, start + int(-6, 3) * (min ? 1 : -1));
       let event = mkSub(slug, lemma, kind, score);
       if (chance(0.3)) event = perturbSub(event, slug, lemma);
-      const ctx = { mode: "replay", missionSlug: chance(0.95) ? slug : "other", statementHash: chance(0.9) ? "S1" : pick([undefined, "S2"]), coreHash: chance(0.92) ? "C1" : pick([undefined, ""]), gitTs: chance(0.5) ? int(1, 9) : undefined };
+      const ctx = { mode: "replay", missionSlug: chance(0.95) ? slug : "other", statementHash: chance(0.9) ? "S1" : pick([undefined, "S2"]), coreHash: chance(0.88) ? "C1" : pick([undefined, "", "C2"]), gitTs: chance(0.5) ? int(1, 9) : undefined };
       const opp = rng();
       if (opp < 0.5) ctx.opposingScore = Math.max(0, start + int(-6, 3) * (min ? 1 : -1));
       else if (opp < 0.6) ctx.opposingScore = null;
@@ -603,8 +606,10 @@ for (let i = 0; i < 500 * RANDOM_SCALE; i++) {
   for (const status of ["checked", "refuted", "contradiction", "in_work"]) {
     for (const audit of [undefined, { status: "flagged", file_hash: "h-proof" }, { status: "flagged", file_hash: "h-old" }, { status: "flagged" }, { status: "faithful", file_hash: "h-proof" }, { status: "faithful", file_hash: "h-old" }]) {
       for (const frozen of [false, true]) {
-        const lemma = { id: "C-1", status, checker: { ok: true, file_hash: "h-proof", statement_frozen: frozen }, ...(audit && { audit }) };
-        addCase("seal:adversarial", { op: "seal", lemma, expects: EXPECTS });
+        for (const freshness of [undefined, "fresh", "stale_core", "stale_statement"]) {
+          const lemma = { id: "C-1", status, checker: { ok: true, file_hash: "h-proof", statement_frozen: frozen }, ...(audit && { audit }), ...(freshness && { freshness }) };
+          addCase("seal:adversarial", { op: "seal", lemma, expects: EXPECTS });
+        }
       }
     }
   }
@@ -703,7 +708,7 @@ function runLean() {
 }
 
 function coverage(sm) {
-  const stats = { closed: 0, contradiction: 0, accepted: 0, ignored: 0, stale: 0, pointsAwarded: 0 };
+  const stats = { closed: 0, contradiction: 0, accepted: 0, ignored: 0, stale: 0, staleCore: 0, pointsAwarded: 0 };
   cases.forEach((c) => {
     if (c.op === "replay") {
       const out = sm.replayRecordSubmissions(c.slug, clone(c.lemma), clone(c.subs), { gitAddedTs: new Map(c.gitAddedTs), currentHashes: clone(c.currentHashes) });
@@ -714,6 +719,7 @@ function coverage(sm) {
         if (h.state === "accepted") stats.accepted++;
         if (h.state === "ignored_non_improving") stats.ignored++;
         if (h.state === "stale_statement") stats.stale++;
+        if (h.state === "stale_core") { stats.stale++; stats.staleCore++; }
         if (h.points > 0) stats.pointsAwarded++;
       }
     }
@@ -754,8 +760,8 @@ if (buildAndAudit()) {
   if (cases.length < 1500) fail(`expected at least 1500 traces, generated ${cases.length}`);
 
   const cov = coverage(real);
-  info(`coverage: ${cov.closed} closed hunts, ${cov.contradiction} contradicted hunts, ${cov.accepted} accepted / ${cov.ignored} ignored / ${cov.stale} stale receipts, ${cov.pointsAwarded} point awards`);
-  if (cov.closed < 50 || cov.contradiction < 50 || cov.accepted < 300 || cov.ignored < 50 || cov.stale < 30) fail("random generator coverage is below the required minimums");
+  info(`coverage: ${cov.closed} closed hunts, ${cov.contradiction} contradicted hunts, ${cov.accepted} accepted / ${cov.ignored} ignored / ${cov.stale} stale (${cov.staleCore} stale_core) receipts, ${cov.pointsAwarded} point awards`);
+  if (cov.closed < 50 || cov.contradiction < 50 || cov.accepted < 300 || cov.ignored < 50 || cov.stale < 30 || cov.staleCore < 15) fail("random generator coverage is below the required minimums");
 
   // -------------------------------------------------------------------------
   // 4. Mutation self-checks
@@ -765,10 +771,12 @@ if (buildAndAudit()) {
     { name: "anti-farming: award the raw score", family: "a", from: "points = margin + (rs[field] ? 0 : 1);", to: "points = score + (rs[field] ? 0 : 1);" },
     { name: "stickiness: drop the contradicted-hunt early return", family: "b", from: "if (rs.contradiction) {", to: "if (false) {" },
     { name: "order independence: bounds ignore earlier records", family: "b", from: 'opposingScore: strongest[record ? "record_bound" : "record"],', to: "opposingScore: record ? strongest.record_bound : null," },
-    { name: "claim stickiness: only block claims after contradiction", family: "b", from: 'if (contradiction && kind !== "audit") return deny', to: 'if (contradiction && kind === "claim") return deny' },
-    { name: "conquest: contradiction counts as conquered", family: "c", from: 'if (seal === "flagged" || seal === "contradiction") return false;', to: 'if (seal === "flagged") return false;' },
-    { name: "conquest: flagged counts as conquered", family: "c", from: 'if (seal === "flagged" || seal === "contradiction") return false;\n  if (lemma.kind === "record") {', to: 'if (seal === "contradiction") return false;\n  if (seal === "flagged") return true;\n  if (lemma.kind === "record") {' },
-    { name: "conquest: contradicted hunt state ignored", family: "c", from: "if (!rs || rs.contradiction) return false;", to: "if (!rs) return false;", alsoFrom: 'if (seal === "flagged" || seal === "contradiction") return false;', alsoTo: 'if (seal === "flagged") return false;' },
+    { name: "claim stickiness: only block claims after contradiction", family: "b", from: 'if (contradiction && kind !== "audit" && !(recordEvent && ctx.mode === "replay" && lemma.record_state?.contradiction)) {', to: 'if (contradiction && kind === "claim") {' },
+    { name: "stale core: accept mismatched non-empty core_hash on replay", family: "b", from: "if (!coreHash || event.checker.core_hash !== coreHash) {", to: "if (!coreHash || !event.checker.core_hash) {" },
+    { name: "conquest: contradiction counts as conquered", family: "c", from: 'if (seal === "flagged" || seal === "contradiction" || seal === "stale") return false;', to: 'if (seal === "flagged" || seal === "stale") return false;' },
+    { name: "conquest: flagged counts as conquered", family: "c", from: 'if (seal === "flagged" || seal === "contradiction" || seal === "stale") return false;\n  if (lemma.kind === "record") {', to: 'if (seal === "contradiction" || seal === "stale") return false;\n  if (seal === "flagged") return true;\n  if (lemma.kind === "record") {' },
+    { name: "conquest: contradicted hunt state ignored", family: "c", from: "if (!rs || rs.contradiction) return false;", to: "if (!rs) return false;", alsoFrom: 'if (seal === "flagged" || seal === "contradiction" || seal === "stale") return false;', alsoTo: 'if (seal === "flagged" || seal === "stale") return false;' },
+    { name: "conquest: stale proof counts as conquered", family: "c", from: 'if (lemma.freshness === "stale_core" || lemma.freshness === "stale_statement") return false;', to: "if (false) return false;", alsoFrom: 'if (isStale && (lemma.status === "checked" || lemma.status === "refuted")) return "stale";', alsoTo: "if (false) return \"stale\";" },
   ];
   const source = fs.readFileSync(SM_PATH, "utf8");
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pf-mutant-"));

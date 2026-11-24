@@ -10,8 +10,8 @@
  */
 import fs from "node:fs";
 import os from "node:os";
+import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
 
 const args = {};
 for (let i = 2; i < process.argv.length; i += 2) {
@@ -93,34 +93,458 @@ function nodePermissionFlag() {
   return major > 22 || (major === 22 && minor >= 13) ? "--permission" : "--experimental-permission";
 }
 
+const REGEX_PREV_KEYWORDS = new Set([
+  "return", "case", "throw", "in", "of", "typeof", "void", "delete",
+  "new", "else", "do", "yield", "await", "export", "default",
+]);
+const STMT_PAREN_KEYWORDS = new Set(["if", "while", "for", "with"]);
+const REGEX_PREV_PUNCT = new Set([
+  "(", "[", "{", "}", ",", ";", ":", "?", "=", "!", "&", "|", "^", "~",
+  "+", "-", "*", "%", "<", ">", "=>",
+]);
+
+/**
+ * Syntax-aware JS tokenizer that preserves every string literal, template literal, regex literal,
+ * and comment byte-for-byte while returning only executable code tokens for top-level export/import analysis.
+ */
+function tokenizeJsCode(src) {
+  const tokens = [];
+  const parenStack = []; // boolean: true if matching `(` followed if/while/for/with
+  const braceStack = []; // "block" | "template"
+  let braceDepth = 0;
+  let canStartRegex = true;
+  let i = 0;
+  const n = src.length;
+
+  function scanTemplateChunk() {
+    while (i < n) {
+      const ch = src[i];
+      if (ch === "\\") {
+        i += 2;
+        if (i > n) return { ok: false, error: "Unterminated escape in template literal" };
+        continue;
+      }
+      if (ch === "`") {
+        i++;
+        canStartRegex = false;
+        return { ok: true, done: true };
+      }
+      if (ch === "$" && src[i + 1] === "{") {
+        i += 2;
+        braceStack.push("template");
+        braceDepth++;
+        canStartRegex = true;
+        return { ok: true, done: false };
+      }
+      i++;
+    }
+    return { ok: false, error: "Unterminated template literal in kernel artifact" };
+  }
+
+  while (i < n) {
+    const ch = src[i];
+    const next = src[i + 1];
+
+    // Whitespace
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    // Line comment (preserved verbatim in source)
+    if (ch === "/" && next === "/") {
+      i += 2;
+      while (i < n && src[i] !== "\n") i++;
+      continue;
+    }
+    // Block comment (preserved verbatim in source)
+    if (ch === "/" && next === "*") {
+      i += 2;
+      let closed = false;
+      while (i + 1 < n) {
+        if (src[i] === "*" && src[i + 1] === "/") {
+          i += 2;
+          closed = true;
+          break;
+        }
+        i++;
+      }
+      if (!closed) return { ok: false, error: "Unclosed block comment in kernel artifact" };
+      continue;
+    }
+    // Single- or double-quoted string literal (preserved verbatim in source)
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      const start = i;
+      i++;
+      let closed = false;
+      while (i < n) {
+        if (src[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (src[i] === "\n" || src[i] === "\r") {
+          return { ok: false, error: "Unterminated string literal in kernel artifact" };
+        }
+        if (src[i] === quote) {
+          i++;
+          closed = true;
+          break;
+        }
+        i++;
+      }
+      if (!closed) return { ok: false, error: "Unterminated string literal in kernel artifact" };
+      tokens.push({ type: "lit", value: quote, start, end: i, braceDepth });
+      canStartRegex = false;
+      continue;
+    }
+    // Template literal (preserved verbatim; `${ ... }` expressions still scanned as code!)
+    if (ch === "`") {
+      const start = i;
+      i++;
+      const r = scanTemplateChunk();
+      if (!r.ok) return r;
+      if (r.done) tokens.push({ type: "lit", value: "`", start, end: i, braceDepth });
+      continue;
+    }
+    // Regex literals are forbidden in numerical kernels (fail closed so division/regex grammar
+    // ambiguities can never swallow code tokens such as `import(...)`).
+    if (ch === "/" && canStartRegex) {
+      return { ok: false, error: "Regex literals are not permitted in numerical kernel artifacts" };
+    }
+    // Identifier or keyword
+    if (/[A-Za-z_$]/.test(ch)) {
+      const start = i;
+      i++;
+      while (i < n && /[A-Za-z0-9_$]/.test(src[i])) i++;
+      const value = src.slice(start, i);
+      const prev = tokens[tokens.length - 1];
+      const isProp = prev?.type === "punct" && prev.value === ".";
+      tokens.push({ type: "id", value, isProp, start, end: i, braceDepth });
+      canStartRegex = !isProp && REGEX_PREV_KEYWORDS.has(value);
+      continue;
+    }
+    // Numeric literal
+    if (/[0-9]/.test(ch) || (ch === "." && /[0-9]/.test(next || ""))) {
+      const start = i;
+      i++;
+      while (i < n && /[0-9A-Za-z_.]/.test(src[i])) {
+        if ((src[i] === "e" || src[i] === "E") && (src[i + 1] === "+" || src[i + 1] === "-")) {
+          i += 2;
+          continue;
+        }
+        i++;
+      }
+      tokens.push({ type: "num", value: src.slice(start, i), start, end: i, braceDepth });
+      canStartRegex = false;
+      continue;
+    }
+    // Multi-char punctuators relevant to regex context
+    if (ch === "=" && next === ">") {
+      tokens.push({ type: "punct", value: "=>", start: i, end: i + 2, braceDepth });
+      i += 2;
+      canStartRegex = true;
+      continue;
+    }
+    if ((ch === "+" && next === "+") || (ch === "-" && next === "-")) {
+      tokens.push({ type: "punct", value: ch + next, start: i, end: i + 2, braceDepth });
+      i += 2;
+      canStartRegex = false;
+      continue;
+    }
+    // Single-char punctuator
+    const start = i;
+    i++;
+    if (ch === "{") {
+      const prev = tokens[tokens.length - 1];
+      const isExprBrace =
+        Boolean(prev && prev.type === "punct" && ["(", "[", ",", ":", "?", "=", "=>", "!", "&", "|", "^", "~", "+", "-", "*", "%", "<", ">"].includes(prev.value)) ||
+        Boolean(prev && prev.type === "id" && !prev.isProp && REGEX_PREV_KEYWORDS.has(prev.value));
+      tokens.push({ type: "punct", value: "{", start, end: i, braceDepth });
+      braceStack.push(isExprBrace ? "expr" : "block");
+      braceDepth++;
+      canStartRegex = true;
+      continue;
+    }
+    if (ch === "}") {
+      const kind = braceStack.pop();
+      braceDepth = Math.max(0, braceDepth - 1);
+      if (kind === "template") {
+        const r = scanTemplateChunk();
+        if (!r.ok) return r;
+        if (r.done) tokens.push({ type: "lit", value: "`", start, end: i, braceDepth });
+        continue;
+      }
+      tokens.push({ type: "punct", value: "}", start, end: i, braceDepth });
+      canStartRegex = kind !== "expr";
+      continue;
+    }
+    if (ch === "(") {
+      const prev = tokens[tokens.length - 1];
+      parenStack.push(Boolean(prev && prev.type === "id" && !prev.isProp && STMT_PAREN_KEYWORDS.has(prev.value)));
+      tokens.push({ type: "punct", value: "(", start, end: i, braceDepth });
+      canStartRegex = true;
+      continue;
+    }
+    if (ch === ")") {
+      const isStmtParen = parenStack.pop() || false;
+      tokens.push({ type: "punct", value: ")", start, end: i, braceDepth });
+      canStartRegex = isStmtParen;
+      continue;
+    }
+    tokens.push({ type: "punct", value: ch, start, end: i, braceDepth });
+    canStartRegex = REGEX_PREV_PUNCT.has(ch) || ch === "/";
+  }
+
+  return { ok: true, tokens };
+}
+
+/**
+ * Transform a pure-JS single-file kernel module (no imports/re-exports) into a strict-mode script
+ * that returns the requested exported function inside an isolated V8 `vm` context.
+ * Preserves all string literals, template literals, regex literals, and comments byte-for-byte.
+ */
+function preparePureKernelSource(raw, fnName) {
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(String(fnName || ""))) {
+    return { ok: false, error: `Invalid target export identifier: ${fnName}` };
+  }
+  const lex = tokenizeJsCode(raw);
+  if (!lex.ok) return { ok: false, error: lex.error };
+  const { tokens } = lex;
+
+  const exported = new Set();
+  const splices = [];
+
+  for (let idx = 0; idx < tokens.length; idx++) {
+    const tok = tokens[idx];
+    if (tok.type !== "id" || tok.isProp) continue;
+
+    if (tok.value === "import") {
+      return { ok: false, error: "Executable kernel artifacts cannot use import statements or dynamic import()" };
+    }
+    if (tok.value !== "export") continue;
+
+    if (tok.braceDepth !== 0) {
+      return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+    }
+    const t1 = tokens[idx + 1];
+    if (!t1) return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+
+    if (t1.type === "id" && !t1.isProp && t1.value === "default") {
+      return { ok: false, error: `Use named export \`export function ${fnName}\` (default export unsupported)` };
+    }
+    if (t1.type === "punct" && t1.value === "*") {
+      return { ok: false, error: "Executable kernel artifacts cannot re-export external modules" };
+    }
+    if (t1.type === "id" && !t1.isProp && (t1.value === "function" || t1.value === "const" || t1.value === "let" || t1.value === "var")) {
+      const t2 = tokens[idx + 2];
+      if (!t2 || t2.type !== "id" || t2.isProp) {
+        return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+      }
+      exported.add(t2.value);
+      splices.push([tok.start, t1.start, ""]);
+      continue;
+    }
+    if (t1.type === "punct" && t1.value === "{") {
+      let j = idx + 2;
+      const aliases = [];
+      let expectItem = true;
+      let closed = false;
+      while (j < tokens.length) {
+        const cur = tokens[j];
+        if (cur.type === "punct" && cur.value === "}") {
+          closed = true;
+          break;
+        }
+        if (!expectItem) {
+          if (cur.type === "punct" && cur.value === ",") {
+            expectItem = true;
+            j++;
+            continue;
+          }
+          return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+        }
+        if (cur.type !== "id" || cur.isProp) {
+          return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+        }
+        const localName = cur.value;
+        let exportName = localName;
+        if (tokens[j + 1]?.type === "id" && !tokens[j + 1].isProp && tokens[j + 1].value === "as") {
+          const aliasTok = tokens[j + 2];
+          if (!aliasTok || aliasTok.type !== "id" || aliasTok.isProp) {
+            return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+          }
+          exportName = aliasTok.value;
+          j += 3;
+        } else {
+          j++;
+        }
+        exported.add(exportName);
+        if (exportName !== localName) {
+          aliases.push(`const ${exportName} = ${localName};`);
+        }
+        expectItem = false;
+      }
+      if (!closed) return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+      const after = tokens[j + 1];
+      if (after?.type === "id" && !after.isProp && after.value === "from") {
+        return { ok: false, error: "Executable kernel artifacts cannot re-export external modules" };
+      }
+      let endPos = tokens[j].end;
+      if (after?.type === "punct" && after.value === ";") {
+        endPos = after.end;
+        j++;
+      }
+      splices.push([tok.start, endPos, aliases.join(" ")]);
+      idx = j;
+      continue;
+    }
+    return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+  }
+
+  if (!exported.has(fnName)) {
+    return { ok: false, error: `Missing exported function ${fnName}` };
+  }
+
+  let body = raw;
+  for (let s = splices.length - 1; s >= 0; s--) {
+    const [start, end, rep] = splices[s];
+    body = body.slice(0, start) + rep + body.slice(end);
+  }
+  return {
+    ok: true,
+    script: `"use strict";\n(function() {\n${body}\nreturn (typeof ${fnName} === "function") ? ${fnName} : null;\n})();`,
+  };
+}
+
+/**
+ * Execute an untrusted pure-JS numerical kernel inside a double-isolated child process:
+ *  1. Node `--permission` with ZERO filesystem, child-process, worker, addon, or WASI permissions
+ *     plus `--max-old-space-size=256`.
+ *  2. Separate V8 `vm` context (`Object.create(null)`, `codeGeneration: { strings: false, wasm: false }`)
+ *     with NO `process`, `console`, `fetch`, `Buffer`, `require`, `import`, or host prototypes.
+ *  3. Per-run random 128-bit nonce envelope written by the outer host realm using pre-captured
+ *     `process.stdout.write` and `JSON.stringify` over strictly extracted primitive numbers/tuples.
+ */
 function runArtifactInChild(fnName, calls) {
-  let realArtifact;
+  let raw;
   try {
-    realArtifact = fs.realpathSync(artifactPath);
+    if (fs.lstatSync(artifactPath).isSymbolicLink()) {
+      return { ok: false, error: `Symlink artifacts are forbidden: ${artifactPath}` };
+    }
+    const realArtifact = fs.realpathSync(artifactPath);
+    const st = fs.statSync(realArtifact);
+    if (st.size > 256 * 1024) return { ok: false, error: "Kernel artifact exceeds 256 KiB limit" };
+    raw = fs.readFileSync(realArtifact, "utf8");
   } catch {
     return { ok: false, error: `Artifact not found: ${artifactPath}` };
   }
-  const modUrl = pathToFileURL(realArtifact).href;
+
+  const prep = preparePureKernelSource(raw, fnName);
+  if (!prep.ok) return { ok: false, error: prep.error };
+
+  const nonce = crypto.randomBytes(16).toString("hex");
   const runnerCode = `
+    import vm from "node:vm";
+    const _stdoutWrite = process.stdout.write.bind(process.stdout);
+    const _jsonStringify = JSON.stringify;
+    const _jsonParse = JSON.parse;
+    const _isFinite = Number.isFinite;
+
     const chunks = [];
     for await (const c of process.stdin) chunks.push(c);
-    const req = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    const mod = await import(req.modUrl);
-    const fn = mod[req.fnName];
-    if (typeof fn !== "function") {
-      process.stdout.write(JSON.stringify({ ok: false, error: "Missing exported function " + req.fnName }));
-      process.exit(0);
+    const req = _jsonParse(Buffer.concat(chunks).toString("utf8"));
+
+    try {
+      const ctx = vm.createContext(Object.create(null), {
+        codeGeneration: { strings: false, wasm: false },
+      });
+      // Capture pristine VM-realm intrinsics before any untrusted code executes.
+      // All calls go through captured Reflect.apply + Object.hasOwn + frozen empty args
+      // so zero mutable prototype lookups (e.g. Function.prototype.call, Object.prototype.value) occur.
+      const vmRun = vm.runInContext(\`"use strict";
+        (function() {
+          const _parse = JSON.parse;
+          const _isFin = Number.isFinite;
+          const _isInt = Number.isInteger;
+          const _isArr = Array.isArray;
+          const _getOwn = Object.getOwnPropertyDescriptor;
+          const _hasOwn = Object.hasOwn;
+          const _numStr = Number.prototype.toString;
+          const _reflectApply = Reflect.apply;
+          const _empty = Object.freeze([]);
+          return function(fn, callsJson) {
+            const calls = _parse(callsJson);
+            let json = "[";
+            for (let i = 0; i < calls.length; i++) {
+              if (i > 0) json += ",";
+              const v = _reflectApply(fn, undefined, calls[i]);
+              if (typeof v === "number") {
+                if (!_isFin(v)) return "ERR:Non-finite output on case " + i;
+                json += _reflectApply(_numStr, v, _empty);
+              } else if (_isArr(v)) {
+                const lenDesc = _getOwn(v, "length");
+                const len = lenDesc && _hasOwn(lenDesc, "value") ? lenDesc.value : -1;
+                if (typeof len !== "number" || !_isInt(len) || len < 0 || len > 16) return "ERR:Invalid tuple length on case " + i;
+                json += "[";
+                for (let j = 0; j < len; j++) {
+                  if (j > 0) json += ",";
+                  const desc = _getOwn(v, j);
+                  if (!desc || !_hasOwn(desc, "value") || typeof desc.value !== "number" || !_isFin(desc.value)) {
+                    return "ERR:Non-numeric or accessor element on case " + i;
+                  }
+                  json += _reflectApply(_numStr, desc.value, _empty);
+                }
+                json += "]";
+              } else {
+                return "ERR:Non-finite or non-numeric output on case " + i;
+              }
+            }
+            return json + "]";
+          };
+        })();
+      \`, ctx, { timeout: 1000 });
+      const fn = vm.runInContext(req.script, ctx, { timeout: 2000, filename: "artifact.vm.js" });
+      if (typeof fn !== "function") {
+        _stdoutWrite(_jsonStringify({ nonce: req.nonce, ok: false, error: "Missing exported function " + req.fnName }));
+        process.exit(0);
+      }
+      const rawJson = vmRun(fn, _jsonStringify(req.calls));
+      if (typeof rawJson !== "string") {
+        _stdoutWrite(_jsonStringify({ nonce: req.nonce, ok: false, error: "Invalid output envelope from kernel" }));
+        process.exit(0);
+      }
+      if (rawJson.startsWith("ERR:")) {
+        _stdoutWrite(_jsonStringify({ nonce: req.nonce, ok: false, error: rawJson.slice(4) }));
+        process.exit(0);
+      }
+      const outputs = _jsonParse(rawJson);
+      if (!Array.isArray(outputs) || outputs.length !== req.calls.length) {
+        _stdoutWrite(_jsonStringify({ nonce: req.nonce, ok: false, error: "Invalid output vector from kernel" }));
+        process.exit(0);
+      }
+      for (let i = 0; i < outputs.length; i++) {
+        const v = outputs[i];
+        const okVal = typeof v === "number"
+          ? _isFinite(v)
+          : Array.isArray(v) && v.every((x) => typeof x === "number" && _isFinite(x));
+        if (!okVal) {
+          _stdoutWrite(_jsonStringify({ nonce: req.nonce, ok: false, error: "Non-finite output on case " + i }));
+          process.exit(0);
+        }
+      }
+      _stdoutWrite(_jsonStringify({ nonce: req.nonce, ok: true, outputs }));
+    } catch (err) {
+      const msg = err && typeof err.message === "string" ? err.message : String(err);
+      _stdoutWrite(_jsonStringify({ nonce: req.nonce, ok: false, error: "Sandboxed kernel error: " + msg.slice(0, 300) }));
     }
-    const outputs = req.calls.map((callArgs) => fn(...callArgs));
-    process.stdout.write(JSON.stringify({ ok: true, outputs }));
   `;
   const child = spawnSync(
     process.execPath,
-    [nodePermissionFlag(), `--allow-fs-read=${realArtifact}`, "--input-type=module", "-e", runnerCode],
+    [nodePermissionFlag(), "--max-old-space-size=256", "--input-type=module", "-e", runnerCode],
     {
-      input: JSON.stringify({ modUrl, fnName, calls }),
+      input: JSON.stringify({ nonce, script: prep.script, fnName, calls }),
       encoding: "utf8",
-      timeout: 15000,
+      timeout: 5000,
       env: {
         PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
         TMPDIR: os.tmpdir(),
@@ -131,7 +555,11 @@ function runArtifactInChild(fnName, calls) {
     return { ok: false, error: `Isolated artifact runner failed (exit=${child.status}): ${(child.stderr || "").slice(0, 400)}` };
   }
   try {
-    return JSON.parse(child.stdout);
+    const parsed = JSON.parse(child.stdout);
+    if (!parsed || parsed.nonce !== nonce) {
+      return { ok: false, error: "Runner protocol nonce mismatch (forged stdout rejected)" };
+    }
+    return parsed;
   } catch {
     return { ok: false, error: "Artifact polluted stdout or emitted invalid JSON" };
   }
@@ -381,6 +809,9 @@ function stripJsCommentsStrict(src) {
 function readDataExportInChild(exportName) {
   let raw;
   try {
+    if (fs.lstatSync(artifactPath).isSymbolicLink()) {
+      return { ok: false, error: `Symlink artifacts are forbidden: ${artifactPath}` };
+    }
     const realArtifact = fs.realpathSync(artifactPath);
     const st = fs.statSync(realArtifact);
     if (st.size > 256 * 1024) return { ok: false, error: "Data artifact exceeds 256 KiB limit" };

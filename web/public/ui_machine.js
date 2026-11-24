@@ -427,6 +427,7 @@ export function sealOf(lemma) {
   if (lemma.status === "contradiction" || lemma.record_state?.contradiction) return "contradiction";
   if (lemma.kind === "record") return lemma.record_state?.closed ? "frozen" : lemma.record_state?.best ? "record" : "open";
   if (lemma.audit?.status === "flagged") return "flagged";
+  if ((lemma.freshness === "stale_core" || lemma.freshness === "stale_statement") && (lemma.status === "checked" || lemma.status === "refuted")) return "stale";
   if (lemma.status === "checked") {
     if (lemma.checker?.statement_frozen) return "frozen";
     return lemma.audit?.status === "faithful" ? "audited" : "provisional";
@@ -590,6 +591,8 @@ export function statusOf(lemma) {
       return { key: "audited", glyph: "◆", label: "Audited", tone: "accent" };
     case "provisional":
       return { key: "provisional", glyph: "◇", label: "Provisional", tone: "ink" };
+    case "stale":
+      return { key: "stale", glyph: "↻", label: "Stale", tone: "muted" };
     case "refuted":
       return { key: "refuted", glyph: "✕", label: "Refuted", tone: "ink" };
     case "dead":
