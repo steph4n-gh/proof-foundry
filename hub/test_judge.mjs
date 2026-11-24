@@ -158,17 +158,56 @@ export function compensatedSum() { return 0; }
   const resN3 = checkCommandArtifact(fnEscapeArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
   assert(!resN3.ok && /Code generation from strings disallowed|Sandboxed kernel error/i.test(resN3.reason), "Attack N3 (P1-1 Function constructor escape) blocked by V8 vm codeGeneration", JSON.stringify(resN3));
 
-  // Attack N4 (Daybreak P1-1): prototype & serializer tampering (toJSON / Number.prototype.toString / Function.prototype.apply)
+  // Attack N4 (Daybreak P1-1 + Codex PR #46 P1): prototype & serializer tampering (Function.prototype.call / Object.prototype.value / toJSON / Number.prototype.toString)
   const protoTamperArt = path.join(tmp, "ProtoTamper.mjs");
   fs.writeFileSync(
     protoTamperArt,
-    `Array.prototype.toJSON = () => [10000, 2];
+    `const origApply = Reflect.apply;
+let step = 0;
+Function.prototype.call = function (thisArg, ...args) {
+  if (this === Number.prototype.toString) return step++ === 0 ? "10000" : "2";
+  return origApply(this, thisArg, args);
+};
+Object.prototype.value = 10000;
+Array.prototype.toJSON = () => [10000, 2];
 Number.prototype.toString = () => "10000";
 export function compensatedSum() { return 0; }
 `
   );
   const resN4 = checkCommandArtifact(protoTamperArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
-  assert(!resN4.ok && resN4.reason.includes("Precision failure"), "Attack N4 (P1-1 prototype/serializer tampering) defeated by pre-captured intrinsics", JSON.stringify(resN4));
+  assert(!resN4.ok && resN4.reason.includes("Precision failure"), "Attack N4 (Function.prototype.call + Object.prototype.value + serializer tampering) defeated", JSON.stringify(resN4));
+
+  // Attack N4b (Codex PR #46 P1): comment-like sequence inside string literal must be preserved byte-for-byte
+  const strLiteralGuardArt = path.join(tmp, "StringLiteralGuard.mjs");
+  const realKahanSrc = fs.readFileSync(path.resolve("missions/verified-science-kernels/artifacts/S_num_001.mjs"), "utf8");
+  fs.writeFileSync(
+    strLiteralGuardArt,
+    realKahanSrc.replace(
+      "export function compensatedSum(xs) {",
+      'export function compensatedSum(xs) { if ("/*not a comment*/" !== " ") return 0;'
+    )
+  );
+  const resN4b = checkCommandArtifact(strLiteralGuardArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(!resN4b.ok && resN4b.reason.includes("Precision failure"), "Attack N4b (Codex P1: string literal containing /*...*/ preserved verbatim)", JSON.stringify(resN4b));
+
+  // Attack N4c: dynamic import inside template literal expression `${import(...)}` still rejected
+  const tmplImportArt = path.join(tmp, "TmplImport.mjs");
+  fs.writeFileSync(
+    tmplImportArt,
+    "export function compensatedSum() { const s = `${import('node:fs')}`; return s.length; }\n"
+  );
+  const resN4c = checkCommandArtifact(tmplImportArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(!resN4c.ok && /import/i.test(resN4c.reason), "Attack N4c (dynamic import inside template expression) rejected", JSON.stringify(resN4c));
+
+  // Positive control: aliased export list `export { impl as compensatedSum }` + harmless string `"import fake"` passes
+  const aliasedExportArt = path.join(tmp, "AliasedExport.mjs");
+  fs.writeFileSync(
+    aliasedExportArt,
+    realKahanSrc.replace("export function compensatedSum(xs) {", 'const note = "import /* not real */ export";\nfunction impl(xs) {') +
+      "\nexport { impl as compensatedSum };\n"
+  );
+  const resAliasOk = checkCommandArtifact(aliasedExportArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
+  assert(resAliasOk.ok, "Positive control: aliased export list + string containing comment/import text passes", JSON.stringify(resAliasOk));
 
   // Attack N5 (Daybreak P1-1): accessor getter on returned tuple rejected without executing getter
   const getterArt = path.join(tmp, "GetterTuple.mjs");

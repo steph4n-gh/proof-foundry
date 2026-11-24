@@ -93,60 +93,343 @@ function nodePermissionFlag() {
   return major > 22 || (major === 22 && minor >= 13) ? "--permission" : "--experimental-permission";
 }
 
+const REGEX_PREV_KEYWORDS = new Set([
+  "return", "case", "throw", "in", "of", "typeof", "void", "delete",
+  "new", "else", "do", "yield", "await", "export", "default",
+]);
+const STMT_PAREN_KEYWORDS = new Set(["if", "while", "for", "with"]);
+const REGEX_PREV_PUNCT = new Set([
+  "(", "[", "{", "}", ",", ";", ":", "?", "=", "!", "&", "|", "^", "~",
+  "+", "-", "*", "%", "<", ">", "=>",
+]);
+
+/**
+ * Syntax-aware JS tokenizer that preserves every string literal, template literal, regex literal,
+ * and comment byte-for-byte while returning only executable code tokens for top-level export/import analysis.
+ */
+function tokenizeJsCode(src) {
+  const tokens = [];
+  const parenStack = []; // boolean: true if matching `(` followed if/while/for/with
+  const braceStack = []; // "block" | "template"
+  let braceDepth = 0;
+  let canStartRegex = true;
+  let i = 0;
+  const n = src.length;
+
+  function scanTemplateChunk() {
+    while (i < n) {
+      const ch = src[i];
+      if (ch === "\\") {
+        i += 2;
+        if (i > n) return { ok: false, error: "Unterminated escape in template literal" };
+        continue;
+      }
+      if (ch === "`") {
+        i++;
+        canStartRegex = false;
+        return { ok: true, done: true };
+      }
+      if (ch === "$" && src[i + 1] === "{") {
+        i += 2;
+        braceStack.push("template");
+        braceDepth++;
+        canStartRegex = true;
+        return { ok: true, done: false };
+      }
+      i++;
+    }
+    return { ok: false, error: "Unterminated template literal in kernel artifact" };
+  }
+
+  while (i < n) {
+    const ch = src[i];
+    const next = src[i + 1];
+
+    // Whitespace
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    // Line comment (preserved verbatim in source)
+    if (ch === "/" && next === "/") {
+      i += 2;
+      while (i < n && src[i] !== "\n") i++;
+      continue;
+    }
+    // Block comment (preserved verbatim in source)
+    if (ch === "/" && next === "*") {
+      i += 2;
+      let closed = false;
+      while (i + 1 < n) {
+        if (src[i] === "*" && src[i + 1] === "/") {
+          i += 2;
+          closed = true;
+          break;
+        }
+        i++;
+      }
+      if (!closed) return { ok: false, error: "Unclosed block comment in kernel artifact" };
+      continue;
+    }
+    // Single- or double-quoted string literal (preserved verbatim in source)
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      const start = i;
+      i++;
+      let closed = false;
+      while (i < n) {
+        if (src[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (src[i] === "\n" || src[i] === "\r") {
+          return { ok: false, error: "Unterminated string literal in kernel artifact" };
+        }
+        if (src[i] === quote) {
+          i++;
+          closed = true;
+          break;
+        }
+        i++;
+      }
+      if (!closed) return { ok: false, error: "Unterminated string literal in kernel artifact" };
+      tokens.push({ type: "lit", value: quote, start, end: i, braceDepth });
+      canStartRegex = false;
+      continue;
+    }
+    // Template literal (preserved verbatim; `${ ... }` expressions still scanned as code!)
+    if (ch === "`") {
+      const start = i;
+      i++;
+      const r = scanTemplateChunk();
+      if (!r.ok) return r;
+      if (r.done) tokens.push({ type: "lit", value: "`", start, end: i, braceDepth });
+      continue;
+    }
+    // Regex literal vs division operator
+    if (ch === "/" && canStartRegex) {
+      const start = i;
+      i++;
+      let inClass = false;
+      let closed = false;
+      while (i < n) {
+        const c = src[i];
+        if (c === "\\") {
+          i += 2;
+          continue;
+        }
+        if (c === "\n" || c === "\r") {
+          return { ok: false, error: "Unterminated regex literal in kernel artifact" };
+        }
+        if (c === "[") inClass = true;
+        else if (c === "]") inClass = false;
+        else if (c === "/" && !inClass) {
+          i++;
+          while (i < n && /[A-Za-z]/.test(src[i])) i++;
+          closed = true;
+          break;
+        }
+        i++;
+      }
+      if (!closed) return { ok: false, error: "Unterminated regex literal in kernel artifact" };
+      tokens.push({ type: "lit", value: "/", start, end: i, braceDepth });
+      canStartRegex = false;
+      continue;
+    }
+    // Identifier or keyword
+    if (/[A-Za-z_$]/.test(ch)) {
+      const start = i;
+      i++;
+      while (i < n && /[A-Za-z0-9_$]/.test(src[i])) i++;
+      const value = src.slice(start, i);
+      const prev = tokens[tokens.length - 1];
+      const isProp = prev?.type === "punct" && prev.value === ".";
+      tokens.push({ type: "id", value, isProp, start, end: i, braceDepth });
+      canStartRegex = !isProp && REGEX_PREV_KEYWORDS.has(value);
+      continue;
+    }
+    // Numeric literal
+    if (/[0-9]/.test(ch) || (ch === "." && /[0-9]/.test(next || ""))) {
+      const start = i;
+      i++;
+      while (i < n && /[0-9A-Za-z_.]/.test(src[i])) {
+        if ((src[i] === "e" || src[i] === "E") && (src[i + 1] === "+" || src[i + 1] === "-")) {
+          i += 2;
+          continue;
+        }
+        i++;
+      }
+      tokens.push({ type: "num", value: src.slice(start, i), start, end: i, braceDepth });
+      canStartRegex = false;
+      continue;
+    }
+    // Multi-char punctuators relevant to regex context
+    if (ch === "=" && next === ">") {
+      tokens.push({ type: "punct", value: "=>", start: i, end: i + 2, braceDepth });
+      i += 2;
+      canStartRegex = true;
+      continue;
+    }
+    if ((ch === "+" && next === "+") || (ch === "-" && next === "-")) {
+      tokens.push({ type: "punct", value: ch + next, start: i, end: i + 2, braceDepth });
+      i += 2;
+      canStartRegex = false;
+      continue;
+    }
+    // Single-char punctuator
+    const start = i;
+    i++;
+    if (ch === "{") {
+      tokens.push({ type: "punct", value: "{", start, end: i, braceDepth });
+      braceStack.push("block");
+      braceDepth++;
+      canStartRegex = true;
+      continue;
+    }
+    if (ch === "}") {
+      const kind = braceStack.pop();
+      braceDepth = Math.max(0, braceDepth - 1);
+      if (kind === "template") {
+        const r = scanTemplateChunk();
+        if (!r.ok) return r;
+        if (r.done) tokens.push({ type: "lit", value: "`", start, end: i, braceDepth });
+        continue;
+      }
+      tokens.push({ type: "punct", value: "}", start, end: i, braceDepth });
+      canStartRegex = true;
+      continue;
+    }
+    if (ch === "(") {
+      const prev = tokens[tokens.length - 1];
+      parenStack.push(Boolean(prev && prev.type === "id" && !prev.isProp && STMT_PAREN_KEYWORDS.has(prev.value)));
+      tokens.push({ type: "punct", value: "(", start, end: i, braceDepth });
+      canStartRegex = true;
+      continue;
+    }
+    if (ch === ")") {
+      const isStmtParen = parenStack.pop() || false;
+      tokens.push({ type: "punct", value: ")", start, end: i, braceDepth });
+      canStartRegex = isStmtParen;
+      continue;
+    }
+    tokens.push({ type: "punct", value: ch, start, end: i, braceDepth });
+    canStartRegex = REGEX_PREV_PUNCT.has(ch) || ch === "/";
+  }
+
+  return { ok: true, tokens };
+}
+
 /**
  * Transform a pure-JS single-file kernel module (no imports/re-exports) into a strict-mode script
  * that returns the requested exported function inside an isolated V8 `vm` context.
+ * Preserves all string literals, template literals, regex literals, and comments byte-for-byte.
  */
 function preparePureKernelSource(raw, fnName) {
   if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(String(fnName || ""))) {
     return { ok: false, error: `Invalid target export identifier: ${fnName}` };
   }
-  const noComments = stripJsCommentsStrict(raw);
-  if (noComments == null) {
-    return { ok: false, error: "Unclosed block comment in kernel artifact" };
-  }
-  if (/(^|[^A-Za-z0-9_$.])import\s*(?:[\s{*'"(]|from\b)/m.test(noComments)) {
-    return { ok: false, error: "Executable kernel artifacts cannot use import statements or dynamic import()" };
-  }
-  if (/\bexport\s+(?:\*|\{[^}]*\})\s+from\b/.test(noComments)) {
-    return { ok: false, error: "Executable kernel artifacts cannot re-export external modules" };
-  }
-  if (/\bexport\s+default\b/.test(noComments)) {
-    return { ok: false, error: `Use named export \`export function ${fnName}\` (default export unsupported)` };
-  }
+  const lex = tokenizeJsCode(raw);
+  if (!lex.ok) return { ok: false, error: lex.error };
+  const { tokens } = lex;
 
-  // Track explicit exported identifiers so private helpers cannot impersonate an export.
   const exported = new Set();
-  let body = noComments
-    .replace(/\bexport\s+(async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/g, (_m, asyncKw, name) => {
-      if (asyncKw) return `export ${asyncKw}function ${name}`; // will fail syntax check cleanly
-      exported.add(name);
-      return `function ${name}`;
-    })
-    .replace(/\bexport\s+(const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/g, (_m, decl, name) => {
-      exported.add(name);
-      return `${decl} ${name}`;
-    })
-    .replace(/\bexport\s*\{([^}]*)\}\s*;?/g, (_m, list) => {
-      const aliases = [];
-      for (const item of list.split(",")) {
-        const t = item.trim();
-        if (!t) continue;
-        const asMatch = t.match(/^([A-Za-z_$][A-Za-z0-9_$]*)(?:\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*))?$/);
-        if (!asMatch) return "/* invalid export list */ export {};";
-        exported.add(asMatch[2] || asMatch[1]);
-        if (asMatch[2] && asMatch[2] !== asMatch[1]) {
-          aliases.push(`const ${asMatch[2]} = ${asMatch[1]};`);
-        }
-      }
-      return aliases.join("\n");
-    });
+  const splices = [];
 
-  if (/\bexport\b/.test(body)) {
+  for (let idx = 0; idx < tokens.length; idx++) {
+    const tok = tokens[idx];
+    if (tok.type !== "id" || tok.isProp) continue;
+
+    if (tok.value === "import") {
+      return { ok: false, error: "Executable kernel artifacts cannot use import statements or dynamic import()" };
+    }
+    if (tok.value !== "export") continue;
+
+    if (tok.braceDepth !== 0) {
+      return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+    }
+    const t1 = tokens[idx + 1];
+    if (!t1) return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+
+    if (t1.type === "id" && !t1.isProp && t1.value === "default") {
+      return { ok: false, error: `Use named export \`export function ${fnName}\` (default export unsupported)` };
+    }
+    if (t1.type === "punct" && t1.value === "*") {
+      return { ok: false, error: "Executable kernel artifacts cannot re-export external modules" };
+    }
+    if (t1.type === "id" && !t1.isProp && (t1.value === "function" || t1.value === "const" || t1.value === "let" || t1.value === "var")) {
+      const t2 = tokens[idx + 2];
+      if (!t2 || t2.type !== "id" || t2.isProp) {
+        return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+      }
+      exported.add(t2.value);
+      splices.push([tok.start, t1.start, ""]);
+      continue;
+    }
+    if (t1.type === "punct" && t1.value === "{") {
+      let j = idx + 2;
+      const aliases = [];
+      let expectItem = true;
+      let closed = false;
+      while (j < tokens.length) {
+        const cur = tokens[j];
+        if (cur.type === "punct" && cur.value === "}") {
+          closed = true;
+          break;
+        }
+        if (!expectItem) {
+          if (cur.type === "punct" && cur.value === ",") {
+            expectItem = true;
+            j++;
+            continue;
+          }
+          return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+        }
+        if (cur.type !== "id" || cur.isProp) {
+          return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+        }
+        const localName = cur.value;
+        let exportName = localName;
+        if (tokens[j + 1]?.type === "id" && !tokens[j + 1].isProp && tokens[j + 1].value === "as") {
+          const aliasTok = tokens[j + 2];
+          if (!aliasTok || aliasTok.type !== "id" || aliasTok.isProp) {
+            return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+          }
+          exportName = aliasTok.value;
+          j += 3;
+        } else {
+          j++;
+        }
+        exported.add(exportName);
+        if (exportName !== localName) {
+          aliases.push(`const ${exportName} = ${localName};`);
+        }
+        expectItem = false;
+      }
+      if (!closed) return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+      const after = tokens[j + 1];
+      if (after?.type === "id" && !after.isProp && after.value === "from") {
+        return { ok: false, error: "Executable kernel artifacts cannot re-export external modules" };
+      }
+      let endPos = tokens[j].end;
+      if (after?.type === "punct" && after.value === ";") {
+        endPos = after.end;
+        j++;
+      }
+      splices.push([tok.start, endPos, aliases.join(" ")]);
+      idx = j;
+      continue;
+    }
     return { ok: false, error: "Unsupported export syntax in kernel artifact" };
   }
+
   if (!exported.has(fnName)) {
     return { ok: false, error: `Missing exported function ${fnName}` };
+  }
+
+  let body = raw;
+  for (let s = splices.length - 1; s >= 0; s--) {
+    const [start, end, rep] = splices[s];
+    body = body.slice(0, start) + rep + body.slice(end);
   }
   return {
     ok: true,
@@ -197,7 +480,8 @@ function runArtifactInChild(fnName, calls) {
         codeGeneration: { strings: false, wasm: false },
       });
       // Capture pristine VM-realm intrinsics before any untrusted code executes.
-      // Extraction produces a primitive JSON string so no VM object ever touches host JS.
+      // All calls go through captured Reflect.apply + Object.hasOwn + frozen empty args
+      // so zero mutable prototype lookups (e.g. Function.prototype.call, Object.prototype.value) occur.
       const vmRun = vm.runInContext(\`"use strict";
         (function() {
           const _parse = JSON.parse;
@@ -205,29 +489,31 @@ function runArtifactInChild(fnName, calls) {
           const _isInt = Number.isInteger;
           const _isArr = Array.isArray;
           const _getOwn = Object.getOwnPropertyDescriptor;
+          const _hasOwn = Object.hasOwn;
           const _numStr = Number.prototype.toString;
-          const _call = Function.prototype.call;
-          const _apply = Function.prototype.apply;
+          const _reflectApply = Reflect.apply;
+          const _empty = Object.freeze([]);
           return function(fn, callsJson) {
             const calls = _parse(callsJson);
             let json = "[";
             for (let i = 0; i < calls.length; i++) {
               if (i > 0) json += ",";
-              const v = _call.call(_apply, fn, undefined, calls[i]);
+              const v = _reflectApply(fn, undefined, calls[i]);
               if (typeof v === "number") {
                 if (!_isFin(v)) return "ERR:Non-finite output on case " + i;
-                json += _call.call(_numStr, v);
+                json += _reflectApply(_numStr, v, _empty);
               } else if (_isArr(v)) {
-                const len = v.length;
-                if (!_isInt(len) || len < 0 || len > 16) return "ERR:Invalid tuple length on case " + i;
+                const lenDesc = _getOwn(v, "length");
+                const len = lenDesc && _hasOwn(lenDesc, "value") ? lenDesc.value : -1;
+                if (typeof len !== "number" || !_isInt(len) || len < 0 || len > 16) return "ERR:Invalid tuple length on case " + i;
                 json += "[";
                 for (let j = 0; j < len; j++) {
                   if (j > 0) json += ",";
                   const desc = _getOwn(v, j);
-                  if (!desc || !("value" in desc) || typeof desc.value !== "number" || !_isFin(desc.value)) {
+                  if (!desc || !_hasOwn(desc, "value") || typeof desc.value !== "number" || !_isFin(desc.value)) {
                     return "ERR:Non-numeric or accessor element on case " + i;
                   }
-                  json += _call.call(_numStr, desc.value);
+                  json += _reflectApply(_numStr, desc.value, _empty);
                 }
                 json += "]";
               } else {
