@@ -118,11 +118,199 @@ export function fetchOpenPRs(repo = "steph4n-gh/proof-foundry") {
   }
 }
 
+function tsMs(iso) {
+  const n = Date.parse(String(iso || ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function synthesizeSubmissionActivity(state, diskEvents = [], limit = 160) {
+  const mergedEvents = [...diskEvents];
+  const mergedRuns = [...(state.checker_runs || [])];
+
+  const seenEventIds = new Set(mergedEvents.map((e) => e?.id).filter(Boolean));
+  const seenFixedEvents = new Set(
+    mergedEvents.filter((e) => e?.type && e?.lemma_id).map((e) => `${e.type}:${e.lemma_id}`)
+  );
+  const seenRecordEvents = new Set(
+    mergedEvents
+      .filter((e) => e?.type && e?.lemma_id && e?.at)
+      .map((e) => `${e.type}:${e.lemma_id}:${e.at}`)
+  );
+
+  const seenFixedRuns = new Set(
+    mergedRuns.filter((r) => r?.lemma_id).map((r) => `${r.lemma_id}:${r.kind || "proof"}`)
+  );
+  const seenHashRuns = new Set(
+    mergedRuns
+      .filter((r) => r?.lemma_id && r?.file_hash)
+      .map((r) => `${r.lemma_id}:${r.kind || "proof"}:${r.file_hash}`)
+  );
+
+  const pushEvent = (ev) => {
+    if (!ev.id || seenEventIds.has(ev.id)) return;
+    seenEventIds.add(ev.id);
+    mergedEvents.push(ev);
+  };
+
+  for (const l of state.lemmas || []) {
+    if (l.kind === "record") {
+      const rs = l.record_state;
+      const unit = l.record?.unit ? ` ${l.record.unit}` : "";
+      for (const h of rs?.history || []) {
+        if (h.state !== "accepted") continue;
+        const at = h.at || (h.git_ts ? new Date(h.git_ts * 1000).toISOString() : "");
+        const receipt =
+          h.kind === "record" && rs.best?.file_hash === h.file_hash
+            ? rs.best
+            : h.kind === "record_bound" && rs.refuted?.file_hash === h.file_hash
+              ? rs.refuted
+              : null;
+        const evKey = `checker_accepted:${l.id}:${at}`;
+        if (!seenRecordEvents.has(evKey)) {
+          seenRecordEvents.add(evKey);
+          const detail =
+            h.kind === "record"
+              ? `Verified record ${h.score}${unit}`
+              : `Verified optimality bound (¬ Record ${h.score})`;
+          pushEvent({
+            id: `ev-sub-${l.id}-${h.kind}-${h.score}-${String(h.file_hash || "").slice(0, 8)}`,
+            at,
+            type: "checker_accepted",
+            lemma_id: l.id,
+            program: l.program,
+            seat: h.seat || "unknown",
+            title: `${l.title} — ${detail}`,
+            detail,
+          });
+        }
+        const runKey = `${l.id}:${h.kind}:${h.file_hash || ""}`;
+        if (!seenHashRuns.has(runKey)) {
+          seenHashRuns.add(runKey);
+          mergedRuns.push({
+            id: `chk-sub-${l.id}-${h.kind}-${h.score}-${String(h.file_hash || "").slice(0, 8)}`,
+            at,
+            kind: h.kind,
+            lemma_id: l.id,
+            seat: h.seat || "unknown",
+            theorem: receipt?.theorem || l.theorem_name || "",
+            file: h.file || "",
+            ok: true,
+            duration_ms: receipt?.duration_ms ?? 0,
+            axioms: receipt?.axioms || [],
+            reason:
+              h.kind === "record"
+                ? `Verified record ${h.score}${unit}`
+                : `Verified optimality bound (¬ Record ${h.score})`,
+            file_hash: h.file_hash || null,
+            core_hash: receipt?.core_hash || null,
+          });
+        }
+      }
+      continue;
+    }
+
+    if (l.checker?.ok) {
+      const at = l.checker.checked_at || l.updated_at || "";
+      if (!seenFixedEvents.has(`checker_accepted:${l.id}`)) {
+        seenFixedEvents.add(`checker_accepted:${l.id}`);
+        pushEvent({
+          id: `ev-sub-proof-${l.id}-${String(l.checker.file_hash || "").slice(0, 8)}`,
+          at,
+          type: "checker_accepted",
+          lemma_id: l.id,
+          program: l.program,
+          seat: l.checker.by_seat || "unknown",
+          title: l.title,
+          detail: l.checker.reason || "Verified by Judge",
+        });
+      }
+      if (!seenFixedRuns.has(`${l.id}:proof`)) {
+        seenFixedRuns.add(`${l.id}:proof`);
+        mergedRuns.push({
+          id: `chk-sub-proof-${l.id}-${String(l.checker.file_hash || "").slice(0, 8)}`,
+          at,
+          kind: "proof",
+          lemma_id: l.id,
+          seat: l.checker.by_seat || "unknown",
+          theorem: l.theorem_name || "",
+          file: l.lean_file || "",
+          ok: true,
+          duration_ms: l.checker.duration_ms ?? 0,
+          axioms: l.checker.axioms || [],
+          reason: l.checker.reason || "Verified by Judge",
+          file_hash: l.checker.file_hash || null,
+          core_hash: l.checker.core_hash || null,
+        });
+      }
+    }
+
+    if (l.refutation) {
+      const at = l.refutation.at || l.updated_at || "";
+      if (!seenFixedEvents.has(`claim_refuted:${l.id}`)) {
+        seenFixedEvents.add(`claim_refuted:${l.id}`);
+        pushEvent({
+          id: `ev-sub-refute-${l.id}-${String(l.refutation.file_hash || "").slice(0, 8)}`,
+          at,
+          type: "claim_refuted",
+          lemma_id: l.id,
+          program: l.program,
+          seat: l.refutation.by_seat || "unknown",
+          title: l.title,
+          detail: l.refutation.summary || "Judge-verified counterexample",
+        });
+      }
+      if (!seenFixedRuns.has(`${l.id}:refutation`)) {
+        seenFixedRuns.add(`${l.id}:refutation`);
+        mergedRuns.push({
+          id: `chk-sub-refute-${l.id}-${String(l.refutation.file_hash || "").slice(0, 8)}`,
+          at,
+          kind: "refutation",
+          lemma_id: l.id,
+          seat: l.refutation.by_seat || "unknown",
+          theorem: l.refutation.theorem_name || l.refutation_theorem || "",
+          file: l.refutation.counterexample_file || l.lean_file || "",
+          ok: true,
+          duration_ms: l.refutation.duration_ms ?? 0,
+          axioms: l.refutation.axioms || [],
+          reason: l.refutation.summary || "Judge-verified counterexample",
+          file_hash: l.refutation.file_hash || null,
+          core_hash: l.refutation.core_hash || null,
+        });
+      }
+    }
+
+    if (l.audit && !seenFixedEvents.has(`lemma_audited:${l.id}`)) {
+      seenFixedEvents.add(`lemma_audited:${l.id}`);
+      const at = l.audit.at || l.updated_at || "";
+      pushEvent({
+        id: `ev-sub-audit-${l.id}`,
+        at,
+        type: "lemma_audited",
+        lemma_id: l.id,
+        program: l.program,
+        seat: l.audit.by_seat || "unknown",
+        title: l.title,
+        detail: `${l.audit.verdict || "audited"}: ${l.audit.notes || ""}`.trim(),
+      });
+    }
+  }
+
+  mergedEvents.sort((a, b) => tsMs(b.at) - tsMs(a.at) || String(b.id || "").localeCompare(String(a.id || "")));
+  mergedRuns.sort((a, b) => tsMs(b.at) - tsMs(a.at) || String(b.id || "").localeCompare(String(a.id || "")));
+
+  return {
+    events: mergedEvents.slice(0, limit),
+    checker_runs: mergedRuns,
+  };
+}
+
 export function buildMissionSnapshot(mission, prSnap = null) {
   const { state } = deriveMissionState(mission.slug, { project: false });
-  const events = readEvents(mission.paths.eventsFile, 160);
+  const diskEvents = readEvents(mission.paths.eventsFile, 160);
+  const { events, checker_runs } = synthesizeSubmissionActivity(state, diskEvents, 160);
   return {
     ...projectMissionSnapshot(mission, state, prSnap),
+    checker_runs,
     ready: true,
     snapshot_at: new Date().toISOString(),
     pr_sync: prSnap ? { ok: prSnap.ok, fetched_at: prSnap.fetched_at } : { ok: false, fetched_at: null },
