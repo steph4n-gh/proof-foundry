@@ -1,0 +1,28 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "fast-matrix-mul",
+  "lemma_id": "MM-rec-3x4x5",
+  "kind": "record",
+  "score": 47,
+  "file": "missions/fast-matrix-mul/lean/MatMul/Claims/MM_rec_3x4x5_s47.lean",
+  "theorem": "MatMul.Claims.MM_rec_3x4x5_s47.record",
+  "signature": "MatMul.Claims.MM_rec_3x4x5_s47.record :\n  MatMul.Statements.MM_rec_3x4x5.Record 47",
+  "at": "2026-11-23T23:58:54.940Z",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-23T23:58:54.941Z",
+    "duration_ms": 3420,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "2ca6ddc10ae5e9f77dd2342b5bf32b994dcd6aa7c9c42fdce281b598ae3e7254",
+    "core_hash": "54d4156c9a1c301d7cbea0c26db3bb5346f62c3c43cca4a264cff6698ef886cf",
+    "statement_frozen": true,
+    "statement_hash": "c20b1408cb0eda5a2282baf285a10bb2ee67e82231cfbd11106e17316eb86660"
+  }
+}
