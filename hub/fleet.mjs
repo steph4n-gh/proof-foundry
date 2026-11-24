@@ -682,13 +682,14 @@ if (cmd === "next") {
   // Deterministic ranking:
   // 0: frozen-statement fixed bounties (lowest rung first)
   // 1: unclaimed King-of-the-Hill hunts with no active PR
-  // 2: King-of-the-Hill hunts that already have an incumbent score or an active PR
-  // 3: free-form fixed bounties (lowest rung first)
+  // 2: incumbent King-of-the-Hill hunts with no active PR
+  // 3: King-of-the-Hill hunts with an active PR
+  // 4: free-form fixed bounties (lowest rung first)
   const tierOf = (c) => {
     const l = c.lemma;
-    if (l.kind !== "record") return l.statement_file ? 0 : 3;
-    if (!l.record_state?.best && !c.hasActiveRecordPr) return 1;
-    return 2;
+    if (l.kind !== "record") return l.statement_file ? 0 : 4;
+    if (c.hasActiveRecordPr) return 3;
+    return l.record_state?.best ? 2 : 1;
   };
   candidates.sort(
     (a, b) =>

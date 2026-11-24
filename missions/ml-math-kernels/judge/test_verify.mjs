@@ -120,25 +120,59 @@ test("erfcExact64 & bf16_gelu preserve negative-tail precision without cancellat
   }
 });
 
-test("committed pure-data JSON kernels pass exhaustive 65,536-input check", () => {
-  const cases = [
-    ["artifacts/ML_rec_bf16_rsqrt_s17.json", "specs/ML_rec_bf16_rsqrt.json", 17],
-    ["artifacts/ML_rec_bf16_exp2_s18.json", "specs/ML_rec_bf16_exp2.json", 18],
-    ["artifacts/ML_rec_bf16_silu_s31.json", "specs/ML_rec_bf16_silu.json", 31],
-  ];
-  for (const [artRel, specRel, expectedOps] of cases) {
-    const raw = fs.readFileSync(path.join(MISSION_DIR, artRel), "utf8");
-    const spec = JSON.parse(fs.readFileSync(path.join(MISSION_DIR, specRel), "utf8"));
+function discoverCommittedKernels() {
+  const specsDir = path.join(MISSION_DIR, "specs");
+  const specsByTarget = new Map();
+  for (const f of fs.readdirSync(specsDir).filter((x) => x.endsWith(".json")).sort()) {
+    const spec = JSON.parse(fs.readFileSync(path.join(specsDir, f), "utf8"));
+    if (spec.target) specsByTarget.set(spec.target, { specFile: `specs/${f}`, spec });
+  }
+  const artsDir = path.join(MISSION_DIR, "artifacts");
+  return fs
+    .readdirSync(artsDir)
+    .filter((x) => x.endsWith(".json"))
+    .sort()
+    .map((f) => {
+      const m = f.match(/^(.*)_s(\d+)\.json$/);
+      assert.ok(m, `Unexpected ML artifact filename: ${f}`);
+      const raw = fs.readFileSync(path.join(artsDir, f), "utf8");
+      const json = JSON.parse(raw);
+      const specInfo = specsByTarget.get(json.target);
+      assert.ok(specInfo, `Missing spec for target "${json.target}" in ${f}`);
+      return {
+        file: f,
+        artRel: `artifacts/${f}`,
+        claimedScore: Number(m[2]),
+        raw,
+        spec: specInfo.spec,
+      };
+    });
+}
+
+test("all committed pure-data JSON kernels pass exhaustive 65,536-input check", () => {
+  const kernels = discoverCommittedKernels();
+  assert.ok(kernels.length >= 3, `Expected committed ML kernels, found ${kernels.length}`);
+  for (const { artRel, claimedScore, raw, spec } of kernels) {
     const parsed = parseAndValidateKernel(raw);
     assert.equal(parsed.ok, true, `${artRel}: ${parsed.reason}`);
-    assert.equal(parsed.opCost, expectedOps, `${artRel} opCost`);
+    assert.ok(parsed.opCost <= claimedScore, `${artRel} opCost ${parsed.opCost} > claimed ${claimedScore}`);
     const v = verifyExhaustiveBf16(parsed, spec);
     assert.equal(v.ok, true, `${artRel} verify failed: ${v.reason}`);
     assert.equal(v.tested, 65536);
     assert.ok(v.maxUlpSeen <= spec.max_ulp);
     const cuda = emitCudaSnippet(parsed, `pf_${spec.target}`);
     assert.ok(cuda.includes(`__device__ __forceinline__ float pf_${spec.target}(float r0)`));
-    assert.ok(!/e[+-]\df/.test(cuda.replace(/e-38f/g, "")), "scientific notation exponents must stay intact");
+    // Verify every emitted float32 literal parses back to the exact same IEEE-754 float32 constant (no exponent/mantissa truncation).
+    for (let idx = 0; idx < parsed.compiled.length; idx++) {
+      const inst = parsed.compiled[idx];
+      if (inst.op !== "const") continue;
+      const m = cuda.match(new RegExp(`const float r${idx + 1} = ([^;]+)f;`));
+      assert.ok(m, `${artRel}: missing float literal for r${idx + 1}`);
+      assert.ok(
+        Object.is(Math.fround(Number(m[1])), Math.fround(inst.v)),
+        `${artRel}: emitted literal ${m[1]}f != float32(${inst.v})`
+      );
+    }
   }
 });
 
@@ -259,33 +293,38 @@ test("adversarial: rejects kernel that drops NaN propagation on exp2", () => {
 });
 
 test("drop-in CUDA/C++ emitters use UB-free unsigned 32-bit wrapping and match JS interpreter on all 65,536 bf16 inputs under UBSan", () => {
+  const committedCases = discoverCommittedKernels().map((k) => ({
+    id: k.spec.id,
+    label: k.file,
+    fn: `pf_${k.spec.target}`,
+    raw: k.raw,
+  }));
   const cases = [
-    { id: "ML-rec-bf16-exp2", fn: "pf_bf16_exp2", raw: fs.readFileSync(path.join(MISSION_DIR, "artifacts/ML_rec_bf16_exp2_s18.json"), "utf8") },
-    { id: "ML-rec-bf16-rsqrt", fn: "pf_bf16_rsqrt", raw: fs.readFileSync(path.join(MISSION_DIR, "artifacts/ML_rec_bf16_rsqrt_s17.json"), "utf8") },
-    { id: "ML-rec-bf16-silu", fn: "pf_bf16_silu", raw: fs.readFileSync(path.join(MISSION_DIR, "artifacts/ML_rec_bf16_silu_s31.json"), "utf8") },
+    ...committedCases,
     // Adversarial synthetic kernels exercising out-of-range/nonfinite ftoi_trunc, ftoi_round, signed-zero min/max, and non-contraction mul+sub!
-    { id: "ML-adv-ftoi-trunc", fn: "pf_ml_adv_ftoi_trunc", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["ftoi_trunc", 0], ["itof", 1]], output: 2 }) },
-    { id: "ML-adv-ftoi-round", fn: "pf_ml_adv_ftoi_round", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["ftoi_round", 0], ["itof", 1]], output: 2 }) },
-    { id: "ML-adv-min-s0", fn: "pf_ml_adv_min_s0", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 0.0], ["min", 0, 1], ["bitcast_i32", 2], ["itof", 3]], output: 4 }) },
-    { id: "ML-adv-max-s0", fn: "pf_ml_adv_max_s0", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", -0.0], ["max", 0, 1], ["bitcast_i32", 2], ["itof", 3]], output: 4 }) },
-    { id: "ML-adv-no-contract", fn: "pf_ml_adv_no_contract", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 1.00000011920928955], ["mul", 0, 1], ["sub", 2, 0], ["const", 8388608], ["mul", 3, 4]], output: 5 }) },
+    { id: "ML-adv-ftoi-trunc", label: "ML-adv-ftoi-trunc", fn: "pf_ml_adv_ftoi_trunc", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["ftoi_trunc", 0], ["itof", 1]], output: 2 }) },
+    { id: "ML-adv-ftoi-round", label: "ML-adv-ftoi-round", fn: "pf_ml_adv_ftoi_round", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["ftoi_round", 0], ["itof", 1]], output: 2 }) },
+    { id: "ML-adv-min-s0", label: "ML-adv-min-s0", fn: "pf_ml_adv_min_s0", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 0.0], ["min", 0, 1], ["bitcast_i32", 2], ["itof", 3]], output: 4 }) },
+    { id: "ML-adv-max-s0", label: "ML-adv-max-s0", fn: "pf_ml_adv_max_s0", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", -0.0], ["max", 0, 1], ["bitcast_i32", 2], ["itof", 3]], output: 4 }) },
+    { id: "ML-adv-no-contract", label: "ML-adv-no-contract", fn: "pf_ml_adv_no_contract", raw: JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["const", 1.00000011920928955], ["mul", 0, 1], ["sub", 2, 0], ["const", 8388608], ["mul", 3, 4]], output: 5 }) },
   ];
   const snippets = [];
   const parsedMap = [];
-  for (const c of cases) {
+  for (let i = 0; i < cases.length; i++) {
+    const c = cases[i];
     const raw = c.raw;
     const parsed = parseAndValidateKernel(raw);
-    assert.equal(parsed.ok, true);
+    assert.equal(parsed.ok, true, `${c.label}: ${parsed.reason}`);
     const fromVerify = emitCudaSnippet(parsed, c.fn);
     const fromDropIn = extractDropInArtifact("ml-math-kernels", { id: c.id }, raw);
-    assert.ok(fromDropIn && fromDropIn.code, `extractDropInArtifact failed for ${c.id}`);
+    assert.ok(fromDropIn && fromDropIn.code, `extractDropInArtifact failed for ${c.label}`);
     // Strip the first comment line and verify both emitters produce byte-identical bodies!
     const bodyA = fromVerify.split("\n").slice(1).join("\n");
     const bodyB = fromDropIn.code.split("\n").slice(1).join("\n");
-    assert.equal(bodyA, bodyB, `emitCudaSnippet and extractDropInArtifact diverged on ${c.id}`);
-    assert.ok(!/const int32_t r\d+ = r\d+ [+\-*<<>>]/.test(bodyA), `raw signed int32_t op found in ${c.id}:\n${bodyA}`);
-    snippets.push(bodyB);
-    parsedMap.push({ ...c, parsed });
+    assert.equal(bodyA, bodyB, `emitCudaSnippet and extractDropInArtifact diverged on ${c.label}`);
+    assert.ok(!/const int32_t r\d+ = r\d+ [+\-*<<>>]/.test(bodyA), `raw signed int32_t op found in ${c.label}:\n${bodyA}`);
+    snippets.push(`namespace k${i} {\n${bodyB}\n}`);
+    parsedMap.push({ ...c, ns: `k${i}`, parsed });
   }
 
   // Compile and run all emitted functions under UBSan across all 65,536 bf16 bit patterns.
@@ -366,14 +405,7 @@ int main() {
   static uint16_t out[${cases.length}][65536];
   for (uint32_t b = 0; b < 65536u; b++) {
     float x = bf16_to_f32((uint16_t)b);
-    out[0][b] = f32_to_bf16_rne(pf_bf16_exp2(x));
-    out[1][b] = f32_to_bf16_rne(pf_bf16_rsqrt(x));
-    out[2][b] = f32_to_bf16_rne(pf_bf16_silu(x));
-    out[3][b] = f32_to_bf16_rne(pf_ml_adv_ftoi_trunc(x));
-    out[4][b] = f32_to_bf16_rne(pf_ml_adv_ftoi_round(x));
-    out[5][b] = f32_to_bf16_rne(pf_ml_adv_min_s0(x));
-    out[6][b] = f32_to_bf16_rne(pf_ml_adv_max_s0(x));
-    out[7][b] = f32_to_bf16_rne(pf_ml_adv_no_contract(x));
+${parsedMap.map((c, idx) => `    out[${idx}][b] = f32_to_bf16_rne(${c.ns}::${c.fn}(x));`).join("\n")}
   }
   std::fwrite(out, sizeof(uint16_t), ${cases.length} * 65536, stdout);
   return 0;
@@ -382,7 +414,7 @@ int main() {
     fs.writeFileSync(cppPath, cpp, "utf8");
     const comp = spawnSync(cxx, ["-std=c++20", "-O2", "-ffp-contract=off", "-fsanitize=undefined", "-fno-sanitize-recover=all", cppPath, "-o", binPath], { encoding: "utf8" });
     assert.equal(comp.status, 0, `UBSan compile failed:\n${comp.stderr}`);
-    const run = spawnSync(binPath, [], { maxBuffer: 2 * 1024 * 1024 });
+    const run = spawnSync(binPath, [], { maxBuffer: Math.max(4 * 1024 * 1024, cases.length * 65536 * 2 + 65536) });
     assert.equal(run.status, 0, `UBSan execution failed (status=${run.status}):\n${run.stderr?.toString("utf8")}`);
     const buf = run.stdout;
     assert.equal(buf.length, cases.length * 65536 * 2);
@@ -394,11 +426,11 @@ int main() {
         if (cppOut !== jsOut) {
           mismatches++;
           if (mismatches <= 3) {
-            console.error(`Mismatch on ${parsedMap[k].id} bf16=0x${b.toString(16)}: cpp=0x${cppOut.toString(16)} js=0x${jsOut.toString(16)}`);
+            console.error(`Mismatch on ${parsedMap[k].label} bf16=0x${b.toString(16)}: cpp=0x${cppOut.toString(16)} js=0x${jsOut.toString(16)}`);
           }
         }
       }
-      assert.equal(mismatches, 0, `${parsedMap[k].id}: ${mismatches} bf16 mismatches between UBSan C++ and JS interpreter`);
+      assert.equal(mismatches, 0, `${parsedMap[k].label}: ${mismatches} bf16 mismatches between UBSan C++ and JS interpreter`);
     }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });

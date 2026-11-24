@@ -309,10 +309,13 @@ try {
   }
 
   // N14f (Daybreak P2-1/P3): forged and omitted record signature rejected fail-closed on donor record PR
+  // Dynamically select the live winning incumbent for ML-rec-bf16-exp2 so future record ratchets never rot this test!
   const mlRecTmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pf-rec-sig-"));
   try {
-    const mlArtRel = "missions/ml-math-kernels/artifacts/ML_rec_bf16_exp2_s18.json";
-    const mlSubRel = "missions/ml-math-kernels/submissions/ML-rec-bf16-exp2.record.s18.json";
+    const exp2Best = deriveMissionState("ml-math-kernels").state.lemmas.find((l) => l.id === "ML-rec-bf16-exp2")?.record_state?.best;
+    assert(Boolean(exp2Best?.file && exp2Best?.submission), "N14f setup: ML-rec-bf16-exp2 has a live winning record");
+    const mlArtRel = exp2Best.file;
+    const mlSubRel = `missions/ml-math-kernels/submissions/${exp2Best.submission}`;
     const realSub = JSON.parse(fs.readFileSync(path.resolve(mlSubRel), "utf8"));
     fs.mkdirSync(path.dirname(path.join(mlRecTmpRoot, mlArtRel)), { recursive: true });
     fs.mkdirSync(path.dirname(path.join(mlRecTmpRoot, mlSubRel)), { recursive: true });
@@ -944,57 +947,60 @@ try {
 
   const mlStateBefore = fs.readFileSync(path.resolve(import.meta.dirname, "..", "missions/ml-math-kernels/state.json"), "utf8");
   const snStateBefore = fs.readFileSync(path.resolve(import.meta.dirname, "..", "missions/sorting-networks/state.json"), "utf8");
+  const mlDerived = deriveMissionState("ml-math-kernels").state;
+  const rsqrtLive = mlDerived.lemmas.find((l) => l.id === "ML-rec-bf16-rsqrt")?.record_state?.best;
+  assert(Boolean(rsqrtLive?.score && rsqrtLive?.file), "fleet next setup: ML-rec-bf16-rsqrt has a live incumbent");
 
   // 7a. ml-math-kernels pure-data JSON instructions (regression for broken `artifact_ext === ".mjs"` check!)
-  const mlNextGelu = runFleetJson(["next", "--mission", "ml-math-kernels", "--offline"]);
+  // Score-agnostic: works whether ml-math-kernels hunts are unclaimed or already have incumbents.
+  const mlNextFirst = runFleetJson(["next", "--mission", "ml-math-kernels", "--offline"]);
   assert(
-    mlNextGelu.ok &&
-      mlNextGelu.claim?.id === "ML-rec-bf16-gelu" &&
-      mlNextGelu.instructions.some((l) => l.includes("pure-data .json") && l.includes("ML_rec_bf16_gelu_s")) &&
-      mlNextGelu.instructions.every((l) => !l.includes("Prove `theorem")) &&
-      Array.isArray(mlNextGelu.context?.reusable_lemmas) &&
-      mlNextGelu.context.reusable_lemmas.length >= 3 &&
-      mlNextGelu.context.champion === null,
-    "fleet next (ml-math-kernels unclaimed): emits pure-data .json instructions (no Lean theorem) + 3 reusable sister kernels",
-    JSON.stringify({ id: mlNextGelu.claim?.id, instructions: mlNextGelu.instructions, reusable: mlNextGelu.context?.reusable_lemmas?.length })
+    mlNextFirst.ok &&
+      mlNextFirst.mission === "ml-math-kernels" &&
+      mlNextFirst.claim?.record?.artifact_ext === ".json" &&
+      mlNextFirst.instructions.some((l) => l.includes("pure-data .json") && l.includes(".json")) &&
+      mlNextFirst.instructions.every((l) => !l.includes("Prove `theorem")) &&
+      Array.isArray(mlNextFirst.context?.reusable_lemmas) &&
+      mlNextFirst.context.reusable_lemmas.length >= 3,
+    "fleet next (ml-math-kernels): emits pure-data .json instructions (never Lean theorem) + reusable sister kernels",
+    JSON.stringify({ id: mlNextFirst.claim?.id, instructions: mlNextFirst.instructions, reusable: mlNextFirst.context?.reusable_lemmas?.length })
   );
 
   // 7b. ml-math-kernels incumbent champion + live AlphaEvolve-style BF16 worst-ULP diagnostics
-  const mlNextRsqrt = runFleetJson(["next", "--mission", "ml-math-kernels", "--exclude", "ML-rec-bf16-gelu", "--offline"]);
+  const excludeExceptRsqrt = mlDerived.lemmas.filter((l) => l.id !== "ML-rec-bf16-rsqrt").map((l) => l.id).join(",");
+  const mlNextRsqrt = runFleetJson(["next", "--mission", "ml-math-kernels", "--exclude", excludeExceptRsqrt, "--offline"]);
   assert(
     mlNextRsqrt.ok &&
       mlNextRsqrt.claim?.id === "ML-rec-bf16-rsqrt" &&
-      mlNextRsqrt.context?.champion?.score === 17 &&
-      mlNextRsqrt.context?.champion?.artifact_file === "missions/ml-math-kernels/artifacts/ML_rec_bf16_rsqrt_s17.json" &&
+      mlNextRsqrt.context?.champion?.score === rsqrtLive.score &&
+      mlNextRsqrt.context?.champion?.artifact_file === rsqrtLive.file &&
       mlNextRsqrt.context?.champion?.diagnostics?.tested === 65536 &&
-      mlNextRsqrt.context?.champion?.diagnostics?.op_cost === 17 &&
+      mlNextRsqrt.context?.champion?.diagnostics?.op_cost <= rsqrtLive.score &&
       /^0x[0-9a-f]{4}$/.test(mlNextRsqrt.context?.champion?.diagnostics?.worst_input_bits || "") &&
-      mlNextRsqrt.instructions.some((l) => l.includes("ML_rec_bf16_rsqrt_s17.json") && l.includes("mutate from")),
-    "fleet next (ml-math-kernels incumbent): exposes champion artifact + live 65,536-input BF16 diagnostics & mutation instructions",
+      mlNextRsqrt.instructions.some((l) => l.includes(rsqrtLive.file) && l.includes("mutate from")),
+    "fleet next (ml-math-kernels incumbent): exposes live champion artifact + 65,536-input BF16 diagnostics & mutation instructions",
     JSON.stringify(mlNextRsqrt.context?.champion)
   );
 
   // 7c. sorting-networks updated Tomar 2026 bounds: SN-rec-013 at S(13)=45 routes to record-bound 44 + context.champion.phase === "needs_bound"
-  const snNext = runFleetJson([
-    "next",
-    "--mission",
-    "sorting-networks",
-    "--exclude",
-    "SN-003,SN-004,SN-005,SN-006,SN-007,SN-rec-016,SN-rec-d16,SN-rec-d17",
-    "--offline",
-  ]);
-  assert(
-    snNext.ok &&
-      snNext.claim?.id === "SN-rec-013" &&
-      snNext.context?.champion?.score === 45 &&
-      snNext.context?.champion?.literature_bound === 45 &&
-      snNext.context?.champion?.phase === "needs_bound" &&
-      snNext.instructions.some((l) => l.includes("record-bound") && l.includes("--score 44")) &&
-      Array.isArray(snNext.context?.reusable_lemmas) &&
-      snNext.context.reusable_lemmas.some((l) => l.id === "SN-001"),
-    "fleet next (sorting-networks SN-rec-013): Tomar 2026 S(13)=45 routes to record-bound 44 with reusable lemmas",
-    JSON.stringify({ id: snNext.claim?.id, champion: snNext.context?.champion, instructions: snNext.instructions })
-  );
+  const snDerived = deriveMissionState("sorting-networks").state;
+  const sn013Live = snDerived.lemmas.find((l) => l.id === "SN-rec-013");
+  if (sn013Live && !sn013Live.record_state?.closed && sn013Live.record_state?.best?.score === 45 && !sn013Live.record_state?.refuted) {
+    const excludeExceptSn013 = snDerived.lemmas.filter((l) => l.id !== "SN-rec-013").map((l) => l.id).join(",");
+    const snNext = runFleetJson(["next", "--mission", "sorting-networks", "--exclude", excludeExceptSn013, "--offline"]);
+    assert(
+      snNext.ok &&
+        snNext.claim?.id === "SN-rec-013" &&
+        snNext.context?.champion?.score === 45 &&
+        snNext.context?.champion?.literature_bound === 45 &&
+        snNext.context?.champion?.phase === "needs_bound" &&
+        snNext.instructions.some((l) => l.includes("record-bound") && l.includes("--score 44")) &&
+        Array.isArray(snNext.context?.reusable_lemmas) &&
+        snNext.context.reusable_lemmas.some((l) => l.id === "SN-001"),
+      "fleet next (sorting-networks SN-rec-013): Tomar 2026 S(13)=45 routes to record-bound 44 with reusable lemmas",
+      JSON.stringify({ id: snNext.claim?.id, champion: snNext.context?.champion, instructions: snNext.instructions })
+    );
+  }
 
   // 7d. p-vs-np includes graveyard_dead_ends (refuted + dead claims digest)
   const pnpNext = runFleetJson(["next", "--mission", "p-vs-np", "--offline"]);
@@ -1014,9 +1020,9 @@ try {
     searchRsqrt.ok &&
       searchRsqrt.total_matches >= 1 &&
       searchRsqrt.lemmas[0]?.id === "ML-rec-bf16-rsqrt" &&
-      searchRsqrt.lemmas[0]?.best_score === 17 &&
-      searchRsqrt.lemmas[0]?.file === "missions/ml-math-kernels/artifacts/ML_rec_bf16_rsqrt_s17.json",
-    "fleet search-lemmas: finds ML-rec-bf16-rsqrt by natural-language query 'rsqrt rmsnorm'",
+      searchRsqrt.lemmas[0]?.best_score === rsqrtLive.score &&
+      searchRsqrt.lemmas[0]?.file === rsqrtLive.file,
+    "fleet search-lemmas: finds ML-rec-bf16-rsqrt live incumbent by natural-language query 'rsqrt rmsnorm'",
     JSON.stringify(searchRsqrt)
   );
 

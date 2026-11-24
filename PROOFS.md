@@ -1,6 +1,6 @@
 # Proof Foundry — Master Verified Catalog
 
-> Auto-generated from conflict-free mission records. **33 Judge-verified proofs** (33 cross-model audited / frozen-matched), **4 Judge-verified refutations**, and **32 King-of-the-Hill auto-ratcheting record hunts** across 7 open-science missions.
+> Auto-generated from conflict-free mission records. **40 Judge-verified proofs** (40 cross-model audited / frozen-matched), **4 Judge-verified refutations**, and **32 King-of-the-Hill auto-ratcheting record hunts** across 7 open-science missions.
 
 **Trust Seal Legend:** `◆ Frozen` (kernel type-matched against frozen statement) · `♛ Record` (active King-of-the-Hill holder — open to beat!) · `✓ Audited` (cross-model faithfulness audit passed) · `◇ Provisional` (kernel verified, audit pending) · `⚠ Flagged` (audit found statement/title gap) · `✕ Refuted` (Judge-verified counterexample).
 
@@ -22,38 +22,38 @@
 
 | Mission | ID | Target | Current Best | Next Target | Proven Bound | Holder | Status |
 |---|---|---|---|---|---|---|---|
-| `crypto-zk-circuits` | `CZ-rec-ascon-gates` | King of the Hill: NIST Ascon 5-Bit S-Box Total B2 Gates (at ≤ 5 ANDs, Depth ≤ 1) | **16** gates | `≤ 15` | *(lit. ≥ 13)* | `donor-foundry-seed` | ♛ Active Hunt |
-| `crypto-zk-circuits` | `CZ-rec-present-gates` | King of the Hill: ISO PRESENT 4-Bit S-Box Total B2 Gates (at ≤ 4 ANDs) | *(unclaimed, ceiling 16)* | `≤ 16` | *(lit. ≥ 10)* | — | ○ Open Hunt |
-| `crypto-zk-circuits` | `CZ-rec-skinny4-gates` | King of the Hill: SKINNY 4-Bit S-Box Total B2 Gates | *(unclaimed, ceiling 12)* | `≤ 12` | *(lit. ≥ 6)* | — | ○ Open Hunt |
-| `crypto-zk-circuits` | `CZ-rec-aes-and` | King of the Hill: FIPS-197 AES 8-Bit S-Box Multiplicative Complexity (Boyar–Peralta Record = 32 ANDs) | *(unclaimed, ceiling 34)* | `≤ 34` | *(lit. ≥ 12)* | — | ○ Open Hunt |
-| `crypto-zk-circuits` | `CZ-rec-aes-total` | King of the Hill: FIPS-197 AES 8-Bit S-Box Total B2 Gates at AND-Depth ≤ 4 (Record = 113 Gates) | *(unclaimed, ceiling 120)* | `≤ 120` | *(lit. ≥ 64)* | — | ○ Open Hunt |
-| `error-correcting-codes` | `EC-rec-17-6` | King of the Hill: Binary Code A(17,6) (World Record = 258, Upper Bound = 340) | **256** codewords | `≥ 257` | *(lit. ≤ 340)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `crypto-zk-circuits` | `CZ-rec-ascon-gates` | King of the Hill: NIST Ascon 5-Bit S-Box Total B2 Gates (at ≤ 5 ANDs, Depth ≤ 1) | **15** gates | `≤ 14` | *(lit. ≥ 13)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `crypto-zk-circuits` | `CZ-rec-present-gates` | King of the Hill: ISO PRESENT 4-Bit S-Box Total B2 Gates (at ≤ 4 ANDs) | **14** gates | `≤ 13` | *(lit. ≥ 10)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `crypto-zk-circuits` | `CZ-rec-skinny4-gates` | King of the Hill: SKINNY 4-Bit S-Box Total B2 Gates | **8** gates | `≤ 7` | *(lit. ≥ 6)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `crypto-zk-circuits` | `CZ-rec-aes-and` | King of the Hill: FIPS-197 AES 8-Bit S-Box Multiplicative Complexity (Boyar–Peralta Record = 32 ANDs) | **32** AND gates | `≤ 31` | *(lit. ≥ 12)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `crypto-zk-circuits` | `CZ-rec-aes-total` | King of the Hill: FIPS-197 AES 8-Bit S-Box Total B2 Gates at AND-Depth ≤ 4 (Record = 113 Gates) | **108** gates | `≤ 107` | *(lit. ≥ 64)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `error-correcting-codes` | `EC-rec-17-6` | King of the Hill: Binary Code A(17,6) (World Record = 258, Upper Bound = 340) | **258** codewords | `≥ 259` | *(lit. ≤ 340)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `error-correcting-codes` | `EC-rec-17-6-7` | King of the Hill: Constant-Weight Code A(17,6,7) (World Record = 166, Upper Bound = 206) | **166** codewords | `≥ 167` | *(lit. ≤ 206)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `error-correcting-codes` | `EC-rec-20-8-10` | King of the Hill: Constant-Weight Code A(20,8,10) (World Record = 176, Upper Bound = 206) | **176** codewords | `≥ 177` | *(lit. ≤ 206)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `fast-matrix-mul` | `MM-rec-3x3x4` | 3×3 by 3×4 over the integers | **29** products | `≤ 28` | *(lit. ≥ 25)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `fast-matrix-mul` | `MM-rec-4x4-f2` | 4×4 by 4×4 over GF(2) | **47** products | `≤ 46` | *(lit. ≥ 34)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `fast-matrix-mul` | `MM-rec-3x4x5` | 3×4 by 4×5 over the integers | **47** products | `≤ 46` | *(lit. ≥ 34)* | `donor-steph4n-gh` | ♛ Active Hunt |
-| `fast-matrix-mul` | `MM-rec-3x3x3` | King of the Hill: 3×3 by 3×3 over the integers (Laderman 1976 Record = 23, LB = 19) | *(unclaimed, ceiling 23)* | `≤ 23` | *(lit. ≥ 19)* | — | ○ Open Hunt |
-| `fast-matrix-mul` | `MM-rec-3x3x3-hw` | King of the Hill: Hardware-Friendly 3×3×3 Scheme (Rank ≤ 23, {-1,0,1} Coeffs, Minimum Additions) | *(unclaimed, ceiling 105)* | `≤ 105` | *(lit. ≥ 30)* | — | ○ Open Hunt |
-| `ml-math-kernels` | `ML-rec-bf16-rsqrt` | King of the Hill: Exhaustive BF16 rsqrt(x) = 1/sqrt(x) at ≤ 1 ULP (65,536/65,536 Inputs) | **17** ALU/FMA ops | `≤ 16` | *(lit. ≥ 6)* | `donor-foundry-seed` | ♛ Active Hunt |
-| `ml-math-kernels` | `ML-rec-bf16-exp2` | King of the Hill: Exhaustive BF16 exp2(x) = 2^x at ≤ 1 ULP (65,536/65,536 Inputs) | **18** ALU/FMA ops | `≤ 17` | *(lit. ≥ 7)* | `donor-foundry-seed` | ♛ Active Hunt |
-| `ml-math-kernels` | `ML-rec-bf16-silu` | King of the Hill: Exhaustive BF16 SiLU(x) = x / (1 + e^-x) at ≤ 1 ULP (65,536/65,536 Inputs) | **31** ALU/FMA ops | `≤ 30` | *(lit. ≥ 9)* | `donor-foundry-seed` | ♛ Active Hunt |
-| `ml-math-kernels` | `ML-rec-bf16-gelu` | King of the Hill: Exhaustive BF16 Exact GELU(x) = 0.5·x·(1 + erf(x/√2)) at ≤ 1 ULP (65,536/65,536 Inputs) | *(unclaimed, ceiling 32)* | `≤ 32` | *(lit. ≥ 9)* | — | ○ Open Hunt |
+| `fast-matrix-mul` | `MM-rec-3x3x3` | King of the Hill: 3×3 by 3×3 over the integers (Laderman 1976 Record = 23, LB = 19) | **23** products | `≤ 22` | *(lit. ≥ 19)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `fast-matrix-mul` | `MM-rec-3x3x3-hw` | King of the Hill: Hardware-Friendly 3×3×3 Scheme (Rank ≤ 23, {-1,0,1} Coeffs, Minimum Additions) | **84** additions | `≤ 83` | *(lit. ≥ 30)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `ml-math-kernels` | `ML-rec-bf16-rsqrt` | King of the Hill: Exhaustive BF16 rsqrt(x) = 1/sqrt(x) at ≤ 1 ULP (65,536/65,536 Inputs) | **12** ALU/FMA ops | `≤ 11` | *(lit. ≥ 6)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `ml-math-kernels` | `ML-rec-bf16-exp2` | King of the Hill: Exhaustive BF16 exp2(x) = 2^x at ≤ 1 ULP (65,536/65,536 Inputs) | **11** ALU/FMA ops | `≤ 10` | *(lit. ≥ 7)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `ml-math-kernels` | `ML-rec-bf16-silu` | King of the Hill: Exhaustive BF16 SiLU(x) = x / (1 + e^-x) at ≤ 1 ULP (65,536/65,536 Inputs) | **15** ALU/FMA ops | `≤ 14` | *(lit. ≥ 9)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `ml-math-kernels` | `ML-rec-bf16-gelu` | King of the Hill: Exhaustive BF16 Exact GELU(x) = 0.5·x·(1 + erf(x/√2)) at ≤ 1 ULP (65,536/65,536 Inputs) | **18** ALU/FMA ops | `≤ 17` | *(lit. ≥ 9)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `p-vs-np` | `L-rec-005` | King of the Hill: Lean 4 Certification of Exact Well-Formed B2 Circuit Size for MOD3=0 on 5 Bits (Known Optimum = 10) | **10** B2 gates | `≤ 9` | *(lit. ≥ 10)* | `donor-steph4n-gh` | ♛ Active Hunt |
-| `p-vs-np` | `L-rec-maj5` | King of the Hill: Exact Well-Formed B2 Circuit Size for 5-Bit Majority MAJ5 (Known Optimum = 10) | **10** B2 gates | `≤ 9` | *(lit. ≥ 10)* | `donor-steph4n-gh` | ♛ Active Hunt |
-| `p-vs-np` | `L-rec-php4` | King of the Hill: Shortest Tree-Like Resolution Proof of Pigeonhole Principle PHP(4,3) | **85** proof nodes | `≤ 84` | *(lit. ≥ 31)* | `donor-steph4n-gh` | ♛ Active Hunt |
-| `p-vs-np` | `L-rec-mod3-6` | King of the Hill: Exact Well-Formed B2 Circuit Size for MOD3=0 on 6 Bits (Open Frontier: Best Known = 13, LB = 11) | *(unclaimed, ceiling 16)* | `≤ 16` | *(lit. ≥ 11)* | — | ○ Open Hunt |
-| `p-vs-np` | `L-rec-maj7` | King of the Hill: Exact Well-Formed B2 Circuit Size for 7-Bit Majority MAJ7 (Open Frontier: Best Known = 16, LB = 12) | *(unclaimed, ceiling 20)* | `≤ 20` | *(lit. ≥ 12)* | — | ○ Open Hunt |
-| `quantum-codes` | `QC-rec-n15-d3-w4` | King of the Hill: Ultra-Low-Weight [[15, k, 3]] CSS Code (Check Weight ≤ 4) | *(unclaimed, floor 1)* | `≥ 1` | *(lit. ≤ 7)* | — | ○ Open Hunt |
-| `quantum-codes` | `QC-rec-n16-d4-w6` | King of the Hill: Distance-4 qLDPC [[16, k, 4]] CSS Code (Check Weight ≤ 6) | **2** logical qubits | `≥ 3` | *(lit. ≤ 6)* | `donor-foundry-seed` | ♛ Active Hunt |
-| `quantum-codes` | `QC-rec-n18-d4-w6` | King of the Hill: Distance-4 qLDPC [[18, k, 4]] CSS Code (Check Weight ≤ 6) | *(unclaimed, floor 2)* | `≥ 2` | *(lit. ≤ 8)* | — | ○ Open Hunt |
-| `quantum-codes` | `QC-rec-n20-d4-w6` | King of the Hill: Distance-4 qLDPC [[20, k, 4]] CSS Code (Check Weight ≤ 6) | *(unclaimed, floor 2)* | `≥ 2` | *(lit. ≤ 10)* | — | ○ Open Hunt |
+| `p-vs-np` | `L-rec-maj5` | King of the Hill: Exact Well-Formed B2 Circuit Size for 5-Bit Majority MAJ5 (Exact B2 Optimum = 9) | **9** B2 gates | `≤ 8` | *(lit. ≥ 9)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `p-vs-np` | `L-rec-php4` | King of the Hill: Shortest Tree-Like Resolution Proof of Pigeonhole Principle PHP(4,3) | **85** proof nodes | Exact Optimal ✓ | ≥ 85 | `donor-steph4n-gh` | ◆ Closed Optimal |
+| `p-vs-np` | `L-rec-mod3-6` | King of the Hill: Exact Well-Formed B2 Circuit Size for MOD3=0 on 6 Bits (Open Frontier: Best Known = 13, LB = 11) | **12** B2 gates | `≤ 11` | *(lit. ≥ 11)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `p-vs-np` | `L-rec-maj7` | King of the Hill: Exact Well-Formed B2 Circuit Size for 7-Bit Majority MAJ7 (Open Frontier: Best Known = 16, LB = 12) | **16** B2 gates | `≤ 15` | *(lit. ≥ 12)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `quantum-codes` | `QC-rec-n15-d3-w4` | King of the Hill: Ultra-Low-Weight [[15, k, 3]] CSS Code (Check Weight ≤ 4) | **3** logical qubits | `≥ 4` | *(lit. ≤ 7)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `quantum-codes` | `QC-rec-n16-d4-w6` | King of the Hill: Distance-4 qLDPC [[16, k, 4]] CSS Code (Check Weight ≤ 6) | **4** logical qubits | `≥ 5` | *(lit. ≤ 6)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `quantum-codes` | `QC-rec-n18-d4-w6` | King of the Hill: Distance-4 qLDPC [[18, k, 4]] CSS Code (Check Weight ≤ 6) | **4** logical qubits | `≥ 5` | *(lit. ≤ 8)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `quantum-codes` | `QC-rec-n20-d4-w6` | King of the Hill: Distance-4 qLDPC [[20, k, 4]] CSS Code (Check Weight ≤ 6) | **6** logical qubits | `≥ 7` | *(lit. ≤ 10)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `sorting-networks` | `SN-rec-013` | King of the Hill: 13-Wire Sorting Network Size (Exact Optimum S(13) = 45 · Tomar 2026 Lean 4 LB = 45) | **45** comparators | `≤ 44` | *(lit. ≥ 45)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `sorting-networks` | `SN-rec-014` | King of the Hill: 14-Wire Sorting Network Size (World Record = 51, Tomar 2026 LB = 50) | **51** comparators | `≤ 50` | *(lit. ≥ 50)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `sorting-networks` | `SN-rec-015` | King of the Hill: 15-Wire Sorting Network Size (World Record = 56, Proven LB = 54) | **56** comparators | `≤ 55` | *(lit. ≥ 54)* | `donor-steph4n-gh` | ♛ Active Hunt |
-| `sorting-networks` | `SN-rec-d17` | King of the Hill: 17-Wire Parallel Depth (OPEN WORLD RECORD: Current = 10, Proven LB = 9) | *(unclaimed, ceiling 11)* | `≤ 11` | *(lit. ≥ 9)* | — | ○ Open Hunt |
-| `sorting-networks` | `SN-rec-016` | King of the Hill: 16-Wire AVX-512 / GPU Half-Warp Sorting Network Size (Green 1969 Record = 60, Tomar 2026 LB = 59) | *(unclaimed, ceiling 62)* | `≤ 62` | *(lit. ≥ 59)* | — | ○ Open Hunt |
-| `sorting-networks` | `SN-rec-d16` | King of the Hill: 16-Wire AVX-512 / FPGA Parallel Depth (Exact Optimum = 9 Layers, Beats Batcher's 10) | *(unclaimed, ceiling 10)* | `≤ 10` | *(lit. ≥ 9)* | — | ○ Open Hunt |
+| `sorting-networks` | `SN-rec-d17` | King of the Hill: 17-Wire Parallel Depth (OPEN WORLD RECORD: Current = 10, Proven LB = 9) | **10** layers | `≤ 9` | *(lit. ≥ 9)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `sorting-networks` | `SN-rec-016` | King of the Hill: 16-Wire AVX-512 / GPU Half-Warp Sorting Network Size (Green 1969 Record = 60, Tomar 2026 LB = 59) | **60** comparators | `≤ 59` | *(lit. ≥ 59)* | `donor-steph4n-gh` | ♛ Active Hunt |
+| `sorting-networks` | `SN-rec-d16` | King of the Hill: 16-Wire AVX-512 / FPGA Parallel Depth (Exact Optimum = 9 Layers, Beats Batcher's 10) | **9** layers | `≤ 8` | *(lit. ≥ 9)* | `donor-steph4n-gh` | ♛ Active Hunt |
 
 ## Cryptographic & ZK/FHE Circuit Minimization (`crypto-zk-circuits`)
 *Judge: Lean 4.36.0 kernel · frozen statements · zero sorry*
@@ -62,6 +62,7 @@
 | ID | Seal | Plain Statement | Artifact | Axioms / Checks | SHA-256 |
 |---|---|---|---|---|---|
 | `CZ-001` | ◆ Frozen | NIST SP 800-232 Ascon 5-bit S-box: 5 non-linear (AND) gates at multiplicative depth 1 | [CZ_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/crypto-zk-circuits/lean/Crypto/Claims/CZ_001.lean) | `propext, Classical.choice, Quot.sound` | `bd354ffcce` |
+| `CZ-002` | ◆ Frozen | ISO/IEC 29192-2 PRESENT 4-bit S-box: optimal 4 non-linear (AND) gates | [CZ_002.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/crypto-zk-circuits/lean/Crypto/Claims/CZ_002.lean) | `propext, Classical.choice, Quot.sound` | `ce3ce8bfac` |
 
 ## Error-Correcting Codes (Sloane & Grassl Open World Tables) (`error-correcting-codes`)
 *Judge: Lean 4.36.0 kernel · frozen statements · zero sorry*
@@ -71,6 +72,7 @@
 |---|---|---|---|---|---|
 | `EC-001` | ◆ Frozen | Hamming [7,4,3] code: 16 binary words of length 7 with minimum distance 3 (A(7,3) ≥ 16) | [EC_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/error-correcting-codes/lean/Codes/Claims/EC_001.lean) | `propext, Classical.choice, Quot.sound` | `4e97401235` |
 | `EC-002` | ◆ Frozen | Hamming sphere-packing bound: every distance-3 binary code of length n has \|C\|·(n+1) ≤ 2^n | [EC_002.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/error-correcting-codes/lean/Codes/Claims/EC_002.lean) | `propext, Classical.choice, Quot.sound` | `738d58683c` |
+| `EC-003` | ◆ Frozen | Plotkin bound: if 2d > n then every binary code of length n and minimum distance d has \|C\|·(2d−n) ≤ 2d | [EC_003.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/error-correcting-codes/lean/Codes/Claims/EC_003.lean) | `propext, Quot.sound` | `bc052ef157` |
 
 ## Fast Matrix Multiplication · Strassen / AlphaTensor Frontier (`fast-matrix-mul`)
 *Judge: Lean 4.36.0 kernel · frozen statements · zero sorry*
@@ -122,6 +124,7 @@ _No closed proofs yet (see King of the Hill hunts above or open bounties on the 
 | `L-meta-005` | ◆ Frozen | Exact U2 complexity of XOR2: without XOR/XNOR gates, 2-bit parity needs exactly 3 gates | [L_meta_005.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/lean/PnP/Lemmas/L_meta_005.lean) | `propext, Quot.sound` | `9b2b28c80c` |
 | `L-syn-001` | ◆ Frozen | Shared-Wire B2 Circuit for MOD3=0 on 4 Bits: synthesize an ≤ 8-gate B2 DAG circuit computing mod3Eq0 4 | [L_syn_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/lean/PnP/Lemmas/L_syn_001.lean) | `propext, Quot.sound` | `0c5296687c` |
 | `L-syn-002` | ✕ Refuted | FRONTIER CONTEST (Exact MAJ5): Does 5-bit Majority require ≥ 10 gates in full B2 (or can someone beat our 10-gate circuit)? Prove OR refute! | [L_syn_002.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/lean/PnP/Lemmas/L_syn_002.lean) | `propext, Quot.sound` | `1380483be0` |
+| `L-syn-003` | ◆ Frozen | FRONTIER CONTEST (MOD3=0 on 4 Bits): Can mod3Eq0 4 be computed in ≤ 7 B2 gates? Prove OR refute! | [L_syn_003.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/lean/PnP/Lemmas/L_syn_003.lean) | `propext, Quot.sound` | `e99731ef9e` |
 
 ## Quantum LDPC & CSS Stabilizer Codes (`quantum-codes`)
 *Judge: Lean 4.36.0 kernel · frozen statements · zero sorry*
@@ -130,6 +133,7 @@ _No closed proofs yet (see King of the Hill hunts above or open bounties on the 
 | ID | Seal | Plain Statement | Artifact | Axioms / Checks | SHA-256 |
 |---|---|---|---|---|---|
 | `QC-001` | ◆ Frozen | Steane [[7, 1, 3]] CSS code with weight-4 stabilizers | [QC_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/quantum-codes/lean/Quantum/Claims/QC_001.lean) | `propext, Classical.choice, Quot.sound` | `998523f4e4` |
+| `QC-002` | ◆ Frozen | Hamming [[15, 7, 3]] high-rate CSS code (weight-8 stabilizers) | [QC_002.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/quantum-codes/lean/Quantum/Claims/QC_002.lean) | `propext, Classical.choice, Quot.sound` | `64450023e6` |
 
 ## Optimal Sorting Networks (Knuth Open Frontier) (`sorting-networks`)
 *Judge: Lean 4.36.0 kernel · frozen statements · zero sorry*
@@ -139,4 +143,6 @@ _No closed proofs yet (see King of the Hill hunts above or open bounties on the 
 |---|---|---|---|---|---|
 | `SN-001` | ◆ Frozen | Knuth's Zero-One Principle: any comparator network that sorts all 0/1 inputs sorts all natural-number inputs | [SN_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/sorting-networks/lean/SortNet/Claims/SN_001.lean) | `propext, Quot.sound` | `2a05a3bbc5` |
 | `SN-002` | ◆ Frozen | Optimal 4-wire (5 steps, depth 3) & 5-wire (9 steps, depth 5) sorting networks | [SN_002.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/sorting-networks/lean/SortNet/Claims/SN_002.lean) | `propext, Quot.sound` | `3eccb4d250` |
+| `SN-003` | ◆ Frozen | Exact 4-wire lower bound: no 4-wire sorting network has ≤ 4 compare-and-swap steps | [SN_003.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/sorting-networks/lean/SortNet/Claims/SN_003.lean) | `propext, Classical.choice, Quot.sound` | `4d4dd4846c` |
+| `SN-004` | ◆ Frozen | Optimal 8-wire sorting network: 19 comparators and parallel depth ≤ 6 (Batcher/Green) | [SN_004.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/sorting-networks/lean/SortNet/Claims/SN_004.lean) | `propext, Quot.sound` | `98cf676c63` |
 
