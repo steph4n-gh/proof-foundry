@@ -117,218 +117,168 @@ try {
     try { fs.unlinkSync(symlinkPath); } catch {}
   }
 
-  // Attack N (Opus P0 #5 + Daybreak P1-1): Command Judge double isolation blocks imports, `--result` forgery, stdout/exit spoofing, Function escape, prototype tampering, and accessors
-  const sci = loadMission("verified-science-kernels");
-  const fakeArtifact = path.join(tmp, "ForgeResult.mjs");
+  // Attack N (Opus P0 #5 + pure-data ML Command Judge): blocks executable JS, disallowed ops, oversized artifacts, over-budget scores, symlinks, and record_bound
+  const ml = loadMission("ml-math-kernels");
+  const mlSpec = "missions/ml-math-kernels/specs/ML_rec_bf16_rsqrt.json";
+  const fakeJsArtifact = path.join(tmp, "ForgeResult.mjs");
   fs.writeFileSync(
-    fakeArtifact,
+    fakeJsArtifact,
     `import fs from "node:fs";
 const idx = process.argv.indexOf("--result");
 if (idx !== -1 && process.argv[idx + 1]) {
-  fs.writeFileSync(process.argv[idx + 1], JSON.stringify({ ok: true, reason: "FORGED" }));
+  fs.writeFileSync(process.argv[idx + 1], JSON.stringify({ ok: true, score: 1, reason: "FORGED" }));
   process.exit(0);
 }
-export function compensatedSum() { return 0; }
+export default {};
 `
   );
-  const resN = checkCommandArtifact(fakeArtifact, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
-  assert(!resN.ok && /import/i.test(resN.reason), "Attack N (import + --result forgery) rejected before execution", JSON.stringify(resN));
+  const resN = checkCommandArtifact(fakeJsArtifact, "bf16_rsqrt", {
+    judgeConfig: ml.judge,
+    kind: "record",
+    statementFile: mlSpec,
+    expectedScore: 1,
+    allowTempForTests: true,
+  });
+  assert(!resN.ok && /extension gate|pure \.json/i.test(resN.reason), "Attack N1 (JS .mjs + --result forgery) rejected by extension gate with zero execution", JSON.stringify(resN));
 
-  // Attack N2 (Daybreak P1-1): top-level stdout/exit protocol forgery with ZERO imports
-  const forgeStdoutArt = path.join(tmp, "ForgeStdout.mjs");
-  fs.writeFileSync(
-    forgeStdoutArt,
-    `try { process.stdout.write(JSON.stringify({ ok: true, outputs: [10000, 2] })); process.exit(0); } catch {}
-export function compensatedSum() { return 0; }
-`
+  const fakeJsonJs = path.join(tmp, "ForgeJsInsideJson.json");
+  fs.writeFileSync(fakeJsonJs, `import fs from "node:fs"; export const x = 1;`);
+  const resN2 = checkCommandArtifact(fakeJsonJs, "bf16_rsqrt", {
+    judgeConfig: ml.judge,
+    kind: "record",
+    statementFile: mlSpec,
+    expectedScore: 1,
+    allowTempForTests: true,
+  });
+  assert(!resN2.ok && /Invalid JSON/i.test(resN2.reason), "Attack N2 (JS code inside .json) rejected by strict JSON.parse", JSON.stringify(resN2));
+
+  const badOpArt = path.join(tmp, "DisallowedOp.json");
+  fs.writeFileSync(badOpArt, JSON.stringify({ schema: "pf.mlkernel.v1", ops: [["div", 0, 0]], output: 1 }));
+  const resN3 = checkCommandArtifact(badOpArt, "bf16_rsqrt", {
+    judgeConfig: ml.judge,
+    kind: "record",
+    statementFile: mlSpec,
+    expectedScore: 5,
+    allowTempForTests: true,
+  });
+  assert(!resN3.ok && /Disallowed or unknown op/i.test(resN3.reason), "Attack N3 (disallowed transcendental/div op) rejected", JSON.stringify(resN3));
+
+  const hugeArt = path.join(tmp, "Huge.json");
+  fs.writeFileSync(hugeArt, " ".repeat(40000));
+  const resN4 = checkCommandArtifact(hugeArt, "bf16_rsqrt", {
+    judgeConfig: ml.judge,
+    kind: "record",
+    statementFile: mlSpec,
+    expectedScore: 20,
+    allowTempForTests: true,
+  });
+  assert(!resN4.ok && /limit|exceeds/i.test(resN4.reason), "Attack N4 (oversized >32 KiB artifact) rejected", JSON.stringify(resN4));
+
+  const resN5 = checkCommandArtifact("missions/ml-math-kernels/artifacts/ML_rec_bf16_rsqrt_s17.json", "bf16_rsqrt", {
+    judgeConfig: ml.judge,
+    kind: "record",
+    statementFile: mlSpec,
+    expectedScore: 5,
+  });
+  assert(!resN5.ok && /exceeding claimed score/i.test(resN5.reason), "Attack N5 (over-budget op count 17 > claimed 5) rejected", JSON.stringify(resN5));
+
+  const mlSymlink = path.join(tmp, "SymlinkKernel.json");
+  fs.symlinkSync(path.resolve("missions/ml-math-kernels/artifacts/ML_rec_bf16_rsqrt_s17.json"), mlSymlink);
+  const resN6 = checkCommandArtifact(mlSymlink, "bf16_rsqrt", {
+    judgeConfig: ml.judge,
+    kind: "record",
+    statementFile: mlSpec,
+    expectedScore: 17,
+    allowTempForTests: true,
+  });
+  assert(!resN6.ok && /symlink/i.test(resN6.reason), "Attack N6 (Command Judge symlink artifact) rejected", JSON.stringify(resN6));
+
+  const resN7 = checkCommandArtifact("missions/ml-math-kernels/artifacts/ML_rec_bf16_rsqrt_s17.json", "bf16_rsqrt", {
+    judgeConfig: ml.judge,
+    kind: "record_bound",
+    statementFile: mlSpec,
+    expectedScore: 10,
+  });
+  assert(!resN7.ok && /does not support impossibility bound/i.test(resN7.reason), "Attack N7 (Command Judge record_bound) rejected", JSON.stringify(resN7));
+
+  // Positive control for Command Judge: legitimate ML_rec_bf16_rsqrt_s17.json passes exhaustive 65,536-input pure-data Judge!
+  const resMlOk = checkCommandArtifact("missions/ml-math-kernels/artifacts/ML_rec_bf16_rsqrt_s17.json", "bf16_rsqrt", {
+    judgeConfig: ml.judge,
+    kind: "record",
+    statementFile: mlSpec,
+    expectedScore: 17,
+  });
+  assert(
+    resMlOk.ok && resMlOk.statement_frozen === true && resMlOk.score === 17 && resMlOk.lean_version.includes("65,536"),
+    "Positive control: ML_rec_bf16_rsqrt_s17 passes exhaustive pure-data Command Judge",
+    JSON.stringify(resMlOk)
   );
-  const resN2 = checkCommandArtifact(forgeStdoutArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
-  assert(!resN2.ok && resN2.reason.includes("Precision failure"), "Attack N2 (P1-1 stdout/exit protocol forgery) defeated by VM + nonce isolation", JSON.stringify(resN2));
-
-  // Attack N3 (Daybreak P1-1): Function constructor escape blocked by codeGeneration.strings=false
-  const fnEscapeArt = path.join(tmp, "FnEscape.mjs");
-  fs.writeFileSync(
-    fnEscapeArt,
-    `export function compensatedSum() {
-  const proc = ({}).constructor.constructor("return process")();
-  return proc ? 10000 : 0;
-}
-`
-  );
-  const resN3 = checkCommandArtifact(fnEscapeArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
-  assert(!resN3.ok && /Code generation from strings disallowed|Sandboxed kernel error/i.test(resN3.reason), "Attack N3 (P1-1 Function constructor escape) blocked by V8 vm codeGeneration", JSON.stringify(resN3));
-
-  // Attack N4 (Daybreak P1-1 + Codex PR #46 P1): prototype & serializer tampering (Function.prototype.call / Object.prototype.value / toJSON / Number.prototype.toString)
-  const protoTamperArt = path.join(tmp, "ProtoTamper.mjs");
-  fs.writeFileSync(
-    protoTamperArt,
-    `const origApply = Reflect.apply;
-let step = 0;
-Function.prototype.call = function (thisArg, ...args) {
-  if (this === Number.prototype.toString) return step++ === 0 ? "10000" : "2";
-  return origApply(this, thisArg, args);
-};
-Object.prototype.value = 10000;
-Array.prototype.toJSON = () => [10000, 2];
-Number.prototype.toString = () => "10000";
-export function compensatedSum() { return 0; }
-`
-  );
-  const resN4 = checkCommandArtifact(protoTamperArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
-  assert(!resN4.ok && resN4.reason.includes("Precision failure"), "Attack N4 (Function.prototype.call + Object.prototype.value + serializer tampering) defeated", JSON.stringify(resN4));
-
-  // Attack N4b (Codex PR #46 P1): comment-like sequence inside string literal must be preserved byte-for-byte
-  const strLiteralGuardArt = path.join(tmp, "StringLiteralGuard.mjs");
-  const realKahanSrc = fs.readFileSync(path.resolve("missions/verified-science-kernels/artifacts/S_num_001.mjs"), "utf8");
-  fs.writeFileSync(
-    strLiteralGuardArt,
-    realKahanSrc.replace(
-      "export function compensatedSum(xs) {",
-      'export function compensatedSum(xs) { if ("/*not a comment*/" !== " ") return 0;'
-    )
-  );
-  const resN4b = checkCommandArtifact(strLiteralGuardArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
-  assert(!resN4b.ok && resN4b.reason.includes("Precision failure"), "Attack N4b (Codex P1: string literal containing /*...*/ preserved verbatim)", JSON.stringify(resN4b));
-
-  // Attack N4c: dynamic import inside template literal expression `${import(...)}` still rejected
-  const tmplImportArt = path.join(tmp, "TmplImport.mjs");
-  fs.writeFileSync(
-    tmplImportArt,
-    "export function compensatedSum() { const s = `${import('node:fs')}`; return s.length; }\n"
-  );
-  const resN4c = checkCommandArtifact(tmplImportArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
-  assert(!resN4c.ok && /import/i.test(resN4c.reason), "Attack N4c (dynamic import inside template expression) rejected", JSON.stringify(resN4c));
-
-  // Attack N4d (Daybreak Blue P2): division after object literal `{}` cannot disguise `import(...)` as regex
-  const braceDivImportArt = path.join(tmp, "BraceDivImport.mjs");
-  fs.writeFileSync(
-    braceDivImportArt,
-    `const q = {} / 1; import("node:fs").catch(() => {}) / 2;
-export function compensatedSum() { return 0; }
-`
-  );
-  const resN4d = checkCommandArtifact(braceDivImportArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
-  assert(!resN4d.ok && /import/i.test(resN4d.reason), "Attack N4d (Daybreak P2: {} / 1; import(...) / 2) rejected by lexer", JSON.stringify(resN4d));
-
-  // Attack N4e (Daybreak Blue P2): regex literals are rejected fail-closed in numerical kernels
-  const regexLitArt = path.join(tmp, "RegexLit.mjs");
-  fs.writeFileSync(
-    regexLitArt,
-    `export function compensatedSum() { const r = /import/; return r.source.length; }\n`
-  );
-  const resN4e = checkCommandArtifact(regexLitArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
-  assert(!resN4e.ok && /Regex literals are not permitted/i.test(resN4e.reason), "Attack N4e (regex literal fail-closed rejection) blocked", JSON.stringify(resN4e));
-
-  // Positive control: aliased export list `export { impl as compensatedSum }` + harmless string `"import fake"` passes
-  const aliasedExportArt = path.join(tmp, "AliasedExport.mjs");
-  fs.writeFileSync(
-    aliasedExportArt,
-    realKahanSrc.replace("export function compensatedSum(xs) {", 'const note = "import /* not real */ export";\nfunction impl(xs) {') +
-      "\nexport { impl as compensatedSum };\n"
-  );
-  const resAliasOk = checkCommandArtifact(aliasedExportArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
-  assert(resAliasOk.ok, "Positive control: aliased export list + string containing comment/import text passes", JSON.stringify(resAliasOk));
-
-  // Attack N5 (Daybreak P1-1): accessor getter on returned tuple rejected without executing getter
-  const getterArt = path.join(tmp, "GetterTuple.mjs");
-  fs.writeFileSync(
-    getterArt,
-    `export function intervalAdd() {
-  const out = [0, 0];
-  Object.defineProperty(out, 0, { get() { return 0.3; } });
-  return out;
-}
-`
-  );
-  const resN5 = checkCommandArtifact(getterArt, "interval_add_soundness", { judgeConfig: sci.judge, allowTempForTests: true });
-  assert(!resN5.ok && /accessor|Non-numeric/i.test(resN5.reason), "Attack N5 (P1-1 accessor getter on output tuple) rejected", JSON.stringify(resN5));
-
-  // Attack N6 (Daybreak P1-1): private unexported helper cannot impersonate target export
-  const unexportedArt = path.join(tmp, "UnexportedHelper.mjs");
-  fs.writeFileSync(
-    unexportedArt,
-    `function compensatedSum() { return 10000; }
-export function other() { return 1; }
-`
-  );
-  const resN6 = checkCommandArtifact(unexportedArt, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
-  assert(!resN6.ok && resN6.reason.includes("Missing exported function"), "Attack N6 (unexported private helper impersonation) rejected", JSON.stringify(resN6));
-
-  // Attack N7: symlink artifact rejected by verify.mjs
-  const sciSymlink = path.join(tmp, "SymlinkKernel.mjs");
-  fs.symlinkSync(path.resolve("missions/verified-science-kernels/artifacts/S_num_001.mjs"), sciSymlink);
-  const resN7 = checkCommandArtifact(sciSymlink, "kahan_compensated_sum", { judgeConfig: sci.judge, allowTempForTests: true });
-  assert(!resN7.ok && /symlink/i.test(resN7.reason), "Attack N7 (Command Judge symlink artifact) rejected", JSON.stringify(resN7));
-
-  // Positive control for Command Judge: legitimate S_num_001.mjs passes isolated child harness!
-  const resSciOk = checkCommandArtifact("missions/verified-science-kernels/artifacts/S_num_001.mjs", "kahan_compensated_sum", { judgeConfig: sci.judge });
-  assert(resSciOk.ok && resSciOk.lean_version.includes("isolated child"), "Positive control: S_num_001 passes isolated child Command Judge", JSON.stringify(resSciOk));
 
   // Positive control for Lean 4 Judge: L_lib_000.lean passes with full signature
   const resOk = checkLeanProof("lean/PnP/Lemmas/L_lib_000.lean", "PnP.Lemmas.L_lib_000.flipBit_involutive");
   assert(resOk.ok && resOk.signature.includes("flipBit (PnP.flipBit x i) i = x"), "Positive control: L_lib_000 passes with FULL untruncated signature", JSON.stringify(resOk));
 
-  // Frozen-statement kernel type-matching tests (unique salted filenames)
-  const erdos = loadMission("erdos-combinatorics");
+  // Frozen-statement kernel type-matching tests (unique salted filenames in sorting-networks)
+  const sortNet = loadMission("sorting-networks");
   const modStem = `_TestFrozen_${salt}`;
-  const testStmtPath = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Statements/${modStem}.lean`);
-  const testClaimPass = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${modStem}_Pass.lean`);
-  const testClaimRefute = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${modStem}_Refute.lean`);
-  const testClaimBait = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${modStem}_Bait.lean`);
-  const testClaimShadow = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${modStem}_Shadow.lean`);
+  const testStmtPath = path.resolve(`missions/sorting-networks/lean/SortNet/Statements/${modStem}.lean`);
+  const testClaimPass = path.resolve(`missions/sorting-networks/lean/SortNet/Claims/${modStem}_Pass.lean`);
+  const testClaimRefute = path.resolve(`missions/sorting-networks/lean/SortNet/Claims/${modStem}_Refute.lean`);
+  const testClaimBait = path.resolve(`missions/sorting-networks/lean/SortNet/Claims/${modStem}_Bait.lean`);
+  const testClaimShadow = path.resolve(`missions/sorting-networks/lean/SortNet/Claims/${modStem}_Shadow.lean`);
 
   fs.writeFileSync(
     testStmtPath,
-    `import Erdos.Core\nnamespace Erdos.Statements.${modStem}\ndef Claim : Prop := 2 + 2 = 4\ndef FalseClaim : Prop := 2 + 2 = 5\nend Erdos.Statements.${modStem}\n`
+    `import SortNet.Core\nnamespace SortNet.Statements.${modStem}\ndef Claim : Prop := 2 + 2 = 4\ndef FalseClaim : Prop := 2 + 2 = 5\nend SortNet.Statements.${modStem}\n`
   );
   fs.writeFileSync(
     testClaimPass,
-    `import Erdos.Core\nimport Erdos.Statements.${modStem}\nnamespace Erdos.Claims.${modStem}_Pass\ntheorem ok : Erdos.Statements.${modStem}.Claim := rfl\nend Erdos.Claims.${modStem}_Pass\n`
+    `import SortNet.Core\nimport SortNet.Statements.${modStem}\nnamespace SortNet.Claims.${modStem}_Pass\ntheorem ok : SortNet.Statements.${modStem}.Claim := rfl\nend SortNet.Claims.${modStem}_Pass\n`
   );
   fs.writeFileSync(
     testClaimRefute,
-    `import Erdos.Core\nimport Erdos.Statements.${modStem}\nnamespace Erdos.Claims.${modStem}_Refute\ntheorem ref : ¬ Erdos.Statements.${modStem}.FalseClaim := by unfold Erdos.Statements.${modStem}.FalseClaim; decide\nend Erdos.Claims.${modStem}_Refute\n`
+    `import SortNet.Core\nimport SortNet.Statements.${modStem}\nnamespace SortNet.Claims.${modStem}_Refute\ntheorem ref : ¬ SortNet.Statements.${modStem}.FalseClaim := by unfold SortNet.Statements.${modStem}.FalseClaim; decide\nend SortNet.Claims.${modStem}_Refute\n`
   );
   fs.writeFileSync(
     testClaimBait,
-    `import Erdos.Core\nnamespace Erdos.Claims.${modStem}_Bait\ntheorem bait : True := trivial\nend Erdos.Claims.${modStem}_Bait\n`
+    `import SortNet.Core\nnamespace SortNet.Claims.${modStem}_Bait\ntheorem bait : True := trivial\nend SortNet.Claims.${modStem}_Bait\n`
   );
   fs.writeFileSync(
     testClaimShadow,
-    `import Erdos.Core\nnamespace Erdos.Statements.${modStem}\ndef Claim : Prop := True\nend Erdos.Statements.${modStem}\nnamespace Erdos.Claims.${modStem}_Shadow\ntheorem shadowed : Erdos.Statements.${modStem}.Claim := trivial\nend Erdos.Claims.${modStem}_Shadow\n`
+    `import SortNet.Core\nnamespace SortNet.Statements.${modStem}\ndef Claim : Prop := True\nend SortNet.Statements.${modStem}\nnamespace SortNet.Claims.${modStem}_Shadow\ntheorem shadowed : SortNet.Statements.${modStem}.Claim := trivial\nend SortNet.Claims.${modStem}_Shadow\n`
   );
 
   try {
-    const stmtRel = `missions/erdos-combinatorics/lean/Erdos/Statements/${modStem}.lean`;
-    const resFrozenPass = checkLeanProof(testClaimPass, `Erdos.Claims.${modStem}_Pass.ok`, {
-      judgeConfig: erdos.judge,
+    const stmtRel = `missions/sorting-networks/lean/SortNet/Statements/${modStem}.lean`;
+    const resFrozenPass = checkLeanProof(testClaimPass, `SortNet.Claims.${modStem}_Pass.ok`, {
+      judgeConfig: sortNet.judge,
       kind: "proof",
       statementFile: stmtRel,
-      statementDef: `Erdos.Statements.${modStem}.Claim`,
+      statementDef: `SortNet.Statements.${modStem}.Claim`,
     });
     assert(resFrozenPass.ok && resFrozenPass.statement_frozen === true, "Frozen statement PASS: exact match", JSON.stringify(resFrozenPass));
 
-    const resFrozenRefute = checkLeanProof(testClaimRefute, `Erdos.Claims.${modStem}_Refute.ref`, {
-      judgeConfig: erdos.judge,
+    const resFrozenRefute = checkLeanProof(testClaimRefute, `SortNet.Claims.${modStem}_Refute.ref`, {
+      judgeConfig: sortNet.judge,
       kind: "refutation",
       statementFile: stmtRel,
-      statementDef: `Erdos.Statements.${modStem}.FalseClaim`,
+      statementDef: `SortNet.Statements.${modStem}.FalseClaim`,
     });
     assert(resFrozenRefute.ok && resFrozenRefute.statement_frozen === true, "Frozen statement REFUTATION PASS: exact ¬ Claim match", JSON.stringify(resFrozenRefute));
 
-    const resFrozenBait = checkLeanProof(testClaimBait, `Erdos.Claims.${modStem}_Bait.bait`, {
-      judgeConfig: erdos.judge,
+    const resFrozenBait = checkLeanProof(testClaimBait, `SortNet.Claims.${modStem}_Bait.bait`, {
+      judgeConfig: sortNet.judge,
       kind: "proof",
       statementFile: stmtRel,
-      statementDef: `Erdos.Statements.${modStem}.Claim`,
+      statementDef: `SortNet.Statements.${modStem}.Claim`,
     });
     assert(!resFrozenBait.ok && resFrozenBait.reason.includes("frozen-statement gate"), "Frozen statement REJECT: bait theorem (True) blocked", JSON.stringify(resFrozenBait));
 
-    const resFrozenShadow = checkLeanProof(testClaimShadow, `Erdos.Claims.${modStem}_Shadow.shadowed`, {
-      judgeConfig: erdos.judge,
+    const resFrozenShadow = checkLeanProof(testClaimShadow, `SortNet.Claims.${modStem}_Shadow.shadowed`, {
+      judgeConfig: sortNet.judge,
       kind: "proof",
       statementFile: stmtRel,
-      statementDef: `Erdos.Statements.${modStem}.Claim`,
+      statementDef: `SortNet.Statements.${modStem}.Claim`,
     });
     assert(!resFrozenShadow.ok && resFrozenShadow.reason.includes("duplicate/shadowed"), "Frozen statement REJECT: shadowed Claim := True blocked", JSON.stringify(resFrozenShadow));
   } finally {
@@ -339,51 +289,51 @@ export function other() { return 1; }
 
   // King-of-the-Hill Record kernel checks (exact Expr mkNatLit equality, OfNat spoof defense!)
   const recStem = `_TestRec_${salt}`;
-  const recStmtPath = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Statements/${recStem}.lean`);
-  const recPass10 = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${recStem}_s10.lean`);
-  const recBound9 = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${recStem}_not_s9.lean`);
-  const recSpoofExplicit = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${recStem}_spoof1.lean`);
-  const recSpoofInst = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${recStem}_spoof2.lean`);
-  const recSucc = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${recStem}_succ.lean`);
-  const recWrongScore = path.resolve(`missions/erdos-combinatorics/lean/Erdos/Claims/${recStem}_s11.lean`);
+  const recStmtPath = path.resolve(`missions/sorting-networks/lean/SortNet/Statements/${recStem}.lean`);
+  const recPass10 = path.resolve(`missions/sorting-networks/lean/SortNet/Claims/${recStem}_s10.lean`);
+  const recBound9 = path.resolve(`missions/sorting-networks/lean/SortNet/Claims/${recStem}_not_s9.lean`);
+  const recSpoofExplicit = path.resolve(`missions/sorting-networks/lean/SortNet/Claims/${recStem}_spoof1.lean`);
+  const recSpoofInst = path.resolve(`missions/sorting-networks/lean/SortNet/Claims/${recStem}_spoof2.lean`);
+  const recSucc = path.resolve(`missions/sorting-networks/lean/SortNet/Claims/${recStem}_succ.lean`);
+  const recWrongScore = path.resolve(`missions/sorting-networks/lean/SortNet/Claims/${recStem}_s11.lean`);
 
   fs.writeFileSync(
     recStmtPath,
-    `import Erdos.Core\nnamespace Erdos.Statements.${recStem}\ndef Record (score : Nat) : Prop := 10 ≤ score\ntheorem Record_mono {a b : Nat} (h : a ≤ b) : Record a → Record b := fun ha => Nat.le_trans ha h\nend Erdos.Statements.${recStem}\n`
+    `import SortNet.Core\nnamespace SortNet.Statements.${recStem}\ndef Record (score : Nat) : Prop := 10 ≤ score\ntheorem Record_mono {a b : Nat} (h : a ≤ b) : Record a → Record b := fun ha => Nat.le_trans ha h\nend SortNet.Statements.${recStem}\n`
   );
   fs.writeFileSync(
     recPass10,
-    `import Erdos.Core\nimport Erdos.Statements.${recStem}\nnamespace Erdos.Claims.${recStem}_s10\ntheorem record : Erdos.Statements.${recStem}.Record 10 := Nat.le_refl 10\nend Erdos.Claims.${recStem}_s10\n`
+    `import SortNet.Core\nimport SortNet.Statements.${recStem}\nnamespace SortNet.Claims.${recStem}_s10\ntheorem record : SortNet.Statements.${recStem}.Record 10 := Nat.le_refl 10\nend SortNet.Claims.${recStem}_s10\n`
   );
   fs.writeFileSync(
     recBound9,
-    `import Erdos.Core\nimport Erdos.Statements.${recStem}\nnamespace Erdos.Claims.${recStem}_not_s9\ntheorem record : ¬ Erdos.Statements.${recStem}.Record 9 := by unfold Erdos.Statements.${recStem}.Record; decide\nend Erdos.Claims.${recStem}_not_s9\n`
+    `import SortNet.Core\nimport SortNet.Statements.${recStem}\nnamespace SortNet.Claims.${recStem}_not_s9\ntheorem record : ¬ SortNet.Statements.${recStem}.Record 9 := by unfold SortNet.Statements.${recStem}.Record; decide\nend SortNet.Claims.${recStem}_not_s9\n`
   );
   // Opus P0 #1 attack: explicit forged OfNat instance printing like 10 while evaluating to 12!
   fs.writeFileSync(
     recSpoofExplicit,
-    `import Erdos.Core\nimport Erdos.Statements.${recStem}\nnamespace Erdos.Claims.${recStem}_spoof1\ntheorem record : Erdos.Statements.${recStem}.Record (@OfNat.ofNat Nat 10 ⟨12⟩) := by unfold Erdos.Statements.${recStem}.Record; decide\nend Erdos.Claims.${recStem}_spoof1\n`
+    `import SortNet.Core\nimport SortNet.Statements.${recStem}\nnamespace SortNet.Claims.${recStem}_spoof1\ntheorem record : SortNet.Statements.${recStem}.Record (@OfNat.ofNat Nat 10 ⟨12⟩) := by unfold SortNet.Statements.${recStem}.Record; decide\nend SortNet.Claims.${recStem}_spoof1\n`
   );
   // Opus P0 #1 attack: local scoped OfNat Nat 10 := ⟨12⟩ so source literally reads `Record 10`!
   fs.writeFileSync(
     recSpoofInst,
-    `import Erdos.Core\nimport Erdos.Statements.${recStem}\nnamespace Erdos.Claims.${recStem}_spoof2\nlocal instance (priority := high) : OfNat Nat 10 := ⟨12⟩\ntheorem record : Erdos.Statements.${recStem}.Record 10 := by unfold Erdos.Statements.${recStem}.Record; decide\nend Erdos.Claims.${recStem}_spoof2\n`
+    `import SortNet.Core\nimport SortNet.Statements.${recStem}\nnamespace SortNet.Claims.${recStem}_spoof2\nlocal instance (priority := high) : OfNat Nat 10 := ⟨12⟩\ntheorem record : SortNet.Statements.${recStem}.Record 10 := by unfold SortNet.Statements.${recStem}.Record; decide\nend SortNet.Claims.${recStem}_spoof2\n`
   );
   fs.writeFileSync(
     recSucc,
-    `import Erdos.Core\nimport Erdos.Statements.${recStem}\nnamespace Erdos.Claims.${recStem}_succ\ntheorem record : Erdos.Statements.${recStem}.Record (Nat.succ 9) := Nat.le_refl 10\nend Erdos.Claims.${recStem}_succ\n`
+    `import SortNet.Core\nimport SortNet.Statements.${recStem}\nnamespace SortNet.Claims.${recStem}_succ\ntheorem record : SortNet.Statements.${recStem}.Record (Nat.succ 9) := Nat.le_refl 10\nend SortNet.Claims.${recStem}_succ\n`
   );
   fs.writeFileSync(
     recWrongScore,
-    `import Erdos.Core\nimport Erdos.Statements.${recStem}\nnamespace Erdos.Claims.${recStem}_s11\ntheorem record : Erdos.Statements.${recStem}.Record 11 := by unfold Erdos.Statements.${recStem}.Record; decide\nend Erdos.Claims.${recStem}_s11\n`
+    `import SortNet.Core\nimport SortNet.Statements.${recStem}\nnamespace SortNet.Claims.${recStem}_s11\ntheorem record : SortNet.Statements.${recStem}.Record 11 := by unfold SortNet.Statements.${recStem}.Record; decide\nend SortNet.Claims.${recStem}_s11\n`
   );
 
   try {
-    const recStmtRel = `missions/erdos-combinatorics/lean/Erdos/Statements/${recStem}.lean`;
-    const recDef = `Erdos.Statements.${recStem}.Record`;
+    const recStmtRel = `missions/sorting-networks/lean/SortNet/Statements/${recStem}.lean`;
+    const recDef = `SortNet.Statements.${recStem}.Record`;
 
-    const rRecPass = checkLeanProof(recPass10, `Erdos.Claims.${recStem}_s10.record`, {
-      judgeConfig: erdos.judge,
+    const rRecPass = checkLeanProof(recPass10, `SortNet.Claims.${recStem}_s10.record`, {
+      judgeConfig: sortNet.judge,
       kind: "record",
       statementFile: recStmtRel,
       statementDef: recDef,
@@ -391,8 +341,8 @@ export function other() { return 1; }
     });
     assert(rRecPass.ok && rRecPass.statement_frozen === true && rRecPass.score === 10, "KotH PASS: canonical Record 10 accepted", JSON.stringify(rRecPass));
 
-    const rBoundPass = checkLeanProof(recBound9, `Erdos.Claims.${recStem}_not_s9.record`, {
-      judgeConfig: erdos.judge,
+    const rBoundPass = checkLeanProof(recBound9, `SortNet.Claims.${recStem}_not_s9.record`, {
+      judgeConfig: sortNet.judge,
       kind: "record_bound",
       statementFile: recStmtRel,
       statementDef: recDef,
@@ -400,8 +350,8 @@ export function other() { return 1; }
     });
     assert(rBoundPass.ok && rBoundPass.statement_frozen === true && rBoundPass.score === 9, "KotH PASS: canonical ¬ Record 9 accepted", JSON.stringify(rBoundPass));
 
-    const rSpoof1 = checkLeanProof(recSpoofExplicit, `Erdos.Claims.${recStem}_spoof1.record`, {
-      judgeConfig: erdos.judge,
+    const rSpoof1 = checkLeanProof(recSpoofExplicit, `SortNet.Claims.${recStem}_spoof1.record`, {
+      judgeConfig: sortNet.judge,
       kind: "record",
       statementFile: recStmtRel,
       statementDef: recDef,
@@ -409,8 +359,8 @@ export function other() { return 1; }
     });
     assert(!rSpoof1.ok && rSpoof1.reason.includes("frozen-statement gate"), "KotH REJECT (Opus P0 #1): explicit @OfNat.ofNat Nat 10 ⟨12⟩ spoof blocked", JSON.stringify(rSpoof1));
 
-    const rSpoof2 = checkLeanProof(recSpoofInst, `Erdos.Claims.${recStem}_spoof2.record`, {
-      judgeConfig: erdos.judge,
+    const rSpoof2 = checkLeanProof(recSpoofInst, `SortNet.Claims.${recStem}_spoof2.record`, {
+      judgeConfig: sortNet.judge,
       kind: "record",
       statementFile: recStmtRel,
       statementDef: recDef,
@@ -418,8 +368,8 @@ export function other() { return 1; }
     });
     assert(!rSpoof2.ok && rSpoof2.reason.includes("frozen-statement gate"), "KotH REJECT (Opus P0 #1): local fake OfNat Nat 10 instance spoof blocked", JSON.stringify(rSpoof2));
 
-    const rSucc = checkLeanProof(recSucc, `Erdos.Claims.${recStem}_succ.record`, {
-      judgeConfig: erdos.judge,
+    const rSucc = checkLeanProof(recSucc, `SortNet.Claims.${recStem}_succ.record`, {
+      judgeConfig: sortNet.judge,
       kind: "record",
       statementFile: recStmtRel,
       statementDef: recDef,
@@ -427,8 +377,8 @@ export function other() { return 1; }
     });
     assert(!rSucc.ok && rSucc.reason.includes("frozen-statement gate"), "KotH REJECT: non-canonical Record (Nat.succ 9) blocked", JSON.stringify(rSucc));
 
-    const rWrong = checkLeanProof(recWrongScore, `Erdos.Claims.${recStem}_s11.record`, {
-      judgeConfig: erdos.judge,
+    const rWrong = checkLeanProof(recWrongScore, `SortNet.Claims.${recStem}_s11.record`, {
+      judgeConfig: sortNet.judge,
       kind: "record",
       statementFile: recStmtRel,
       statementDef: recDef,
@@ -436,8 +386,8 @@ export function other() { return 1; }
     });
     assert(!rWrong.ok && rWrong.reason.includes("frozen-statement gate"), "KotH REJECT: wrong score Record 11 vs expected 10 blocked", JSON.stringify(rWrong));
 
-    const rPol1 = checkLeanProof(recPass10, `Erdos.Claims.${recStem}_s10.record`, {
-      judgeConfig: erdos.judge,
+    const rPol1 = checkLeanProof(recPass10, `SortNet.Claims.${recStem}_s10.record`, {
+      judgeConfig: sortNet.judge,
       kind: "record_bound",
       statementFile: recStmtRel,
       statementDef: recDef,
@@ -445,8 +395,8 @@ export function other() { return 1; }
     });
     assert(!rPol1.ok && rPol1.reason.includes("frozen-statement gate"), "KotH REJECT: wrong polarity (Record 10 for record_bound) blocked", JSON.stringify(rPol1));
 
-    const rPol2 = checkLeanProof(recBound9, `Erdos.Claims.${recStem}_not_s9.record`, {
-      judgeConfig: erdos.judge,
+    const rPol2 = checkLeanProof(recBound9, `SortNet.Claims.${recStem}_not_s9.record`, {
+      judgeConfig: sortNet.judge,
       kind: "record",
       statementFile: recStmtRel,
       statementDef: recDef,
@@ -455,8 +405,8 @@ export function other() { return 1; }
     assert(!rPol2.ok && rPol2.reason.includes("frozen-statement gate"), "KotH REJECT: wrong polarity (¬ Record 9 for record) blocked", JSON.stringify(rPol2));
 
     for (const badScore of ["10; #eval 1", "-1", "01", "NaN"]) {
-      const rInj = checkLeanProof(recPass10, `Erdos.Claims.${recStem}_s10.record`, {
-        judgeConfig: erdos.judge,
+      const rInj = checkLeanProof(recPass10, `SortNet.Claims.${recStem}_s10.record`, {
+        judgeConfig: sortNet.judge,
         kind: "record",
         statementFile: recStmtRel,
         statementDef: recDef,

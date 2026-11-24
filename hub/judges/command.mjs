@@ -161,6 +161,27 @@ export function checkCommandArtifact(relOrAbsFile, targetName, opts = {}) {
     }
   }
 
+  const allowedExtensions = Array.isArray(cfg.allowed_extensions) ? cfg.allowed_extensions : [];
+  if (allowedExtensions.length > 0) {
+    const lower = realFile.toLowerCase();
+    const okExt = allowedExtensions.some((ext) => lower.endsWith(String(ext).toLowerCase()));
+    if (!okExt) {
+      return {
+        ok: false,
+        judge: "command",
+        reason: `Rejected by extension gate: artifact must end with ${allowedExtensions.join(" or ")} (${relFile})`,
+        file: relFile,
+        theorem: targetName,
+        axioms: [],
+        duration_ms: Date.now() - started,
+        lean_version: judgeLabel,
+        file_hash: null,
+        core_hash: coreHash,
+        output: "",
+      };
+    }
+  }
+
   const fileHash = sha256File(realFile);
   const cmd = cfg.command;
   if (!Array.isArray(cmd) || cmd.length === 0) {

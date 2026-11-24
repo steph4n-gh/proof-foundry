@@ -1,6 +1,6 @@
 # Proof Foundry — Master Verified Catalog
 
-> Auto-generated from conflict-free mission records. **54 Judge-verified proofs** (53 cross-model audited / frozen-matched), **5 Judge-verified refutations**, and **37 King-of-the-Hill auto-ratcheting record hunts** across 9 open-science missions.
+> Auto-generated from conflict-free mission records. **33 Judge-verified proofs** (33 cross-model audited / frozen-matched), **4 Judge-verified refutations**, and **32 King-of-the-Hill auto-ratcheting record hunts** across 7 open-science missions.
 
 **Trust Seal Legend:** `◆ Frozen` (kernel type-matched against frozen statement) · `♛ Record` (active King-of-the-Hill holder — open to beat!) · `✓ Audited` (cross-model faithfulness audit passed) · `◇ Provisional` (kernel verified, audit pending) · `⚠ Flagged` (audit found statement/title gap) · `✕ Refuted` (Judge-verified counterexample).
 
@@ -15,8 +15,6 @@
 | `fast-matrix-mul` | **Direct production impact** | BLIS / OpenBLAS, CUTLASS / Triton GEMM, GF(2) crypto & erasure coding, NumPy/SciPy | Cutting 1 scalar multiplication in a 3×3×3 or 4×4×4 base kernel compounds exponentially across recursive block levels (r^L vs 27^L); shaving additions with {-1,0,1} coefficients directly lowers the crossover matrix size where fast GEMM beats schoolbook in real BLAS libraries. |
 | `ml-math-kernels` | **Direct production impact** | FlashAttention, Triton, PyTorch Inductor, vLLM, TensorRT-LLM, llama.cpp | Each branchless FMA/ALU op shaved off an exhaustively verified ≤1-ULP bf16 kernel directly lowers register pressure and instruction count across trillions of daily inference tokens with a 100% mathematical guarantee of zero NaN/edge-case regressions. |
 | `sorting-networks` | **Direct production impact** | LLVM libc++ std::sort, Google Highway (vqsort), DuckDB, NVIDIA CUB / Thrust GPU warp sort, FPGA pipelines | Removing 1 comparator or 1 parallel layer from a 16-wire network speeds up every AVX-512 (16×32-bit) and CUDA half-warp base sort in databases, search engines, and standard libraries — permanently, with zero branch mispredictions. |
-| `verified-science-kernels` | **Direct production impact** | CORE-MATH / glibc / LLVM libm, CGAL / CAD / GIS meshing engines, SciPy / Julia / CFD solvers | Tightening float64-lattice minimax polynomial coefficients directly reduces worst-case ULP error in `exp`/`sin` kernels without adding a single FLOP; verified exact predicates eliminate silent geometric corruption in CAD/GIS/meshing. |
-| `erdos-combinatorics` | **Applied research frontier** | Radio interferometry (VLA/VLBI), phased-array radar, optical WDM channel plans, Erdős Problems Registry | A shorter Golomb ruler packs the same number of collision-free baselines into a tighter physical antenna aperture or narrower optical spectrum; pushing R(5,5) above 42 resolves one of Paul Erdős's most famous open problems. |
 | `quantum-codes` | **Applied research frontier** | Neutral-atom arrays (QuEra/Atom), trapped ions (Quantinuum), superconducting qLDPC (IBM Gross/Bivariate Bicycle) | Increasing logical qubits k by +1 at fixed physical count n, distance d, and check weight w ≤ 6 directly raises hardware encoding rate k/n with zero extra physical qubits. |
 | `p-vs-np` | **Foundational / theoretical** | EDA logic synthesis (ABC / Yosys), SAT proof compression (DRAT/LRAT), circuit-complexity benchmarks | Shrinking an exact B2 circuit for MAJ7 or MOD3_6 by 1 gate improves exact peephole rewriting libraries used by logic synthesizers (ABC/Mockturtle) and pins down open entries in Knuth/Kulikov's exact circuit tables. |
 
@@ -29,9 +27,6 @@
 | `crypto-zk-circuits` | `CZ-rec-skinny4-gates` | King of the Hill: SKINNY 4-Bit S-Box Total B2 Gates | *(unclaimed, ceiling 12)* | `≤ 12` | *(lit. ≥ 6)* | — | ○ Open Hunt |
 | `crypto-zk-circuits` | `CZ-rec-aes-and` | King of the Hill: FIPS-197 AES 8-Bit S-Box Multiplicative Complexity (Boyar–Peralta Record = 32 ANDs) | *(unclaimed, ceiling 34)* | `≤ 34` | *(lit. ≥ 12)* | — | ○ Open Hunt |
 | `crypto-zk-circuits` | `CZ-rec-aes-total` | King of the Hill: FIPS-197 AES 8-Bit S-Box Total B2 Gates at AND-Depth ≤ 4 (Record = 113 Gates) | *(unclaimed, ceiling 120)* | `≤ 120` | *(lit. ≥ 64)* | — | ○ Open Hunt |
-| `erdos-combinatorics` | `E-rec-200` | King of the Hill (Erdős #156): Smallest Maximal Sidon Subset of {1..200} (Greedy = 14, Search ≤ 11) | **10** elements | `≤ 9` | *(lit. ≥ 6)* | `donor-steph4n-gh` | ♛ Active Hunt |
-| `erdos-combinatorics` | `E-rec-r55` | King of the Hill (MAXIMIZE · Open Prize): Largest K5- & I5-Free Graph for Ramsey R(5,5) (Record = 42, UB = 47) | **42** vertices | `≥ 43` | *(lit. ≤ 47)* | `donor-steph4n-gh` | ♛ Active Hunt |
-| `erdos-combinatorics` | `E-rec-gol11` | King of the Hill: Shortest 11-Mark Golomb Ruler (Greedy = 97, Exact Optimum = 72) | **72** length | `≤ 71` | *(lit. ≥ 72)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `error-correcting-codes` | `EC-rec-17-6` | King of the Hill: Binary Code A(17,6) (World Record = 258, Upper Bound = 340) | **256** codewords | `≥ 257` | *(lit. ≤ 340)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `error-correcting-codes` | `EC-rec-17-6-7` | King of the Hill: Constant-Weight Code A(17,6,7) (World Record = 166, Upper Bound = 206) | **166** codewords | `≥ 167` | *(lit. ≤ 206)* | `donor-steph4n-gh` | ♛ Active Hunt |
 | `error-correcting-codes` | `EC-rec-20-8-10` | King of the Hill: Constant-Weight Code A(20,8,10) (World Record = 176, Upper Bound = 206) | **176** codewords | `≥ 177` | *(lit. ≤ 206)* | `donor-steph4n-gh` | ♛ Active Hunt |
@@ -59,8 +54,6 @@
 | `sorting-networks` | `SN-rec-d17` | King of the Hill: 17-Wire Parallel Depth (OPEN WORLD RECORD: Current = 10, Proven LB = 9) | *(unclaimed, ceiling 11)* | `≤ 11` | *(lit. ≥ 9)* | — | ○ Open Hunt |
 | `sorting-networks` | `SN-rec-016` | King of the Hill: 16-Wire AVX-512 / GPU Half-Warp Sorting Network Size (Green 1969 Record = 60, LB = 53) | *(unclaimed, ceiling 62)* | `≤ 62` | *(lit. ≥ 53)* | — | ○ Open Hunt |
 | `sorting-networks` | `SN-rec-d16` | King of the Hill: 16-Wire AVX-512 / FPGA Parallel Depth (Exact Optimum = 9 Layers, Beats Batcher's 10) | *(unclaimed, ceiling 10)* | `≤ 10` | *(lit. ≥ 9)* | — | ○ Open Hunt |
-| `verified-science-kernels` | `S-rec-exp` | King of the Hill: Minimax Degree-7 Float64 Polynomial for exp(x) on [-ln2/2, ln2/2] (128-bit BigInt Oracle) | **405** ×10⁻¹³ err | `≤ 404` | *(lit. ≥ 380)* | `donor-steph4n-gh` | ♛ Active Hunt |
-| `verified-science-kernels` | `S-rec-sin` | King of the Hill: Minimax Degree-7 Odd Float64 Polynomial for sin(x) on [-π/4, π/4] (128-bit BigInt Oracle) | **1206** ×10⁻¹² err | `≤ 1205` | *(lit. ≥ 1100)* | `donor-steph4n-gh` | ♛ Active Hunt |
 
 ## Cryptographic & ZK/FHE Circuit Minimization (`crypto-zk-circuits`)
 *Judge: Lean 4.36.0 kernel · frozen statements · zero sorry*
@@ -69,34 +62,6 @@
 | ID | Seal | Plain Statement | Artifact | Axioms / Checks | SHA-256 |
 |---|---|---|---|---|---|
 | `CZ-001` | ◆ Frozen | NIST SP 800-232 Ascon 5-bit S-box: 5 non-linear (AND) gates at multiplicative depth 1 | [CZ_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/crypto-zk-circuits/lean/Crypto/Claims/CZ_001.lean) | `propext, Classical.choice, Quot.sound` | `bd354ffcce` |
-
-## Erdős & Extremal Combinatorics (`erdos-combinatorics`)
-*Judge: Lean 4.36.0 kernel · frozen statements · zero sorry*
-*Applied research frontier · Ships to: Radio interferometry (VLA/VLBI), phased-array radar, optical WDM channel plans, Erdős Problems Registry*
-
-| ID | Seal | Plain Statement | Artifact | Axioms / Checks | SHA-256 |
-|---|---|---|---|---|---|
-| `E-ram-001` | ✓ Audited | The 5-cycle C5 contains neither a triangle nor a 3-independent set, proving R(3,3) > 5 | [E_ram_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_ram_001.lean) | `none` | `36697e8874` |
-| `E-ram-002` | ✓ Audited | Ramsey's Theorem R(3,3) ≤ 6: every simple graph on 6 vertices contains either a triangle or a 3-independent set | [E_ram_002.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_ram_002.lean) | `propext` | `cf46d9f005` |
-| `E-ram-003` | ✓ Audited | Circulant witness on 8 vertices proving R(3,4) > 8 (no 3-independent set and no K4) | [E_ram_003.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_ram_003.lean) | `none` | `70beb304f0` |
-| `E-tur-001` | ✓ Audited | Mantel's Theorem (1907): every triangle-free simple graph on n vertices has at most n² / 4 edges | [E_tur_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_tur_001.lean) | `propext, Quot.sound` | `c27432fc64` |
-| `E-sch-001` | ✓ Audited | Exact Schur Number S(2) = 4: {1..4} admits a 2-color sum-free coloring, while every 2-coloring of {1..5} has a monochromatic x + y = z | [E_sch_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_sch_001.lean) | `propext` | `786e23d8f5` |
-| `E-sch-002` | ✓ Audited | Schur Lower Bound S(3) ≥ 13: explicit 3-color sum-free coloring of {1..13} verified in Lean 4 | [E_sch_002.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_sch_002.lean) | `propext` | `742d0ea6a6` |
-| `E-erd128-001` | ✓ Audited | Erdős #128 Bipartite Base Case: every bipartite graph on n vertices satisfies HasSparseHalf (an independent half of size ≥ n/2 has 0 ≤ n²/50 edges) | [E_erd128_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_erd128_001.lean) | `propext, Classical.choice, Quot.sound` | `4c9595134a` |
-| `E-erd128-002` | ⚠ Flagged | Erdős #128 Tightness Witness: the 5-cycle C5 is triangle-free and satisfies HasSparseHalf with an independent set of size 2 = 5/2 | [E_erd128_002.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_erd128_002.lean) | `propext, Classical.choice, Quot.sound` | `6b985eb330` |
-| `E-sch-003` | ✕ Refuted | CONJECTURE (Red Team Target): Every 3-coloring of {1..13} contains a monochromatic Schur triple x + y = z (i.e. S(3) ≤ 12) | [E_sch_003_refute.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_sch_003_refute.lean) | `propext` | `b605bc16eb` |
-| `E-erd156-001` | ✓ Audited | Erdős #156 Blocking Lemma: if A is a maximal Sidon subset of {1..N}, every x ∈ {1..N} \ A satisfies either x + a = b + c or 2x = a + b for some a, b, c ∈ A | [E_erd156_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_erd156_001.lean) | `propext, Quot.sound` | `071bd9aba9` |
-| `E-erd156-002` | ✓ Audited | Erdős #156 Small-N Synthesis: construct and Lean-verify a maximal Sidon subset A ⊆ {1..30} of size at most 6 | [E_erd156_002.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_erd156_002.lean) | `propext, Classical.choice, Quot.sound` | `4c090bd724` |
-| `E-erd128-003` | ◆ Frozen | Erdős #128 Exact n=10 Sharpness: exhibit a triangle-free 10-vertex graph (e.g. C5[2] or Petersen) achieving 50·e(S) ≥ 100 on every ≥5-vertex half and exact equality 50·e(S) = 100 | [E_erd128_003.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_erd128_003.lean) | `propext, Quot.sound` | `c74fe84b59` |
-| `E-erd156-003` | ◆ Frozen | Erdős #156 Exact Minimum at N=30: prove no maximal Sidon subset of {1..30} has size ≤ 4 (pinning exact min = 5 with E-erd156-002) | [E_erd156_003.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_erd156_003.lean) | `propext, Classical.choice, Quot.sound` | `c4d9aec1ff` |
-| `E-sch-004` | ◆ Frozen | Exact Schur Number S(3) = 13 Upper Bound: every 3-coloring of {1..14} contains a monochromatic Schur triple x + y = z | [E_sch_004.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_sch_004.lean) | `propext, Classical.choice, Quot.sound` | `ac7c10461d` |
-| `E-ram-004` | ◆ Frozen | Exact Ramsey R(3,4) = 9 Upper Bound: every 9-vertex simple graph has a 3-independent set or a 4-clique | [E_ram_004.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_ram_004.lean) | `propext, Classical.choice, Quot.sound` | `404c4afdba` |
-| `E-ram-006` | ◆ Frozen | Circulant Witness for R(3,5) > 13: exhibit a 13-vertex triangle-free graph with no 5-independent set | [E_ram_006.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_ram_006.lean) | `propext, Classical.choice, Quot.sound` | `53709372e0` |
-| `E-erd156-004` | ◆ Frozen | Erdős #156 Exact Length-5 Witness at N=30: prove ∃ A, A.length = 5 ∧ IsMaximalSidon 30 A (closing exact min = 5 with E-erd156-003) | [E_erd156_004.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_erd156_004.lean) | `propext, Classical.choice, Quot.sound` | `cb5b2c29d2` |
-| `E-erd156-005` | ◆ Frozen | Erdős #156 Universal Ω(N^{1/3}) Barrier: prove N ≤ \|A\| + \|A\|³ for EVERY maximal Sidon subset A ⊆ {1..N} | [E_erd156_005.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_erd156_005.lean) | `propext, Classical.choice, Quot.sound` | `f6522ced75` |
-| `E-sch-005` | ◆ Frozen | Schur Lower Bound S(4) ≥ 44: explicit 4-color sum-free coloring of {1..44} verified in Lean 4 | [E_sch_005.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_sch_005.lean) | `propext, Quot.sound` | `44f0757334` |
-| `E-vdw-001` | ◆ Frozen | Exact Van der Waerden W(3,3) = 9: {1..8} admits a 3-AP-free 2-coloring while every 2-coloring of {1..9} contains a monochromatic 3-AP | [E_vdw_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_vdw_001.lean) | `propext, Classical.choice, Quot.sound` | `06549c89e9` |
-| `E-vdw-002` | ◆ Frozen | 3-Color Van der Waerden Lower Bound W(3; 3) > 26: explicit 3-coloring of {1..26} with no monochromatic 3-term arithmetic progression | [E_vdw_002.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_vdw_002.lean) | `propext, Quot.sound` | `4782be2426` |
 
 ## Error-Correcting Codes (Sloane & Grassl Open World Tables) (`error-correcting-codes`)
 *Judge: Lean 4.36.0 kernel · frozen statements · zero sorry*
@@ -174,12 +139,4 @@ _No closed proofs yet (see King of the Hill hunts above or open bounties on the 
 |---|---|---|---|---|---|
 | `SN-001` | ◆ Frozen | Knuth's Zero-One Principle: any comparator network that sorts all 0/1 inputs sorts all natural-number inputs | [SN_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/sorting-networks/lean/SortNet/Claims/SN_001.lean) | `propext, Quot.sound` | `2a05a3bbc5` |
 | `SN-002` | ◆ Frozen | Optimal 4-wire (5 steps, depth 3) & 5-wire (9 steps, depth 5) sorting networks | [SN_002.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/sorting-networks/lean/SortNet/Claims/SN_002.lean) | `propext, Quot.sound` | `3eccb4d250` |
-
-## Verified Scientific & Numerical Kernels (`verified-science-kernels`)
-*Judge: Deterministic IEEE-754 Stress Judge*
-*Direct production impact · Ships to: CORE-MATH / glibc / LLVM libm, CGAL / CAD / GIS meshing engines, SciPy / Julia / CFD solvers*
-
-| ID | Seal | Plain Statement | Artifact | Axioms / Checks | SHA-256 |
-|---|---|---|---|---|---|
-| `S-num-001` | ✓ Audited | Neumaier-compensated summation preserves exact sums across 1e16 and 1e100 catastrophic cancellation | [S_num_001.mjs](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/verified-science-kernels/artifacts/S_num_001.mjs) | `catastrophic_1e16_cancel, neumaier_1e100_cancel` | `b4b66491cb` |
 

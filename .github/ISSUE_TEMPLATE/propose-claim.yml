@@ -8,10 +8,13 @@ body:
     attributes:
       label: Mission
       options:
-        - erdos-combinatorics
+        - crypto-zk-circuits
+        - ml-math-kernels
         - sorting-networks
+        - fast-matrix-mul
+        - error-correcting-codes
+        - quantum-codes
         - p-vs-np
-        - verified-science-kernels
         - New mission proposal
     validations:
       required: true
@@ -19,7 +22,7 @@ body:
     id: claim_id
     attributes:
       label: Proposed Claim ID
-      placeholder: "e.g. E-ram-004 or E-erd128-004"
+      placeholder: "e.g. CZ-003 or SN-rec-018"
     validations:
       required: true
   - type: textarea

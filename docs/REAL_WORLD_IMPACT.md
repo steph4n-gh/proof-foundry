@@ -6,7 +6,7 @@ Not every open math problem has the same distance to production systems. We labe
 
 ---
 
-## Portfolio Impact Map (9 Missions · 37 Live King-of-the-Hill Hunts)
+## Portfolio Impact Map (Sharp 7 Missions · 32 Live King-of-the-Hill Hunts)
 
 | Mission | Honest Tier | Ships Directly To | What One Verified Step Buys |
 |---|---|---|---|
@@ -14,10 +14,8 @@ Not every open math problem has the same distance to production systems. We labe
 | `ml-math-kernels` | **Direct production impact** | FlashAttention, Triton, PyTorch Inductor, vLLM, TensorRT-LLM, llama.cpp | −1 branchless FMA/ALU op cuts register pressure & GPU SFU stalls across trillions of tokens with 65,536/65,536 exhaustive ≤1 ULP guarantee |
 | `sorting-networks` | **Direct production impact** | LLVM `libc++ std::sort`, Google Highway (`vqsort`), DuckDB, NVIDIA CUB/Thrust, FPGAs | −1 comparator or −1 parallel layer permanently speeds up 16-lane AVX-512 & GPU warp register sorting with zero branch mispredictions |
 | `fast-matrix-mul` | **Direct production impact** | BLIS, OpenBLAS, CUTLASS GEMM, M4RI GF(2) engines, PQC / erasure coding | −1 product compounds exponentially ($r^L$ vs $27^L$); fewer additions with $\{-1,0,1\}$ coeffs lowers the real BLAS crossover size |
-| `verified-science-kernels` | **Direct production impact** | CORE-MATH, LLVM `libc`, SLEEF, CGAL, PostGIS, SciPy / CFD solvers | Tighter float64-lattice minimax coeffs cut worst-case `exp`/`sin` ULP error at zero extra FLOPs; exact `orient2d` stops meshing crashes |
 | `error-correcting-codes` | **Direct production impact** | DNA multiplexing barcodes, NAND/NVMe short-block ECC, optical FEC, Brouwer's tables | +1 codeword permanently expands error-tolerant multiplexing capacity at fixed block length and constant GC/DC weight |
 | `quantum-codes` | **Applied research frontier** | IBM Bivariate Bicycle (w ≤ 6), QuEra/Atom neutral-atom arrays, Quantinuum ions, Stim | +1 logical qubit $k$ at fixed physical $n$, distance $d$, and check weight $w \le 6$ raises hardware QEC rate with zero extra physical qubits |
-| `erdos-combinatorics` | **Applied research frontier** | VLA/VLBI radio interferometry, phased-array radar, optical DWDM spacing, Erdős Registry | Shorter Golomb rulers / Sidon sets eliminate baseline & four-wave-mixing collisions in smaller physical/spectral apertures |
 | `p-vs-np` | **Foundational / theoretical** | EPFL Mockturtle, Berkeley ABC, SAT proof compression, Kulikov/Knuth tables | Honest: P vs NP itself is long-horizon foundational theory, while exact small-$n$ `MAJ7` / `MOD3_6` B2 circuits feed EDA peephole synthesis |
 
 ---
@@ -74,20 +72,36 @@ static inline void pf_cz_rec_ascon_gates_bitslice64(uint64_t out[5], const uint6
 ```cuda
 // Auto-generated from Proof Foundry verified pure-data kernel (18 ops, 65,536/65,536 bf16 inputs checked)
 __device__ __forceinline__ float pf_bf16_exp2(float r0) {
-  const float r10 = fminf(r0, 128.0f);
-  const float r11 = fmaxf(r10, -135.0f);
-  const int32_t r12 = __float2int_rn(r11);
+  const float r1 = 128.0f;
+  const float r2 = -135.0f;
+  const float r3 = 0.0555041097f;
+  const float r4 = 0.240226507f;
+  const float r5 = 0.693147182f;
+  const float r6 = 1.0f;
+  const int32_t r7 = 1;
+  const int32_t r8 = 127;
+  const int32_t r9 = 23;
+  const float r10 = fminf(r0, r1);
+  const float r11 = fmaxf(r10, r2);
+  const int32_t r12 = (r11 >= -2147483648.0f && r11 < 2147483648.0f) ? __float2int_rn(r11) : 0;
   const float r13 = (float)r12;
-  const float r14 = r11 - r13;
-  const float r15 = fmaf(0.0555041097f, r14, 0.240226507f);
-  const float r16 = fmaf(r15, r14, 0.693147182f);
-  const float r17 = fmaf(r16, r14, 1.0f);
-  const int32_t r18 = r12 >> 1;
-  const int32_t r19 = r12 - r18;
-  const float r24 = __int_as_float((r18 + 127) << 23);
-  const float r25 = __int_as_float((r19 + 127) << 23);
-  const float r27 = (r17 * r24) * r25;
-  return (r0 == r0) ? r27 : r0;
+  const float r14 = __fsub_rn(r11, r13);
+  const float r15 = fmaf(r3, r14, r4);
+  const float r16 = fmaf(r15, r14, r5);
+  const float r17 = fmaf(r16, r14, r6);
+  const int32_t r18 = (int32_t)((((uint32_t)r7 & 31u) == 0u) ? (uint32_t)r12 : (((uint32_t)r12 >> ((uint32_t)r7 & 31u)) | (r12 < 0 ? (~0u << (32u - ((uint32_t)r7 & 31u))) : 0u)));
+  const int32_t r19 = (int32_t)((uint32_t)r12 - (uint32_t)r18);
+  const int32_t r20 = (int32_t)((uint32_t)r18 + (uint32_t)r8);
+  const int32_t r21 = (int32_t)((uint32_t)r19 + (uint32_t)r8);
+  const int32_t r22 = (int32_t)((uint32_t)r20 << ((uint32_t)r9 & 31u));
+  const int32_t r23 = (int32_t)((uint32_t)r21 << ((uint32_t)r9 & 31u));
+  const float r24 = __int_as_float(r22);
+  const float r25 = __int_as_float(r23);
+  const float r26 = __fmul_rn(r17, r24);
+  const float r27 = __fmul_rn(r26, r25);
+  const bool r28 = r0 == r0;
+  const float r29 = r28 ? r27 : r0;
+  return r29;
 }
 ```
 
@@ -117,17 +131,7 @@ Already verified out of the box: `ML-rec-bf16-rsqrt` (17 ops), `ML-rec-bf16-exp2
 
 ---
 
-### 5. Numerical & Geometric Reliability (`verified-science-kernels`)
-
-**The bottleneck:** Silent IEEE-754 rounding errors crash Delaunay triangulators/CAD engines on near-collinear geometry, erase small terms under catastrophic cancellation, and degrade `libm` elementary functions.
-
-**Direct outputs:**
-- `S-rec-exp`, `S-rec-sin` — Float64-lattice minimax polynomial coefficients verified against an exact **128-bit BigInt** oracle (drop straight into `libm`/SIMD Horner FMA loops).
-- `S-num-001`..`S-num-004` — Verified Neumaier summation, outward-rounded interval arithmetic, error-free `TwoSum`/`Dot2`, and Shewchuk exact `orient2d`.
-
----
-
-### 6. Short-Block & Constant-Weight Codes (`error-correcting-codes`)
+### 5. Short-Block & Constant-Weight Codes (`error-correcting-codes`)
 
 **The bottleneck:** Multiplexed DNA sequencing (Illumina/Twist), DNA storage, and DC-balanced optical links need maximal sets of short binary words with fixed Hamming weight (constant GC-content / zero DC bias) and guaranteed Hamming distance $d \ge 6$ or $8$ (correcting 2–3 bit errors).
 
@@ -135,7 +139,7 @@ Already verified out of the box: `ML-rec-bf16-rsqrt` (17 ops), `ML-rec-bf16-exp2
 
 ---
 
-### 7. Low-Weight Quantum LDPC Codes (`quantum-codes`) — *Applied Research Frontier*
+### 6. Low-Weight Quantum LDPC Codes (`quantum-codes`) — *Applied Research Frontier*
 
 **The bottleneck:** Surface codes need hundreds of physical qubits per logical qubit. Low-weight qLDPC CSS codes (`check weight ≤ 6`, matching IBM Bivariate Bicycle and neutral-atom/trapped-ion hardware) slash physical qubit overhead by 5–10×.
 
@@ -144,13 +148,6 @@ Already verified out of the box: `ML-rec-bf16-rsqrt` (17 ops), `ML-rec-bf16-exp2
 
 ---
 
-### 8. Extremal Combinatorics (`erdos-combinatorics`) — *Applied Research Frontier*
-
-- `E-rec-gol11` (verified optimal length 72) & `E-rec-200` (verified 10-element maximal Sidon set) give collision-free sensor/antenna placements for radio interferometry (VLBI/phased-array radar) and DWDM fiber-optic channel plans eliminating four-wave mixing.
-- `E-rec-r55` (verified 42-vertex $K_5/I_5$-free graph), Erdős #128, #156, Schur $S(3)/S(4)$, and van der Waerden bounds advance formal extremal mathematics.
-
----
-
-### 9. P vs NP & Exact Circuit Synthesis (`p-vs-np`) — *Foundational / Theoretical*
+### 7. P vs NP & Exact Circuit Synthesis (`p-vs-np`) — *Foundational / Theoretical*
 
 We keep `p-vs-np` both as the original flagship foundational frontier (formalizing Relativization/Natural Proofs/Algebrization barriers, universal `PHP(n+1, n)`, and Resolution soundness) **and** as an active exact small-$n$ Boolean circuit synthesis arena (`L-rec-mod3-6`, `L-rec-maj7`, `L-rec-005`, `L-rec-maj5`, `L-rec-php4`) whose minimal shared-wire B2 DAG circuits directly benchmark EDA logic synthesizers (EPFL Mockturtle, Berkeley ABC) and SAT proof compression.

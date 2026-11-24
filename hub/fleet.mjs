@@ -264,7 +264,7 @@ if (cmd === "new") {
             harness_file: `missions/${slug}/judge/verify.mjs`,
             command: ["node", `missions/${slug}/judge/verify.mjs`],
             allowed_dirs: [`missions/${slug}/artifacts`],
-            allowed_extensions: [".mjs", ".js", ".py", ".json"],
+            allowed_extensions: [".json"],
             timeout_ms: 60000,
           },
   };

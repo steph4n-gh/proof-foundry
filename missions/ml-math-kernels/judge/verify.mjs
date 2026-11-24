@@ -206,36 +206,35 @@ export function fmafExact(a, b, c) {
   return dyadicToF32RNE(sumM, minE);
 }
 
-/** High-accuracy (>15 decimal digits) erf(x) in float64 via Maclaurin + Lentz continued fraction. */
-export function erfExact64(x) {
+/** High-accuracy (>15 decimal digits) erfc(x) in float64 via Maclaurin + Lentz continued fraction. */
+export function erfcExact64(x) {
   if (Number.isNaN(x)) return NaN;
-  if (x === Infinity) return 1;
-  if (x === -Infinity) return -1;
-  if (x === 0) return x;
-  const sign = x < 0 ? -1 : 1;
-  const ax = Math.abs(x);
-  if (ax >= 6.0) return sign; // 1 - erfc(6) = 1 - 2.15e-17 = 1.0 in float64!
+  if (x === Infinity) return 0;
+  if (x === -Infinity) return 2;
+  if (x === 0) return 1;
+  if (x < 0) return 2 - erfcExact64(-x);
+  if (x >= 27.5) return 0; // erfc(27.5) ~ 1.4e-330 < Number.MIN_VALUE
   const INV_SQRT_PI = 0.5641895835477562869480794515607725858;
-  if (ax < 2.2) {
-    // Power series: erf(x) = (2/sqrt(pi)) * exp(-x^2) * sum_{n>=0} (2^n x^(2n+1)) / (1*3*...*(2n+1))
-    const x2 = ax * ax;
-    let term = ax;
-    let sum = ax;
+  if (x < 1.5) {
+    // Power series for erf(x) has zero cancellation on [0, 1.5): erfc(x) = 1 - erf(x)
+    const x2 = x * x;
+    let term = x;
+    let sum = x;
     for (let n = 1; n < 80; n++) {
       term *= (2 * x2) / (2 * n + 1);
       sum += term;
       if (Math.abs(term) <= Math.abs(sum) * 1e-17) break;
     }
-    return sign * 2 * INV_SQRT_PI * Math.exp(-x2) * sum;
+    return 1 - 2 * INV_SQRT_PI * Math.exp(-x2) * sum;
   }
-  // Continued fraction for erfc(ax) = (exp(-ax^2) / sqrt(pi)) * (1 / (ax + (1/2)/(ax + (2/2)/(ax + ...))))
-  // Using modified Lentz's method (converges to < 1e-16 for ax >= 2.2 in < 35 steps)
+  // Continued fraction for erfc(x) = (exp(-x^2) / sqrt(pi)) * (1 / (x + (1/2)/(x + (2/2)/(x + ...))))
+  // Modified Lentz's method converges to < 1e-15 across [1.5, 27.5) with zero negative-tail cancellation.
   const tiny = 1e-300;
-  let b = ax;
+  let b = x;
   let c = 1 / tiny;
   let d = 1 / b;
   let f = d;
-  for (let n = 1; n < 80; n++) {
+  for (let n = 1; n < 120; n++) {
     const a = n * 0.5;
     d = b + a * d;
     if (Math.abs(d) < tiny) d = tiny;
@@ -246,11 +245,42 @@ export function erfExact64(x) {
     f *= delta;
     if (Math.abs(delta - 1) < 1e-16) break;
   }
-  const erfc = INV_SQRT_PI * Math.exp(-ax * ax) * f;
-  return sign * (1 - erfc);
+  return INV_SQRT_PI * Math.exp(-x * x) * f;
+}
+
+/** High-accuracy (>15 decimal digits) erf(x) in float64 via Maclaurin + Lentz continued fraction. */
+export function erfExact64(x) {
+  if (Number.isNaN(x)) return NaN;
+  if (x === Infinity) return 1;
+  if (x === -Infinity) return -1;
+  if (x === 0) return x;
+  const sign = x < 0 ? -1 : 1;
+  const ax = Math.abs(x);
+  if (ax >= 6.0) return sign; // 1 - erfc(6) = 1 - 2.15e-17 = 1.0 in float64!
+  const INV_SQRT_PI = 0.5641895835477562869480794515607725858;
+  if (ax < 1.5) {
+    const x2 = ax * ax;
+    let term = ax;
+    let sum = ax;
+    for (let n = 1; n < 80; n++) {
+      term *= (2 * x2) / (2 * n + 1);
+      sum += term;
+      if (Math.abs(term) <= Math.abs(sum) * 1e-17) break;
+    }
+    return sign * 2 * INV_SQRT_PI * Math.exp(-x2) * sum;
+  }
+  return sign * (1 - erfcExact64(ax));
 }
 
 const INV_SQRT2 = Math.SQRT1_2;
+
+/** Return the smallest IEEE-754 float64 strictly greater than finite non-zero `y` (toward +Infinity). */
+function nextUpF64(y) {
+  _f64[0] = y;
+  const u = _u64[0];
+  _u64[0] = y > 0 ? u + 1n : u - 1n;
+  return _f64[0];
+}
 
 export const REFERENCE_FNS = {
   bf16_gelu(x) {
@@ -258,16 +288,28 @@ export const REFERENCE_FNS = {
     if (x === Infinity) return Infinity;
     if (x === -Infinity) return 0;
     if (x === 0) return x;
-    return 0.5 * x * (1 + erfExact64(x * INV_SQRT2));
+    // Use erfc(-x / sqrt(2)) on the negative half-line to prevent 1 + erf(...) cancellation!
+    const y = x < 0 ? 0.5 * x * erfcExact64(-x * INV_SQRT2) : 0.5 * x * (1 + erfExact64(x * INV_SQRT2));
+    // Exact tie-breaker: for all x != 0, gelu(x) = x/2 + (x/2)*erf(x/sqrt(2)) > x/2 strictly.
+    // When |x| < 2^-50, the positive O(x^2) term underflows float64 relative to x/2, landing on an
+    // exact bf16 midpoint for odd subnormal/first-normal multiples of 2^-133; nudging 1 f64 ULP
+    // toward +Infinity restores exact mathematical RNE rounding across all 65,536 bf16 inputs.
+    return y === 0.5 * x ? nextUpF64(y) : y;
   },
   bf16_silu(x) {
     if (Number.isNaN(x)) return NaN;
     if (x === Infinity) return Infinity;
     if (x === -Infinity) return 0;
     if (x === 0) return x;
-    if (x >= 0) return x / (1 + Math.exp(-x));
-    const ex = Math.exp(x);
-    return (x * ex) / (1 + ex);
+    let y;
+    if (x >= 0) {
+      y = x / (1 + Math.exp(-x));
+    } else {
+      const ex = Math.exp(x);
+      y = (x * ex) / (1 + ex);
+    }
+    // Exact tie-breaker: for all x != 0, silu(x) = x/2 + (x/2)*tanh(x/2) > x/2 strictly.
+    return y === 0.5 * x ? nextUpF64(y) : y;
   },
   bf16_exp2(x) {
     if (Number.isNaN(x)) return NaN;
@@ -277,6 +319,7 @@ export const REFERENCE_FNS = {
   },
   bf16_rsqrt(x) {
     if (Number.isNaN(x) || x < 0) return NaN;
+    // Convention: both +0 and -0 map to +Inf (matches ML-rec-bf16-rsqrt spec & RMSNorm nonnegative variance).
     if (x === 0) return Infinity;
     if (x === Infinity) return 0;
     return 1 / Math.sqrt(x);
@@ -365,9 +408,13 @@ export function parseAndValidateKernel(rawText) {
       if (typeof v !== "number" || !Number.isFinite(v)) {
         return { ok: false, reason: `Op const at index ${i} must be a finite float32 number` };
       }
+      const fv = Math.fround(v);
+      if (!Number.isFinite(fv)) {
+        return { ok: false, reason: `Op const at index ${i} overflows float32 (${v})` };
+      }
       constCount++;
       regTypes.push("f32");
-      compiled.push({ op, v: Math.fround(v) });
+      compiled.push({ op, v: fv });
     } else if (op === "iconst") {
       const v = inst[1];
       if (!Number.isSafeInteger(v) || v < -2147483648 || v > 4294967295) {
@@ -433,10 +480,20 @@ export function parseAndValidateKernel(rawText) {
   return { ok: true, compiled, output: parsed.output, opCost, constCount, target: parsed.target || null, notes: parsed.notes || "" };
 }
 
-/** Deterministic IEEE-754 float32 evaluator for a validated kernel DAG. */
-export function evalKernelF32(kernel, xF32) {
+/**
+ * Deterministic IEEE-754 float32 evaluator with NaN bit-pattern poison tracking.
+ *
+ * Because JS numbers quieten signaling NaNs (126 bf16 sNaN patterns) and CPUs/V8 differ on
+ * canonical NaN sign/payload bits (e.g., Inf - Inf on arm64 vs x86_64), any `bitcast_i32` of a
+ * NaN float marks its output register as poisoned. Non-poisoned `select` discards poisoned
+ * untaken branches (so valid kernels like rsqrt's `x > 0 ? fast : fallback` remain unpoisoned),
+ * while any poisoned value or branch condition reaching the final output is rejected by the judge.
+ */
+export function evalKernelF32Checked(kernel, xF32) {
   const regs = new Array(kernel.compiled.length + 1);
+  const poison = new Array(kernel.compiled.length + 1);
   regs[0] = Math.fround(xF32);
+  poison[0] = false;
   for (let i = 0; i < kernel.compiled.length; i++) {
     const inst = kernel.compiled[i];
     const r = i + 1;
@@ -444,76 +501,108 @@ export function evalKernelF32(kernel, xF32) {
       case "const":
       case "iconst":
         regs[r] = inst.v;
+        poison[r] = false;
         break;
-      case "bitcast_i32":
-        regs[r] = f32ToI32(regs[inst.args[0]]);
+      case "bitcast_i32": {
+        const a0 = inst.args[0];
+        regs[r] = f32ToI32(regs[a0]);
+        poison[r] = poison[a0] || Number.isNaN(regs[a0]);
         break;
-      case "bitcast_f32":
-        regs[r] = i32ToF32(regs[inst.args[0]]);
+      }
+      case "bitcast_f32": {
+        const a0 = inst.args[0];
+        regs[r] = i32ToF32(regs[a0]);
+        poison[r] = poison[a0];
         break;
+      }
       case "add":
         regs[r] = Math.fround(regs[inst.args[0]] + regs[inst.args[1]]);
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "sub":
         regs[r] = Math.fround(regs[inst.args[0]] - regs[inst.args[1]]);
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "mul":
         regs[r] = Math.fround(regs[inst.args[0]] * regs[inst.args[1]]);
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "fma":
         regs[r] = fmafExact(regs[inst.args[0]], regs[inst.args[1]], regs[inst.args[2]]);
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]] || poison[inst.args[2]];
         break;
       case "abs":
         regs[r] = Math.fround(Math.abs(regs[inst.args[0]]));
+        poison[r] = poison[inst.args[0]];
         break;
       case "neg":
         regs[r] = Math.fround(-regs[inst.args[0]]);
+        poison[r] = poison[inst.args[0]];
         break;
       case "min": {
         const a = regs[inst.args[0]], b = regs[inst.args[1]];
-        regs[r] = Number.isNaN(a) ? b : Number.isNaN(b) ? a : (a < b ? a : b);
+        if (Number.isNaN(a)) regs[r] = b;
+        else if (Number.isNaN(b)) regs[r] = a;
+        else if (a === 0 && b === 0) regs[r] = (Object.is(a, -0) || Object.is(b, -0)) ? -0 : 0;
+        else regs[r] = a < b ? a : b;
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       }
       case "max": {
         const a = regs[inst.args[0]], b = regs[inst.args[1]];
-        regs[r] = Number.isNaN(a) ? b : Number.isNaN(b) ? a : (a > b ? a : b);
+        if (Number.isNaN(a)) regs[r] = b;
+        else if (Number.isNaN(b)) regs[r] = a;
+        else if (a === 0 && b === 0) regs[r] = (Object.is(a, -0) && Object.is(b, -0)) ? -0 : 0;
+        else regs[r] = a > b ? a : b;
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       }
       case "iadd":
         regs[r] = (regs[inst.args[0]] + regs[inst.args[1]]) | 0;
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "isub":
         regs[r] = (regs[inst.args[0]] - regs[inst.args[1]]) | 0;
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "imul":
         regs[r] = Math.imul(regs[inst.args[0]], regs[inst.args[1]]);
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "iand":
         regs[r] = regs[inst.args[0]] & regs[inst.args[1]];
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "ior":
         regs[r] = regs[inst.args[0]] | regs[inst.args[1]];
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "ixor":
         regs[r] = regs[inst.args[0]] ^ regs[inst.args[1]];
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "ishl":
         regs[r] = regs[inst.args[0]] << (regs[inst.args[1]] & 31);
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "ishr_u":
         regs[r] = (regs[inst.args[0]] >>> (regs[inst.args[1]] & 31)) | 0;
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "ishr_s":
         regs[r] = regs[inst.args[0]] >> (regs[inst.args[1]] & 31);
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "ftoi_trunc": {
         const v = regs[inst.args[0]];
-        regs[r] = Number.isFinite(v) ? (Math.trunc(v) | 0) : 0;
+        // Guard to exact representable int32_t float32 range [-2^31, 2^31) matching emitted C++/CUDA!
+        regs[r] = (v >= -2147483648 && v < 2147483648) ? (Math.trunc(v) | 0) : 0;
+        poison[r] = poison[inst.args[0]];
         break;
       }
       case "ftoi_round": {
         const v = regs[inst.args[0]];
-        if (!Number.isFinite(v)) {
+        if (!(v >= -2147483648 && v < 2147483648)) {
           regs[r] = 0;
         } else {
           // Round-to-nearest-ties-to-even (matches IEEE rintf / CUDA __float2int_rn)
@@ -522,35 +611,51 @@ export function evalKernelF32(kernel, xF32) {
           const rnd = diff > 0.5 ? fl + 1 : diff < 0.5 ? fl : (fl % 2 === 0 ? fl : fl + 1);
           regs[r] = rnd | 0;
         }
+        poison[r] = poison[inst.args[0]];
         break;
       }
       case "itof":
         regs[r] = Math.fround(regs[inst.args[0]]);
+        poison[r] = poison[inst.args[0]];
         break;
       case "lt":
         regs[r] = regs[inst.args[0]] < regs[inst.args[1]];
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "le":
         regs[r] = regs[inst.args[0]] <= regs[inst.args[1]];
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
       case "eq":
         regs[r] = regs[inst.args[0]] === regs[inst.args[1]];
+        poison[r] = poison[inst.args[0]] || poison[inst.args[1]];
         break;
-      case "select":
-        regs[r] = regs[inst.args[0]] ? regs[inst.args[1]] : regs[inst.args[2]];
+      case "select": {
+        const [c, t, f] = inst.args;
+        regs[r] = regs[c] ? regs[t] : regs[f];
+        poison[r] = poison[c] ? true : (regs[c] ? poison[t] : poison[f]);
         break;
+      }
     }
   }
-  return regs[kernel.output];
+  return { value: regs[kernel.output], poisoned: poison[kernel.output] };
+}
+
+/** Deterministic IEEE-754 float32 evaluator for a validated kernel DAG. */
+export function evalKernelF32(kernel, xF32) {
+  return evalKernelF32Checked(kernel, xF32).value;
 }
 
 /** Exhaustively verify a validated kernel over ALL 65,536 IEEE bfloat16 bit patterns! */
 export function verifyExhaustiveBf16(kernel, spec) {
-  const refFn = REFERENCE_FNS[spec.target];
-  if (typeof refFn !== "function") {
-    return { ok: false, reason: `Unknown reference target: ${spec.target}` };
+  if (!spec || typeof spec.target !== "string" || !Object.hasOwn(REFERENCE_FNS, spec.target)) {
+    return { ok: false, reason: `Unknown reference target: ${spec?.target}` };
   }
-  const maxUlpAllowed = Number(spec.max_ulp ?? 1);
+  const refFn = REFERENCE_FNS[spec.target];
+  const maxUlpAllowed = spec.max_ulp === undefined ? 1 : spec.max_ulp;
+  if (typeof maxUlpAllowed !== "number" || !Number.isSafeInteger(maxUlpAllowed) || maxUlpAllowed < 0) {
+    return { ok: false, reason: `Invalid spec.max_ulp: ${JSON.stringify(spec.max_ulp)}` };
+  }
   let maxUlpSeen = 0;
   let worstInputBits = 0;
   let worstInputVal = 0;
@@ -563,7 +668,13 @@ export function verifyExhaustiveBf16(kernel, spec) {
     const x = bf16ToF32(bits);
     const ref64 = refFn(x);
     const refBf16 = f64ToBf16RNE(ref64);
-    const gotF32 = evalKernelF32(kernel, x);
+    const { value: gotF32, poisoned } = evalKernelF32Checked(kernel, x);
+    if (poisoned) {
+      return {
+        ok: false,
+        reason: `Non-portable NaN bit-pattern leak via bitcast_i32 reaching output at bf16 0x${bits.toString(16)} (${x})`,
+      };
+    }
     const gotBf16 = f32ToBf16RNE(gotF32);
     tested++;
 
@@ -623,6 +734,7 @@ export function verifyExhaustiveBf16(kernel, spec) {
     tested,
     exactMatches,
     maxUlpSeen,
+    maxUlpAllowed,
     worstInputBits,
     worstInputVal,
     worstGot,
@@ -639,8 +751,12 @@ export function emitCudaSnippet(kernel, fnName = "pf_kernel") {
     `__device__ __forceinline__ float ${fnName}(float r0) {`,
   ];
   const fLit = (v) => {
-    if (Object.is(v, -0)) return "-0.0f";
-    const s = Number(v).toPrecision(9);
+    const fv = Math.fround(Number(v));
+    if (!Number.isFinite(fv)) {
+      throw new Error(`Non-finite float32 constant: ${v}`);
+    }
+    if (Object.is(fv, -0)) return "-0.0f";
+    const s = fv.toPrecision(9);
     if (s.includes("e") || s.includes("E")) {
       const [m, e] = s.split(/[eE]/);
       return `${m.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, ".0")}e${e}f`;
@@ -658,9 +774,9 @@ export function emitCudaSnippet(kernel, fnName = "pf_kernel") {
       case "iconst": lines.push(`  const int32_t ${r} = ${iLit(inst.v)};`); break;
       case "bitcast_i32": lines.push(`  const int32_t ${r} = __float_as_int(${a[0]});`); break;
       case "bitcast_f32": lines.push(`  const float ${r} = __int_as_float(${a[0]});`); break;
-      case "add": lines.push(`  const float ${r} = ${a[0]} + ${a[1]};`); break;
-      case "sub": lines.push(`  const float ${r} = ${a[0]} - ${a[1]};`); break;
-      case "mul": lines.push(`  const float ${r} = ${a[0]} * ${a[1]};`); break;
+      case "add": lines.push(`  const float ${r} = __fadd_rn(${a[0]}, ${a[1]});`); break;
+      case "sub": lines.push(`  const float ${r} = __fsub_rn(${a[0]}, ${a[1]});`); break;
+      case "mul": lines.push(`  const float ${r} = __fmul_rn(${a[0]}, ${a[1]});`); break;
       case "fma": lines.push(`  const float ${r} = fmaf(${a[0]}, ${a[1]}, ${a[2]});`); break;
       case "abs": lines.push(`  const float ${r} = fabsf(${a[0]});`); break;
       case "neg": lines.push(`  const float ${r} = -${a[0]};`); break;
@@ -675,8 +791,8 @@ export function emitCudaSnippet(kernel, fnName = "pf_kernel") {
       case "ishl": lines.push(`  const int32_t ${r} = (int32_t)((uint32_t)${a[0]} << ((uint32_t)${a[1]} & 31u));`); break;
       case "ishr_u": lines.push(`  const int32_t ${r} = (int32_t)((uint32_t)${a[0]} >> ((uint32_t)${a[1]} & 31u));`); break;
       case "ishr_s": lines.push(`  const int32_t ${r} = (int32_t)((((uint32_t)${a[1]} & 31u) == 0u) ? (uint32_t)${a[0]} : (((uint32_t)${a[0]} >> ((uint32_t)${a[1]} & 31u)) | (${a[0]} < 0 ? (~0u << (32u - ((uint32_t)${a[1]} & 31u))) : 0u)));`); break;
-      case "ftoi_trunc": lines.push(`  const int32_t ${r} = __float2int_rz(${a[0]});`); break;
-      case "ftoi_round": lines.push(`  const int32_t ${r} = __float2int_rn(${a[0]});`); break;
+      case "ftoi_trunc": lines.push(`  const int32_t ${r} = (${a[0]} >= -2147483648.0f && ${a[0]} < 2147483648.0f) ? __float2int_rz(${a[0]}) : 0;`); break;
+      case "ftoi_round": lines.push(`  const int32_t ${r} = (${a[0]} >= -2147483648.0f && ${a[0]} < 2147483648.0f) ? __float2int_rn(${a[0]}) : 0;`); break;
       case "itof": lines.push(`  const float ${r} = (float)${a[0]};`); break;
       case "lt": lines.push(`  const bool ${r} = ${a[0]} < ${a[1]};`); break;
       case "le": lines.push(`  const bool ${r} = ${a[0]} <= ${a[1]};`); break;
@@ -754,13 +870,13 @@ if (isMain) {
     ok: true,
     score: expectedScore,
     engine: "Exhaustive 65,536-Input BF16 Pure-Data Judge v1 (zero JS execution)",
-    signature: `${spec.target} ≤ ${expectedScore} ops [actual=${parsed.opCost} ops, max_ulp=${verdict.maxUlpSeen}/${spec.max_ulp}, exact=${verdict.exactMatches}/65536]`,
+    signature: `${spec.target} ≤ ${expectedScore} ops [actual=${parsed.opCost} ops, max_ulp=${verdict.maxUlpSeen}/${verdict.maxUlpAllowed}, exact=${verdict.exactMatches}/65536]`,
     checks: [
       `exhaustive_65536_bf16`,
-      `max_ulp_${verdict.maxUlpSeen}_le_${spec.max_ulp}`,
+      `max_ulp_${verdict.maxUlpSeen}_le_${verdict.maxUlpAllowed}`,
       `pure_data_json_zero_exec`,
       `exact_dyadic_fmaf`,
     ],
-    reason: `Verified all 65,536 bf16 bit patterns (${verdict.exactMatches} exact, max ${verdict.maxUlpSeen} ULP ≤ ${spec.max_ulp}) in ${parsed.opCost} ops (claimed ≤ ${expectedScore})`,
+    reason: `Verified all 65,536 bf16 bit patterns (${verdict.exactMatches} exact, max ${verdict.maxUlpSeen} ULP ≤ ${verdict.maxUlpAllowed}) in ${parsed.opCost} ops (claimed ≤ ${expectedScore})`,
   });
 }

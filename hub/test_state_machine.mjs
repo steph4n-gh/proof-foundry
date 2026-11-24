@@ -259,10 +259,32 @@ test("CLI rejects lifecycle conflicts and moves actual seat claims", (t) => {
   fs.cpSync(path.join(ROOT, "hub"), path.join(dir, "hub"), { recursive: true });
   const missionDir = path.join(dir, "missions/test");
   const submissionsDir = path.join(missionDir, "submissions");
+  const judgeDir = path.join(missionDir, "judge");
+  const artifactsDir = path.join(missionDir, "artifacts");
   fs.mkdirSync(submissionsDir, { recursive: true });
-  const science = loadMission("verified-science-kernels");
-  fs.cpSync(science.paths.dir, path.join(dir, "missions", science.slug), { recursive: true });
-  const { judge } = science;
+  fs.mkdirSync(judgeDir, { recursive: true });
+  fs.mkdirSync(artifactsDir, { recursive: true });
+  const harnessPath = path.join(judgeDir, "verify.mjs");
+  fs.writeFileSync(
+    harnessPath,
+    `import fs from "node:fs";
+const args = {};
+for (let i = 2; i < process.argv.length; i += 2) args[process.argv[i].replace(/^--/, "")] = process.argv[i + 1];
+const ok = fs.readFileSync(args.artifact, "utf8").trim() === '{"ok":true}';
+fs.writeFileSync(args.result, JSON.stringify({ ok, engine: "Test Command Judge", signature: args.target, checks: ["pure_json"], reason: ok ? "Verified" : "Rejected" }));
+process.exit(ok ? 0 : 1);
+`
+  );
+  const artifact = "missions/test/artifacts/B_witness.json";
+  fs.writeFileSync(path.join(dir, artifact), '{"ok":true}\n');
+  const judge = {
+    type: "command",
+    label: "Test Command Judge",
+    command: ["node", "missions/test/judge/verify.mjs"],
+    harness_file: "missions/test/judge/verify.mjs",
+    allowed_dirs: ["missions/test/artifacts"],
+    allowed_extensions: [".json"],
+  };
   fs.writeFileSync(path.join(missionDir, "mission.json"), JSON.stringify({ title: "Test", judge }));
   const stateFile = path.join(missionDir, "state.json");
   const state = {
@@ -307,8 +329,7 @@ test("CLI rejects lifecycle conflicts and moves actual seat claims", (t) => {
     ["conjecture", null], ["in_work", "donor-a"],
   ]);
 
-  const artifact = `missions/${science.slug}/artifacts/S_num_001.mjs`;
-  const verified = cli("verify", "B", "--file", artifact, "--theorem", "kahan_compensated_sum", "--export");
+  const verified = cli("verify", "B", "--file", artifact, "--theorem", "test_target", "--export");
   assert.equal(verified.status, 0, verified.stderr || verified.stdout);
   const persisted = JSON.parse(fs.readFileSync(stateFile, "utf8"));
   const checked = persisted.lemmas.find((lemma) => lemma.id === "B");
@@ -316,7 +337,7 @@ test("CLI rejects lifecycle conflicts and moves actual seat claims", (t) => {
   const submission = JSON.parse(fs.readFileSync(path.join(dir, exported_submission), "utf8"));
   assert.equal(checked.status, "checked");
   assert.equal(checked.claimed_by, null);
-  assert.equal(checked.checker.file_hash, sha256RelFile(artifact));
+  assert.equal(checked.checker.file_hash, sha256RelFile(path.join(dir, artifact)));
   assert.deepEqual(checked.checker, submission.checker);
   assert.ok(persisted.seats.every((seat) => seat.current_lemma == null && seat.status === "idle"));
 });
@@ -332,9 +353,9 @@ test("global records project all missions and live hunts", () => {
   const records = projectGlobalRecords(snapshots, at);
   assert.equal(records.generated_at, at);
   assert.equal(records.totals.missions, slugs.length);
-  assert.ok(slugs.length >= 9, `expected >= 9 missions, got ${slugs.length}`);
+  assert.equal(slugs.length, 7, `expected 7 missions, got ${slugs.length}`);
   assert.equal(records.records.length, expectedRecords);
-  assert.ok(expectedRecords >= 35, `expected >= 35 record hunts, got ${expectedRecords}`);
+  assert.ok(expectedRecords >= 32, `expected >= 32 record hunts, got ${expectedRecords}`);
   assert.equal(records.totals.records_active + records.totals.records_closed, expectedRecords);
   assert.ok(records.totals.trusted_proofs > 0);
   assert.ok(records.latest_verified?.file);
@@ -412,7 +433,7 @@ esac
   const { generated_at: staticAt, ...siteRecords } = staticRecords;
   assert.ok(Number.isFinite(Date.parse(liveAt)) && Number.isFinite(Date.parse(staticAt)));
   assert.deepEqual(liveRecords, siteRecords);
-  assert.ok(liveRecords.records.length >= 37, `expected >= 37 live records, got ${liveRecords.records.length}`);
+  assert.ok(liveRecords.records.length >= 32, `expected >= 32 live records, got ${liveRecords.records.length}`);
   assert.equal(liveRecords.records.find((r) => r.id === passing.claim).open_prs[0].check_state, "passing");
 
   async function json(url) {

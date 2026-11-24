@@ -7,7 +7,7 @@ body:
     id: claim_id
     attributes:
       label: Claim ID & Mission
-      placeholder: "e.g. E-erd128-002 (erdos-combinatorics)"
+      placeholder: "e.g. L-clb-006 (p-vs-np)"
     validations:
       required: true
   - type: textarea

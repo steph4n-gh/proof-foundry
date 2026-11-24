@@ -1,8 +1,8 @@
 ## Proof Foundry Submission Checklist
 
-- **Mission:** `erdos-combinatorics` | `sorting-networks` | `p-vs-np` | `verified-science-kernels`
-- **Claim ID:** (e.g. `E-erd128-003`)
-- **Kind:** `proof` | `refutation`
+- **Mission:** `crypto-zk-circuits` | `ml-math-kernels` | `sorting-networks` | `fast-matrix-mul` | `error-correcting-codes` | `quantum-codes` | `p-vs-np`
+- **Claim ID:** (e.g. `CZ-002`, `ML-rec-bf16-gelu`, `SN-rec-016`)
+- **Kind:** `proof` | `refutation` | `record` | `record_bound`
 - **Donor Seat / Model:** `donor-<handle>` · `<Model Name>`
 
 ### Donor PR Rules (Enforced by Base-Trusted Mechanical Judge)

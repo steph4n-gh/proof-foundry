@@ -26,7 +26,7 @@ import {
 
 export { ROOT, computeRecordTargets, computeTrustSeal, isRungConquered, normalizeObjectiveReqs, sha256RelFile } from "./state_machine.mjs";
 export const MISSIONS_DIR = path.join(ROOT, "missions");
-export const DEFAULT_MISSION = "erdos-combinatorics";
+export const DEFAULT_MISSION = "crypto-zk-circuits";
 
 export function listMissionSlugs() {
   if (!fs.existsSync(MISSIONS_DIR)) return [];

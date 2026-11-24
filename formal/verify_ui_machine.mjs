@@ -106,7 +106,7 @@ function pick(rng, arr) {
 // ===========================================================================
 
 const VALID_TONES = new Set(["muted", "ink", "accent", "alarm", "struck"]);
-const PROBE_MISSIONS = ["", "erdos-combinatorics", "p-vs-np", "sorting-networks", "m1", "m2"];
+const PROBE_MISSIONS = ["", "crypto-zk-circuits", "p-vs-np", "sorting-networks", "m1", "m2"];
 
 /**
  * Checks all single-state and step-transition invariants for `(prev, ev) -> next`.
@@ -390,9 +390,9 @@ export function assertAdapterInvariants(lemma) {
 // ===========================================================================
 console.log("— 1. Randomized + Adversarial Trace Fuzzer —");
 
-const FUZZ_MISSIONS = ["erdos-combinatorics", "p-vs-np", "sorting-networks", "fast-matrix-mul"];
+const FUZZ_MISSIONS = ["crypto-zk-circuits", "p-vs-np", "sorting-networks", "fast-matrix-mul"];
 const BAD_MISSIONS = ["", "../../etc/passwd", "<script>", "-bad-slug"];
-const FUZZ_CLAIMS = ["E-ram-001", "L-rec-005", "SN-rec-013", "MM-001"];
+const FUZZ_CLAIMS = ["CZ-001", "L-rec-005", "SN-rec-013", "MM-001"];
 const BAD_CLAIMS = ["", "<img onerror=1>", "../secret", "-bad"];
 
 const NUM_SEEDS = 250;
@@ -508,7 +508,7 @@ for (let seed = 1; seed <= NUM_SEEDS; seed++) {
         state = recordDispatch(state, {
           type: "DOSSIER_LOADED",
           reqSeq: seq,
-          data: { lemma: { id: "E-ram-001" } },
+          data: { lemma: { id: "CZ-001" } },
         });
       } else {
         state = recordDispatch(state, {
@@ -550,7 +550,7 @@ for (let seed = 1; seed <= NUM_SEEDS; seed++) {
         ]);
         state = recordDispatch(state, subEv);
       } else {
-        state = recordDispatch(state, { type: "OPEN_SEARCH", query: rng() < 0.5 ? "" : "erdos" });
+        state = recordDispatch(state, { type: "OPEN_SEARCH", query: rng() < 0.5 ? "" : "ascon" });
       }
     } else if (roll < 0.94) {
       state = recordDispatch(state, { type: rng() < 0.5 ? "ESCAPE" : "CLOSE_OVERLAY" });
@@ -592,9 +592,9 @@ for (let seed = 1; seed <= NUM_SEEDS; seed++) {
 // Deterministic adversarial multi-race script:
 // 3-way out-of-order mission race + failed switch on healthy stream + cross-mission overlay eviction + 3-way dossier race
 {
-  let s = initialUIState({ route: { view: "missions", mission: "erdos-combinatorics" } });
+  let s = initialUIState({ route: { view: "missions", mission: "crypto-zk-circuits" } });
   s = recordDispatch(s, { type: "CATALOG_LOADED", mode: "live" });
-  s = recordDispatch(s, { type: "MISSION_REQUESTED", mission: "erdos-combinatorics", intent: { view: "control", claim: null } });
+  s = recordDispatch(s, { type: "MISSION_REQUESTED", mission: "crypto-zk-circuits", intent: { view: "control", claim: null } });
   const mSeq1 = s.transport.reqSeq;
   s = recordDispatch(s, { type: "MISSION_REQUESTED", mission: "p-vs-np", intent: { view: "bounties", claim: null } });
   const mSeq2 = s.transport.reqSeq;
@@ -603,7 +603,7 @@ for (let seed = 1; seed <= NUM_SEEDS; seed++) {
 
   // Out-of-order: seq 1 & seq 2 arrive before and after seq 3 commits
   const beforeStale1 = s;
-  s = recordDispatch(s, { type: "MISSION_LOADED", mission: "erdos-combinatorics", reqSeq: mSeq1 });
+  s = recordDispatch(s, { type: "MISSION_LOADED", mission: "crypto-zk-circuits", reqSeq: mSeq1 });
   check(s === beforeStale1, "adversarial: superseded MISSION_LOADED seq=1 strictly ignored");
   s = recordDispatch(s, { type: "MISSION_LOADED", mission: "sorting-networks", reqSeq: mSeq3 });
   s = recordDispatch(s, { type: "SSE_OPEN", mission: "sorting-networks" });
@@ -611,15 +611,15 @@ for (let seed = 1; seed <= NUM_SEEDS; seed++) {
   s = recordDispatch(s, { type: "MISSION_FAILED", mission: "p-vs-np", reqSeq: mSeq2, error: "late 500" });
   check(s === afterCommit3, "adversarial: late MISSION_FAILED seq=2 after seq=3 commit strictly ignored");
 
-  // Open cross-mission dossier & attempt on erdos-combinatorics while sorting-networks is active
-  s = recordDispatch(s, { type: "OPEN_DOSSIER", claimId: "E-ram-001", mission: "erdos-combinatorics" });
+  // Open cross-mission dossier & attempt on crypto-zk-circuits while sorting-networks is active
+  s = recordDispatch(s, { type: "OPEN_DOSSIER", claimId: "CZ-001", mission: "crypto-zk-circuits" });
   const dSeq1 = s.overlay.reqSeq;
   check(s.route.claim === null, "adversarial: cross-mission dossier leaves route.claim null");
   s = recordDispatch(s, { type: "OPEN_DOSSIER", claimId: "SN-rec-013", mission: "sorting-networks" });
   const dSeq2 = s.overlay.reqSeq;
   check(s.route.claim === "SN-rec-013", "adversarial: routed-mission dossier sets route.claim");
   const beforeStaleDossier = s;
-  s = recordDispatch(s, { type: "DOSSIER_LOADED", reqSeq: dSeq1, data: { lemma: { id: "E-ram-001" } } });
+  s = recordDispatch(s, { type: "DOSSIER_LOADED", reqSeq: dSeq1, data: { lemma: { id: "CZ-001" } } });
   check(s === beforeStaleDossier, "adversarial: stale DOSSIER_LOADED seq=1 strictly ignored");
   s = recordDispatch(s, { type: "DOSSIER_LOADED", reqSeq: dSeq2, data: { lemma: { id: "SN-rec-013" } } });
 
@@ -671,7 +671,7 @@ console.log("\n— 2. Exhaustive URL Route Round-Trip & Sanitization Check —")
 
 const TEST_VIEWS = [...VIEWS, "", "unknown-view", "LEDGER"];
 const TEST_TABS = [...LEDGER_TABS, "", "bogus-tab", "<script>"];
-const VALID_SLUGS = ["erdos-combinatorics", "p-vs-np", "sorting-networks", "a", "m-0123456789"];
+const VALID_SLUGS = ["crypto-zk-circuits", "p-vs-np", "sorting-networks", "a", "m-0123456789"];
 const MALICIOUS_SLUGS = [
   "",
   "../../etc/passwd",
@@ -683,7 +683,7 @@ const MALICIOUS_SLUGS = [
   "a".repeat(65),
   "semi;colon&claim=evil",
 ];
-const VALID_CLAIMS = [null, "E-ram-001", "L-rec-005", "MM_001.v2", "A"];
+const VALID_CLAIMS = [null, "CZ-001", "L-rec-005", "MM_001.v2", "A"];
 const MALICIOUS_CLAIMS = [
   "",
   "../../etc/passwd",
@@ -983,9 +983,9 @@ function expectThrows(fn, label) {
 {
   let s = initialUIState();
   s = reduceUI(s, { type: "CATALOG_LOADED", mode: "live" });
-  s = reduceUI(s, { type: "MISSION_REQUESTED", mission: "erdos-combinatorics" });
-  s = reduceUI(s, { type: "MISSION_LOADED", mission: "erdos-combinatorics", reqSeq: s.transport.reqSeq });
-  s = reduceUI(s, { type: "SSE_OPEN", mission: "erdos-combinatorics" });
+  s = reduceUI(s, { type: "MISSION_REQUESTED", mission: "crypto-zk-circuits" });
+  s = reduceUI(s, { type: "MISSION_LOADED", mission: "crypto-zk-circuits", reqSeq: s.transport.reqSeq });
+  s = reduceUI(s, { type: "SSE_OPEN", mission: "crypto-zk-circuits" });
   s = reduceUI(s, { type: "MISSION_REQUESTED", mission: "p-vs-np" });
   const failEv = { type: "MISSION_FAILED", mission: "p-vs-np", reqSeq: s.transport.reqSeq, error: "500" };
   const realNext = reduceUI(s, failEv);
@@ -1012,18 +1012,18 @@ function expectThrows(fn, label) {
 {
   let s = initialUIState();
   s = reduceUI(s, { type: "CATALOG_LOADED", mode: "live" });
-  s = reduceUI(s, { type: "MISSION_REQUESTED", mission: "erdos-combinatorics" });
+  s = reduceUI(s, { type: "MISSION_REQUESTED", mission: "crypto-zk-circuits" });
   const staleSeq = s.transport.reqSeq;
   s = reduceUI(s, { type: "MISSION_REQUESTED", mission: "p-vs-np" });
   s = reduceUI(s, { type: "MISSION_LOADED", mission: "p-vs-np", reqSeq: s.transport.reqSeq });
-  const staleEv = { type: "MISSION_LOADED", mission: "erdos-combinatorics", reqSeq: staleSeq };
+  const staleEv = { type: "MISSION_LOADED", mission: "crypto-zk-circuits", reqSeq: staleSeq };
 
   expectThrows(
     () =>
       assertStepInvariants(s, staleEv, {
         ...s,
-        transport: { ...s.transport, activeMission: "erdos-combinatorics" },
-        route: { ...s.route, mission: "erdos-combinatorics" },
+        transport: { ...s.transport, activeMission: "crypto-zk-circuits" },
+        route: { ...s.route, mission: "crypto-zk-circuits" },
       }),
     "mutation #2: stale MISSION_LOADED overwriting committed mission"
   );
@@ -1033,8 +1033,8 @@ function expectThrows(fn, label) {
 {
   let s = initialUIState();
   s = reduceUI(s, { type: "CATALOG_LOADED", mode: "live" });
-  s = reduceUI(s, { type: "MISSION_REQUESTED", mission: "erdos-combinatorics" });
-  s = reduceUI(s, { type: "MISSION_LOADED", mission: "erdos-combinatorics", reqSeq: s.transport.reqSeq });
+  s = reduceUI(s, { type: "MISSION_REQUESTED", mission: "crypto-zk-circuits" });
+  s = reduceUI(s, { type: "MISSION_LOADED", mission: "crypto-zk-circuits", reqSeq: s.transport.reqSeq });
 
   expectThrows(
     () =>
@@ -1046,7 +1046,7 @@ function expectThrows(fn, label) {
     "mutation #3a: leftover dossier status/reqSeq on search overlay"
   );
 
-  s = reduceUI(s, { type: "OPEN_DOSSIER", claimId: "E-ram-001", mission: "erdos-combinatorics" });
+  s = reduceUI(s, { type: "OPEN_DOSSIER", claimId: "CZ-001", mission: "crypto-zk-circuits" });
   s = reduceUI(s, { type: "MISSION_REQUESTED", mission: "p-vs-np", intent: { view: "control", claim: null } });
   const loadEv = { type: "MISSION_LOADED", mission: "p-vs-np", reqSeq: s.transport.reqSeq };
   const validCommit = reduceUI(s, loadEv);
@@ -1110,15 +1110,15 @@ function expectThrows(fn, label) {
   // Fixed regression check 2: ESCAPE on search after mid-flight deep-link MISSION_LOADED clears route.claim
   // (and a synthetic mutant that leaves route.claim dangling is caught by assertStepInvariants!).
   {
-    let s0 = initialUIState({ route: { view: "control", mission: "erdos-combinatorics", claim: "E-ram-001" } });
+    let s0 = initialUIState({ route: { view: "control", mission: "crypto-zk-circuits", claim: "CZ-001" } });
     s0 = reduceUI(s0, { type: "CATALOG_LOADED", mode: "live" });
     s0 = reduceUI(s0, {
       type: "MISSION_REQUESTED",
-      mission: "erdos-combinatorics",
-      intent: { view: "control", ledgerTab: "map", claim: "E-ram-001" },
+      mission: "crypto-zk-circuits",
+      intent: { view: "control", ledgerTab: "map", claim: "CZ-001" },
     });
     s0 = reduceUI(s0, { type: "OPEN_SEARCH", query: "" });
-    const sMid = reduceUI(s0, { type: "MISSION_LOADED", mission: "erdos-combinatorics", reqSeq: s0.transport.reqSeq });
+    const sMid = reduceUI(s0, { type: "MISSION_LOADED", mission: "crypto-zk-circuits", reqSeq: s0.transport.reqSeq });
     const escEv = { type: "ESCAPE" };
     const sAfterEsc = reduceUI(sMid, escEv);
     assertStepInvariants(sMid, escEv, sAfterEsc);
@@ -1127,7 +1127,7 @@ function expectThrows(fn, label) {
       "fixed regression: ESCAPE on search after mid-flight deep-link MISSION_LOADED clears route.claim"
     );
     expectThrows(
-      () => assertStepInvariants(sMid, escEv, { ...sAfterEsc, route: { ...sAfterEsc.route, claim: "E-ram-001" } }),
+      () => assertStepInvariants(sMid, escEv, { ...sAfterEsc, route: { ...sAfterEsc.route, claim: "CZ-001" } }),
       "mutation #4d: corrupted ESCAPE leaving dangling route.claim"
     );
   }

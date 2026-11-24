@@ -1,52 +1,79 @@
 import Lean.Data.Json
-import PFOracle.MathOracle
+import PFOracle.BF16Oracle
 
 open Lean PFOracle
 
-private def jsonInt (j : Json) : Except String Int :=
+private def jsonNat (j : Json) : Except String Nat :=
   match j with
   | .str s =>
-    match s.toInt? with
+    match s.toNat? with
     | some n => .ok n
-    | none => .error s!"Invalid integer: {s}"
-  | j => j.getInt?
+    | none => .error s!"Invalid nat: {s}"
+  | j => j.getNat?
 
-private def intField (j : Json) (key : String) : Except String Int :=
-  j.getObjVal? key >>= jsonInt
-
-private def natField (j : Json) (key : String) : Except String Nat := do
-  let n ← intField j key
-  if n < 0 then throw s!"Expected a nonnegative integer for {key}"
-  return n.toNat
-
-private def dyadic (j : Json) : Except String PFOracle.Dyadic := do
-  return ⟨← intField j "m", ← intField j "e"⟩
-
-private def dyadicField (j : Json) (key : String) : Except String PFOracle.Dyadic :=
-  j.getObjVal? key >>= dyadic
-
-private def dyadicJson (a : PFOracle.Dyadic) : Json :=
-  Json.mkObj [("m", toString a.m), ("e", toString a.e)]
+private def natField (j : Json) (key : String) : Except String Nat :=
+  j.getObjVal? key >>= jsonNat
 
 private def evaluate (j : Json) : Except String Json := do
   match ← (← j.getObjVal? "op").getStr? with
-  | "fixed128Exp" => return toString (fixed128Exp (← intField j "x"))
-  | "fixed128Sin" => return toString (fixed128Sin (← intField j "x"))
-  | "dyadicToFixed128" => return toString (dyadicToFixed128 (← dyadicField j "a"))
-  | "dyadicAdd" => return dyadicJson (dyadicAdd (← dyadicField j "a") (← dyadicField j "b"))
-  | "dyadicSub" => return dyadicJson (dyadicSub (← dyadicField j "a") (← dyadicField j "b"))
-  | "dyadicMul" => return dyadicJson (dyadicMul (← dyadicField j "a") (← dyadicField j "b"))
-  | "dyadicEq" => return toJson (dyadicEq (← dyadicField j "a") (← dyadicField j "b"))
-  | "dyadicSign" => return toJson (dyadicSign (← dyadicField j "a"))
-  | "exactDot" =>
-    let pairs ← (← j.getObjVal? "pairs").getArr?
-    let pairs ← pairs.toList.mapM fun pair => do
-      return (← dyadicField pair "a", ← dyadicField pair "b")
-    return dyadicJson (exactDot pairs)
-  | "orient2d" =>
-    return toJson (orient2dSign (← dyadicField j "ax") (← dyadicField j "ay")
-      (← dyadicField j "bx") (← dyadicField j "by") (← dyadicField j "cx") (← dyadicField j "cy"))
-  | "measuredScore" => return toString (ceilScore (← natField j "diffFix") (← natField j "scale"))
+  | "allBf16Sweep" =>
+    -- Single fast call sweeping all 65,536 bf16 bit patterns:
+    -- returns flat arrays [f32Bits, rne32, latticeIdx, isNaN]
+    let mut f32Arr : Array Json := Array.mkEmpty 65536
+    let mut r32Arr : Array Json := Array.mkEmpty 65536
+    let mut latArr : Array Json := Array.mkEmpty 65536
+    let mut nanArr : Array Json := Array.mkEmpty 65536
+    for i in [:65536] do
+      let b : BitVec 16 := BitVec.ofNat 16 i
+      let f32 := bf16ToF32Bits b
+      let r32 := f32BitsToBf16RNE f32
+      let lat := bf16LatticeIndex b
+      let nan := bf16IsNaN b
+      f32Arr := f32Arr.push (toJson f32.toNat)
+      r32Arr := r32Arr.push (toJson r32.toNat)
+      latArr := latArr.push (toJson lat)
+      nanArr := nanArr.push (toJson nan)
+    return Json.mkObj [
+      ("f32Bits", Json.arr f32Arr),
+      ("rne32", Json.arr r32Arr),
+      ("lattice", Json.arr latArr),
+      ("isNaN", Json.arr nanArr)
+    ]
+  | "f32ToBf16RNE" =>
+    let u := BitVec.ofNat 32 (← natField j "u")
+    return toJson (f32BitsToBf16RNE u).toNat
+  | "f64ToBf16RNE" =>
+    let u := BitVec.ofNat 64 (← natField j "u")
+    return toJson (f64BitsToBf16RNE u).toNat
+  | "fmafFiniteBits" =>
+    let a := BitVec.ofNat 32 (← natField j "a")
+    let b := BitVec.ofNat 32 (← natField j "b")
+    let c := BitVec.ofNat 32 (← natField j "c")
+    return toJson (fmafFiniteBits a b c).toNat
+  | "cppIshrS" =>
+    let a := BitVec.ofNat 32 (← natField j "a")
+    let b := BitVec.ofNat 32 (← natField j "b")
+    return toJson (cppIshrS a b).toNat
+  | "cppIadd" =>
+    let a := BitVec.ofNat 32 (← natField j "a")
+    let b := BitVec.ofNat 32 (← natField j "b")
+    return toJson (cppIadd a b).toNat
+  | "cppIsub" =>
+    let a := BitVec.ofNat 32 (← natField j "a")
+    let b := BitVec.ofNat 32 (← natField j "b")
+    return toJson (cppIsub a b).toNat
+  | "cppImul" =>
+    let a := BitVec.ofNat 32 (← natField j "a")
+    let b := BitVec.ofNat 32 (← natField j "b")
+    return toJson (cppImul a b).toNat
+  | "cppIshl" =>
+    let a := BitVec.ofNat 32 (← natField j "a")
+    let b := BitVec.ofNat 32 (← natField j "b")
+    return toJson (cppIshl a b).toNat
+  | "cppIshrU" =>
+    let a := BitVec.ofNat 32 (← natField j "a")
+    let b := BitVec.ofNat 32 (← natField j "b")
+    return toJson (cppIshrU a b).toNat
   | op => throw s!"Unknown operation: {op}"
 
 def main : IO Unit := do

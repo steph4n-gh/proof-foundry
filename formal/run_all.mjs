@@ -2,7 +2,7 @@
 /**
  * formal/run_all.mjs — Single-command runner for Proof Foundry's full formal verification suite:
  *   1. Lean 4.36 State Machine & KotH proofs + AxiomCheck + JS differential equivalence
- *   2. Lean 4.36 128-bit Math Oracle & Dyadic Rational proofs + AxiomCheck + 8,194-point cross-check
+ *   2. Lean 4.36 BF16 / Dyadic FMA / UB-Free C++ ML Oracle Proofs + AxiomCheck + 65,536-Input Sweep
  *   3. Frontend UI State Machine executable property/trace/URL/adapter verifier
  *   4. All 4 TLA+ / TLC exhaustive protocol models:
  *        - formal/pr_gate_merge.tla
@@ -221,18 +221,18 @@ if (!tlcOnly) {
   results.push({ name: "Lean 4 State Machine + JS Equiv", status: "PASS", ms: r1.ms, detail: "30 named / 331 swept theorems + 2,818 traces + 10 mutants" });
 
   const r2 = runStep(
-    "2/4 Lean 4 128-Bit Math Oracle Proofs + 8,194-Point Grid Check (formal/verify_math_oracle.mjs)",
+    "2/4 Lean 4 BF16 / Dyadic FMA / UB-Free C++ ML Oracle Proofs + 65,536-Input Sweep (formal/verify_ml_oracle.mjs)",
     process.execPath,
-    [path.join(FORMAL_DIR, "verify_math_oracle.mjs")]
+    [path.join(FORMAL_DIR, "verify_ml_oracle.mjs")]
   );
-  results.push({ name: "Lean 4 Math Oracle + Grid Equiv", status: "PASS", ms: r2.ms, detail: "28 theorems + 8,194 grid pts + score 405 certified" });
+  results.push({ name: "Lean 4 BF16 ML Oracle + Sweep", status: "PASS", ms: r2.ms, detail: "34 theorems + 65,536/65,536 BF16 + 2,377 diff + 5/5 mutants" });
 
   const r3 = runStep(
     "3/4 UI State Machine Property, Trace & URL Round-Trip Verifier (formal/verify_ui_machine.mjs)",
     process.execPath,
     [path.join(FORMAL_DIR, "verify_ui_machine.mjs")]
   );
-  results.push({ name: "UI Machine Executable Verifier", status: "PASS", ms: r3.ms, detail: "11,099 steps + 23,296 URL round-trips + 20,253 adapter states" });
+  results.push({ name: "UI Machine Executable Verifier", status: "PASS", ms: r3.ms, detail: "11,099 steps + 23,296 URL round-trips + 20,231 adapter states" });
 }
 
 if (!leanOnly) {

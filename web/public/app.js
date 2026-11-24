@@ -1543,10 +1543,12 @@ function extractDropInClient(missionSlug, lemma, src) {
   try {
     if (missionSlug === "ml-math-kernels") {
       const k = JSON.parse(src);
-      if (k?.schema !== "pf.mlkernel.v1" || !Array.isArray(k.ops)) return null;
+      if (k?.schema !== "pf.mlkernel.v1" || !Array.isArray(k.ops) || !k.ops.length || !Number.isSafeInteger(k.output) || k.output < 0 || k.output > k.ops.length) return null;
       const fLit = (v) => {
-        if (Object.is(v, -0)) return "-0.0f";
-        const s = Number(v).toPrecision(9);
+        const fv = Math.fround(Number(v));
+        if (!Number.isFinite(fv)) throw new Error(`Non-finite float32 constant: ${v}`);
+        if (Object.is(fv, -0)) return "-0.0f";
+        const s = fv.toPrecision(9);
         if (s.includes("e") || s.includes("E")) {
           const [m, e] = s.split(/[eE]/);
           return `${m.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, ".0")}e${e}f`;
@@ -1557,23 +1559,34 @@ function extractDropInClient(missionSlug, lemma, src) {
       const fn = `pf_${String(k.target || ident).replace(/[^a-z0-9_]/gi, "_")}`;
       const lines = [`// Verified pure-data BF16 kernel (65,536/65,536 inputs <= 1 ULP)`, `__device__ __forceinline__ float ${fn}(float r0) {`];
       const types = ["f32"];
-      k.ops.forEach((op, i) => {
-        const r = `r${i + 1}`, nm = op[0], a = op.slice(1).map((x) => `r${x}`);
+      for (let i = 0; i < k.ops.length; i++) {
+        const op = k.ops[i];
+        if (!Array.isArray(op) || typeof op[0] !== "string") return null;
+        const r = `r${i + 1}`, nm = op[0], rawArgs = op.slice(1);
+        if (nm !== "const" && nm !== "iconst") {
+          if (rawArgs.some((x) => !Number.isSafeInteger(x) || x < 0 || x > i)) return null;
+        }
+        const a = rawArgs.map((x) => `r${x}`);
         let ot = "f32";
         if (nm === "const") lines.push(`  const float ${r} = ${fLit(op[1])};`);
-        else if (nm === "iconst") { ot = "i32"; lines.push(`  const int32_t ${r} = ${op[1] === -2147483648 ? "(-2147483647 - 1)" : op[1] | 0};`); }
+        else if (nm === "iconst") {
+          if (!Number.isSafeInteger(op[1])) return null;
+          ot = "i32";
+          const iv = op[1] | 0;
+          lines.push(`  const int32_t ${r} = ${iv === -2147483648 ? "(-2147483647 - 1)" : iv};`);
+        }
         else if (nm === "bitcast_i32") { ot = "i32"; lines.push(`  const int32_t ${r} = __float_as_int(${a[0]});`); }
         else if (nm === "bitcast_f32") lines.push(`  const float ${r} = __int_as_float(${a[0]});`);
-        else if (nm === "add") lines.push(`  const float ${r} = ${a[0]} + ${a[1]};`);
-        else if (nm === "sub") lines.push(`  const float ${r} = ${a[0]} - ${a[1]};`);
-        else if (nm === "mul") lines.push(`  const float ${r} = ${a[0]} * ${a[1]};`);
+        else if (nm === "add") lines.push(`  const float ${r} = __fadd_rn(${a[0]}, ${a[1]});`);
+        else if (nm === "sub") lines.push(`  const float ${r} = __fsub_rn(${a[0]}, ${a[1]});`);
+        else if (nm === "mul") lines.push(`  const float ${r} = __fmul_rn(${a[0]}, ${a[1]});`);
         else if (nm === "fma") lines.push(`  const float ${r} = fmaf(${a[0]}, ${a[1]}, ${a[2]});`);
         else if (nm === "abs") lines.push(`  const float ${r} = fabsf(${a[0]});`);
         else if (nm === "neg") lines.push(`  const float ${r} = -${a[0]};`);
         else if (nm === "min") lines.push(`  const float ${r} = fminf(${a[0]}, ${a[1]});`);
         else if (nm === "max") lines.push(`  const float ${r} = fmaxf(${a[0]}, ${a[1]});`);
-        else if (nm === "ftoi_trunc") { ot = "i32"; lines.push(`  const int32_t ${r} = __float2int_rz(${a[0]});`); }
-        else if (nm === "ftoi_round") { ot = "i32"; lines.push(`  const int32_t ${r} = __float2int_rn(${a[0]});`); }
+        else if (nm === "ftoi_trunc") { ot = "i32"; lines.push(`  const int32_t ${r} = (${a[0]} >= -2147483648.0f && ${a[0]} < 2147483648.0f) ? __float2int_rz(${a[0]}) : 0;`); }
+        else if (nm === "ftoi_round") { ot = "i32"; lines.push(`  const int32_t ${r} = (${a[0]} >= -2147483648.0f && ${a[0]} < 2147483648.0f) ? __float2int_rn(${a[0]}) : 0;`); }
         else if (nm === "itof") lines.push(`  const float ${r} = (float)${a[0]};`);
         else if (["iadd", "isub", "imul", "iand", "ior", "ixor", "ishl", "ishr_s", "ishr_u"].includes(nm)) {
           ot = "i32";
@@ -1593,7 +1606,7 @@ function extractDropInClient(missionSlug, lemma, src) {
           lines.push(`  const ${ot === "i32" ? "int32_t" : "float"} ${r} = ${a[0]} ? ${a[1]} : ${a[2]};`);
         }
         types.push(ot);
-      });
+      }
       lines.push(`  return r${k.output};`, `}`);
       return { lang: "cuda", title: "Drop-in CUDA / C++ __device__ kernel", code: lines.join("\n") };
     }

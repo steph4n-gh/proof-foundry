@@ -9,10 +9,10 @@ Anyone with spare AI coding tokens (Claude Code, Codex, Gemini CLI, Cursor, T3 C
    node hub/fleet.mjs missions
    node hub/fleet.mjs next --mission all
    # Or scope to one mission and exclude IDs already submitted this session:
-   node hub/fleet.mjs next --mission erdos-combinatorics --exclude E-ram-004,SN-rec-013
+   node hub/fleet.mjs next --mission crypto-zk-circuits --exclude CZ-002,SN-rec-013
    ```
 2. **Read the mission's Core definitions AND frozen statement** (never modify `Core.lean`, `Statements/`, `hub/`, or `.github/` in a donor PR — base-trusted CI enforces a strict allowlist!).
-   - If the bounty specifies a frozen statement file (e.g. `Erdos/Statements/E_erd128_003.lean`), import that module and state your theorem literally as `: Erdos.Statements.<ID>.Claim` (or `: ¬ Erdos.Statements.<ID>.Claim` for a refutation). The Lean 4 kernel verifies exact syntactic type equality against the frozen definition.
+   - If the bounty specifies a frozen statement file (e.g. `Crypto/Statements/CZ_002.lean`), import that module and state your theorem literally as `: Crypto.Statements.<ID>.Claim` (or `: ¬ Crypto.Statements.<ID>.Claim` for a refutation). The Lean 4 kernel verifies exact syntactic type equality against the frozen definition.
 3. **Write your proof, construction, or counterexample** in the claim's allowed directory (`Claims/*.lean` or `artifacts/*` — one file per claim so parallel contributors never collide).
    - Zero `sorry`, `admit`, `native_decide`, custom `axiom`, `unsafe`, `opaque`, `by_elab`, `run_cmd`, `#eval`, `#exit`.
 4. **Verify locally & export a conflict-free submission JSON:**
@@ -24,9 +24,9 @@ Anyone with spare AI coding tokens (Claude Code, Codex, Gemini CLI, Cursor, T3 C
      ```bash
      node hub/fleet.mjs refute --mission <slug> --lemma <ID> --seat donor-<handle> --file <counterexample-path> --theorem <target> --summary "<one-line summary>" --export
      ```
-   - For a **King-of-the-Hill auto-ratcheting record hunt** (`♛ Record`, across all 6 missions — both `min` hunts like `SN-rec-013`/`MM-rec-4x4-f2`/`S-rec-exp` and `max` hunts like `E-rec-r55`/`EC-rec-17-6`):
+   - For a **King-of-the-Hill auto-ratcheting record hunt** (`♛ Record`, across all 7 missions — both `min` hunts like `CZ-rec-aes-and`/`ML-rec-bf16-exp2`/`SN-rec-016`/`MM-rec-4x4-f2` and `max` hunts like `EC-rec-17-6`/`QC-rec-n16-d4-w6`):
      - **Lean 4 hunts:** Write a NEW score-stamped Lean file (`<stem>_s<score>.lean` proving `Record <score>`, or `<stem>_not_s<b>.lean` proving literally `¬ Record <b>` — use `¬`, not `Record <b> → False` — to tighten the proven bound; never edit older score files!).
-     - **Command-Judge hunts (`S-rec-exp`, `S-rec-sin`):** Write a NEW score-stamped pure-data `.mjs` file (`<stem>_s<score>.mjs`) exporting `export const coeffs = [...]` — evaluated by the isolated 128-bit BigInt oracle.
+     - **Pure-data Command-Judge hunts (`ml-math-kernels`):** Write a NEW score-stamped pure-data `.json` file (`<stem>_s<score>.json`, `schema: "pf.mlkernel.v1"`) — evaluated exhaustively across all 65,536 IEEE `bfloat16` bit patterns with zero JS execution.
      ```bash
      node hub/fleet.mjs record --mission <slug> --lemma <ID> --score <score> --seat donor-<handle> --export
      # Or on Lean hunts, to tighten the proven bound (literally `¬ Record <b>`):
@@ -49,7 +49,7 @@ To run an agent across multiple open problems back-to-back without PR collisions
    git status --porcelain   # must be empty
    git fetch upstream main 2>/dev/null || git fetch origin main
    git checkout --detach upstream/main 2>/dev/null || git checkout --detach origin/main
-   node hub/fleet.mjs next --mission all --exclude "E-ram-004,SN-rec-013"
+   node hub/fleet.mjs next --mission all --exclude "CZ-002,SN-rec-013"
    ```
 4. Branch cleanly off `upstream/main` (or `origin/main` if not in a fork) via `git checkout -B donor/<next-id>-HANDLE upstream/main`, follow the returned `instructions`, verify locally with `--export`, revert state/event files, commit ONLY the new artifact + submission JSON, push, open a clean PR, add `<next-id>` to your `--exclude` list, and repeat until `claim` is `null`.
 

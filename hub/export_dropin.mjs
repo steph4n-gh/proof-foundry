@@ -5,7 +5,6 @@
  *  - ml-math-kernels (.json)        -> branchless CUDA / C++ __device__ function
  *  - crypto-zk-circuits (.lean)     -> 64-way bit-sliced C99 S-box function
  *  - sorting-networks (.lean)       -> branchless C/SIMD CMP_SWAP sorting function
- *  - verified-science-kernels (.mjs)-> C/CUDA FMA Horner polynomial evaluator
  *  - quantum-codes (.lean)          -> Python/NumPy/Stim binary parity-check matrices (H_X, H_Z, L_X, L_Z)
  *
  * Pure, self-contained read-only text transformation (zero imports from missions/, zero code execution).
@@ -37,8 +36,12 @@ function sanitizeIdent(id) {
 }
 
 function formatFloat32Lit(v) {
-  if (Object.is(v, -0)) return "-0.0f";
-  const s = Number(Math.fround(v)).toPrecision(9);
+  const fv = Math.fround(Number(v));
+  if (!Number.isFinite(fv)) {
+    throw new Error(`Non-finite float32 constant: ${v}`);
+  }
+  if (Object.is(fv, -0)) return "-0.0f";
+  const s = fv.toPrecision(9);
   if (s.includes("e") || s.includes("E")) {
     const [m, e] = s.split(/[eE]/);
     return `${m.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, ".0")}e${e}f`;
@@ -49,7 +52,7 @@ function formatFloat32Lit(v) {
 
 function extractMlKernelCuda(lemma, source) {
   const k = JSON.parse(source);
-  if (!k || k.schema !== "pf.mlkernel.v1" || !Array.isArray(k.ops) || !k.ops.length || !Number.isSafeInteger(k.output)) {
+  if (!k || k.schema !== "pf.mlkernel.v1" || !Array.isArray(k.ops) || !k.ops.length || !Number.isSafeInteger(k.output) || k.output < 0 || k.output > k.ops.length) {
     return null;
   }
   let opCost = 0;
@@ -67,21 +70,26 @@ function extractMlKernelCuda(lemma, source) {
     const inst = k.ops[i];
     const op = inst[0];
     const r = `r${i + 1}`;
-    const a = inst.slice(1).map((x) => `r${x}`);
+    const rawArgs = inst.slice(1);
+    if (op !== "const" && op !== "iconst") {
+      if (rawArgs.some((x) => !Number.isSafeInteger(x) || x < 0 || x > i)) return null;
+    }
+    const a = rawArgs.map((x) => `r${x}`);
     let outType = "f32";
     switch (op) {
       case "const": lines.push(`  const float ${r} = ${formatFloat32Lit(inst[1])};`); break;
       case "iconst": {
         outType = "i32";
+        if (!Number.isSafeInteger(inst[1])) return null;
         const iv = inst[1] | 0;
         lines.push(`  const int32_t ${r} = ${iv === -2147483648 ? "(-2147483647 - 1)" : iv};`);
         break;
       }
       case "bitcast_i32": outType = "i32"; lines.push(`  const int32_t ${r} = __float_as_int(${a[0]});`); break;
       case "bitcast_f32": lines.push(`  const float ${r} = __int_as_float(${a[0]});`); break;
-      case "add": lines.push(`  const float ${r} = ${a[0]} + ${a[1]};`); break;
-      case "sub": lines.push(`  const float ${r} = ${a[0]} - ${a[1]};`); break;
-      case "mul": lines.push(`  const float ${r} = ${a[0]} * ${a[1]};`); break;
+      case "add": lines.push(`  const float ${r} = __fadd_rn(${a[0]}, ${a[1]});`); break;
+      case "sub": lines.push(`  const float ${r} = __fsub_rn(${a[0]}, ${a[1]});`); break;
+      case "mul": lines.push(`  const float ${r} = __fmul_rn(${a[0]}, ${a[1]});`); break;
       case "fma": lines.push(`  const float ${r} = fmaf(${a[0]}, ${a[1]}, ${a[2]});`); break;
       case "abs": lines.push(`  const float ${r} = fabsf(${a[0]});`); break;
       case "neg": lines.push(`  const float ${r} = -${a[0]};`); break;
@@ -96,8 +104,8 @@ function extractMlKernelCuda(lemma, source) {
       case "ishl": outType = "i32"; lines.push(`  const int32_t ${r} = (int32_t)((uint32_t)${a[0]} << ((uint32_t)${a[1]} & 31u));`); break;
       case "ishr_u": outType = "i32"; lines.push(`  const int32_t ${r} = (int32_t)((uint32_t)${a[0]} >> ((uint32_t)${a[1]} & 31u));`); break;
       case "ishr_s": outType = "i32"; lines.push(`  const int32_t ${r} = (int32_t)((((uint32_t)${a[1]} & 31u) == 0u) ? (uint32_t)${a[0]} : (((uint32_t)${a[0]} >> ((uint32_t)${a[1]} & 31u)) | (${a[0]} < 0 ? (~0u << (32u - ((uint32_t)${a[1]} & 31u))) : 0u)));`); break;
-      case "ftoi_trunc": outType = "i32"; lines.push(`  const int32_t ${r} = __float2int_rz(${a[0]});`); break;
-      case "ftoi_round": outType = "i32"; lines.push(`  const int32_t ${r} = __float2int_rn(${a[0]});`); break;
+      case "ftoi_trunc": outType = "i32"; lines.push(`  const int32_t ${r} = (${a[0]} >= -2147483648.0f && ${a[0]} < 2147483648.0f) ? __float2int_rz(${a[0]}) : 0;`); break;
+      case "ftoi_round": outType = "i32"; lines.push(`  const int32_t ${r} = (${a[0]} >= -2147483648.0f && ${a[0]} < 2147483648.0f) ? __float2int_rn(${a[0]}) : 0;`); break;
       case "itof": lines.push(`  const float ${r} = (float)${a[0]};`); break;
       case "lt": outType = "bool"; lines.push(`  const bool ${r} = ${a[0]} < ${a[1]};`); break;
       case "le": outType = "bool"; lines.push(`  const bool ${r} = ${a[0]} <= ${a[1]};`); break;
@@ -205,37 +213,6 @@ function extractSortNetC(lemma, source) {
   };
 }
 
-function extractMinimaxC(lemma, source) {
-  const m = source.match(/export\s+const\s+coeffs\s*=\s*\[([\s\S]*?)\]/);
-  if (!m) return null;
-  const nums = m[1].split(",").map((s) => s.trim()).filter(Boolean).map(Number);
-  if (!nums.length || nums.some((v) => !Number.isFinite(v))) return null;
-  const isSin = /sin/i.test(lemma.id);
-  const fnName = `pf_${sanitizeIdent(lemma.id)}_horner`;
-  const lines = [
-    `/* Auto-generated from 128-bit BigInt-verified ${lemma.id} (${nums.length} float64 coefficients) */`,
-    `#include <math.h>`,
-    `static inline double ${fnName}(double x) {`,
-  ];
-  if (isSin) {
-    lines.push(`  const double x2 = x * x;`);
-    let expr = String(nums[nums.length - 1]);
-    for (let i = nums.length - 2; i >= 0; i--) expr = `fma(${expr}, x2, ${nums[i]})`;
-    lines.push(`  return x * ${expr};`);
-  } else {
-    let expr = String(nums[nums.length - 1]);
-    for (let i = nums.length - 2; i >= 0; i--) expr = `fma(${expr}, x, ${nums[i]})`;
-    lines.push(`  return ${expr};`);
-  }
-  lines.push(`}`);
-  return {
-    lang: "c",
-    title: `Drop-in C/C++ FMA Horner kernel (${nums.length} float64 coeffs)`,
-    filename: `${fnName}.h`,
-    code: lines.join("\n"),
-  };
-}
-
 function extractQuantumStim(lemma, source) {
   const parseList = (re) => {
     const m = source.match(re);
@@ -273,7 +250,6 @@ export function extractDropInArtifact(missionSlug, lemma, sourceText) {
     if (missionSlug === "ml-math-kernels") return extractMlKernelCuda(lemma, sourceText);
     if (missionSlug === "crypto-zk-circuits") return extractCryptoBitslice(lemma, sourceText);
     if (missionSlug === "sorting-networks") return extractSortNetC(lemma, sourceText);
-    if (missionSlug === "verified-science-kernels") return extractMinimaxC(lemma, sourceText);
     if (missionSlug === "quantum-codes") return extractQuantumStim(lemma, sourceText);
   } catch {
     return null;
