@@ -449,6 +449,11 @@ esac
   assert.equal(liveState.mission.slug, repo);
   assert.deepEqual(liveState.lemmas, staticState.lemmas);
   assert.deepEqual(liveState.lemmas, legacyState.lemmas);
+  assert.ok(liveState.checker_runs.length >= 5, `expected projected PR judge runs in ${repo}, got ${liveState.checker_runs.length}`);
+  assert.ok(liveState.events.some((e) => e.type === "record_accepted" && e.source === "submission"), `${repo} events include projected record submissions`);
+  assert.ok(liveState.events.some((e) => e.type === "checker_accepted" && e.source === "submission"), `${repo} events include projected proof submissions`);
+  assert.deepEqual(liveState.checker_runs, staticState.checker_runs);
+  assert.deepEqual(liveState.events, staticState.events);
   for (const [pr, state, check] of [
     [passing, "passing", "passing"], [failed, "needs_fix", "needs_fix"], [pending, "open", "pending"],
   ]) {

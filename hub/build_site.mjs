@@ -119,12 +119,225 @@ export function fetchOpenPRs(repo = "steph4n-gh/proof-foundry") {
   }
 }
 
+function projectSubmissionTelemetry(mission, state, diskEvents) {
+  const subsDir = mission.paths.submissionsDir;
+  const lemmaById = new Map((state.lemmas || []).map((l) => [l.id, l]));
+  const baseRuns = Array.isArray(state.checker_runs) ? [...state.checker_runs] : [];
+  const baseEvents = Array.isArray(diskEvents) ? [...diskEvents] : [];
+
+  const seenRunKeys = new Set(
+    baseRuns
+      .filter((r) => r && r.lemma_id && r.file_hash)
+      .map((r) => `${r.kind || "proof"}|${r.lemma_id}|${r.file_hash}`)
+  );
+  const seenEventKeys = new Set(
+    baseEvents
+      .filter((e) => e && e.type && e.lemma_id && e.file_hash)
+      .map((e) => `${e.type}|${e.lemma_id}|${e.file_hash}`)
+  );
+
+  const files = fs.existsSync(subsDir)
+    ? fs.readdirSync(subsDir).filter((f) => f.endsWith(".json")).sort()
+    : [];
+
+  const extraRuns = [];
+  const extraEvents = [];
+
+  for (const fname of files) {
+    let sub;
+    try {
+      sub = JSON.parse(fs.readFileSync(path.join(subsDir, fname), "utf8"));
+    } catch {
+      continue;
+    }
+    if (!sub || !sub.lemma_id || !sub.kind) continue;
+    const lemma = lemmaById.get(sub.lemma_id);
+    if (!lemma) continue;
+
+    if (sub.kind === "proof" && sub.checker?.ok) {
+      const c = sub.checker;
+      const at = c.checked_at || sub.at || "";
+      const seat = c.by_seat || "unknown";
+      const fhash = c.file_hash || null;
+      const runKey = fhash ? `proof|${sub.lemma_id}|${fhash}` : null;
+      if (!runKey || !seenRunKeys.has(runKey)) {
+        if (runKey) seenRunKeys.add(runKey);
+        extraRuns.push({
+          id: `sub-${fname}`,
+          at,
+          kind: "proof",
+          lemma_id: sub.lemma_id,
+          seat,
+          theorem: sub.theorem || "",
+          file: sub.file || "",
+          ok: true,
+          duration_ms: c.duration_ms ?? null,
+          axioms: c.axioms || [],
+          file_hash: fhash,
+          core_hash: c.core_hash || null,
+          statement_frozen: Boolean(c.statement_frozen),
+          source: "submission",
+        });
+      }
+      const evKey = fhash ? `checker_accepted|${sub.lemma_id}|${fhash}` : null;
+      if (!evKey || !seenEventKeys.has(evKey)) {
+        if (evKey) seenEventKeys.add(evKey);
+        extraEvents.push({
+          id: `ev-sub-${fname}`,
+          at,
+          type: "checker_accepted",
+          lemma_id: sub.lemma_id,
+          program: lemma.program,
+          seat,
+          title: lemma.title,
+          duration_ms: c.duration_ms ?? null,
+          file_hash: fhash,
+          axioms: c.axioms || [],
+          source: "submission",
+        });
+      }
+    } else if (sub.kind === "refutation" && sub.refutation) {
+      const r = sub.refutation;
+      const at = r.at || sub.at || "";
+      const seat = r.by_seat || "unknown";
+      const fhash = r.file_hash || null;
+      const runKey = fhash ? `refutation|${sub.lemma_id}|${fhash}` : null;
+      if (!runKey || !seenRunKeys.has(runKey)) {
+        if (runKey) seenRunKeys.add(runKey);
+        extraRuns.push({
+          id: `sub-${fname}`,
+          at,
+          kind: "refutation",
+          lemma_id: sub.lemma_id,
+          seat,
+          theorem: sub.theorem || r.theorem_name || "",
+          file: sub.file || r.counterexample_file || "",
+          ok: true,
+          duration_ms: r.duration_ms ?? null,
+          axioms: r.axioms || [],
+          file_hash: fhash,
+          core_hash: r.core_hash || null,
+          source: "submission",
+        });
+      }
+      const evKey = fhash ? `claim_refuted|${sub.lemma_id}|${fhash}` : null;
+      if (!evKey || !seenEventKeys.has(evKey)) {
+        if (evKey) seenEventKeys.add(evKey);
+        extraEvents.push({
+          id: `ev-sub-${fname}`,
+          at,
+          type: "claim_refuted",
+          lemma_id: sub.lemma_id,
+          program: lemma.program,
+          seat,
+          title: lemma.title,
+          detail: r.summary || lemma.title,
+          duration_ms: r.duration_ms ?? null,
+          file_hash: fhash,
+          source: "submission",
+        });
+      }
+    } else if ((sub.kind === "record" || sub.kind === "record_bound") && sub.checker?.ok) {
+      const hist = (lemma.record_state?.history || []).find((h) => h.submission === fname);
+      if (hist && (hist.state === "stale_statement" || hist.state === "stale_core")) continue;
+      const c = sub.checker;
+      const at = c.checked_at || sub.at || "";
+      const seat = c.by_seat || "unknown";
+      const fhash = c.file_hash || null;
+      const unit = lemma.record?.unit ? ` ${lemma.record.unit}` : "";
+      const pts = hist?.points ? ` (+${hist.points} pts)` : "";
+      const runKey = fhash ? `${sub.kind}|${sub.lemma_id}|${fhash}` : null;
+      if (!runKey || !seenRunKeys.has(runKey)) {
+        if (runKey) seenRunKeys.add(runKey);
+        extraRuns.push({
+          id: `sub-${fname}`,
+          at,
+          kind: sub.kind,
+          score: sub.score,
+          lemma_id: sub.lemma_id,
+          seat,
+          theorem: sub.theorem || "",
+          file: sub.file || "",
+          ok: true,
+          duration_ms: c.duration_ms ?? null,
+          axioms: c.axioms || [],
+          file_hash: fhash,
+          core_hash: c.core_hash || null,
+          statement_frozen: true,
+          source: "submission",
+        });
+      }
+      const evType = sub.kind === "record_bound" ? "record_bound" : "record_accepted";
+      const evKey = fhash ? `${evType}|${sub.lemma_id}|${fhash}` : null;
+      if (!evKey || !seenEventKeys.has(evKey)) {
+        if (evKey) seenEventKeys.add(evKey);
+        const prefix = sub.kind === "record_bound" ? `Proved ¬ Record ${sub.score}${unit}${pts}` : `Verified record ${sub.score}${unit}${pts}`;
+        extraEvents.push({
+          id: `ev-sub-${fname}`,
+          at,
+          type: evType,
+          lemma_id: sub.lemma_id,
+          program: lemma.program,
+          seat,
+          score: sub.score,
+          title: `${prefix} · ${lemma.title}`,
+          detail: sub.signature || prefix,
+          duration_ms: c.duration_ms ?? null,
+          file_hash: fhash,
+          axioms: c.axioms || [],
+          source: "submission",
+        });
+      }
+    } else if (sub.kind === "audit" && sub.audit) {
+      const a = sub.audit;
+      const at = a.at || sub.at || "";
+      const fhash = a.file_hash || null;
+      const evKey = fhash ? `lemma_audited|${sub.lemma_id}|${fhash}` : null;
+      if (!evKey || !seenEventKeys.has(evKey)) {
+        if (evKey) seenEventKeys.add(evKey);
+        extraEvents.push({
+          id: `ev-sub-${fname}`,
+          at,
+          type: "lemma_audited",
+          lemma_id: sub.lemma_id,
+          seat: a.by_seat || "unknown",
+          detail: `${a.status || "audited"}: ${a.notes || ""}`,
+          file_hash: fhash,
+          source: "submission",
+        });
+      }
+    } else if (sub.kind === "rule_dead" && sub.epitaph) {
+      const ep = sub.epitaph;
+      const at = ep.at || sub.at || "";
+      extraEvents.push({
+        id: `ev-sub-${fname}`,
+        at,
+        type: "approach_dead",
+        lemma_id: sub.lemma_id,
+        program: lemma.program,
+        seat: ep.by_seat || "unknown",
+        title: lemma.title,
+        wall: ep.wall || "",
+        detail: ep.reason || "",
+        source: "submission",
+      });
+    }
+  }
+
+  const byNewest = (a, b) => String(b.at || "").localeCompare(String(a.at || "")) || String(b.id || "").localeCompare(String(a.id || ""));
+  const checker_runs = [...baseRuns, ...extraRuns].sort(byNewest).slice(0, 120);
+  const events = [...baseEvents, ...extraEvents].sort(byNewest).slice(0, 200);
+  return { checker_runs, events };
+}
+
 export function buildMissionSnapshot(mission, prSnap = null) {
   const { state } = deriveMissionState(mission.slug, { project: false });
-  const events = readEvents(mission.paths.eventsFile, 160);
+  const diskEvents = readEvents(mission.paths.eventsFile, 160);
   const projected = projectMissionSnapshot(mission, state, prSnap);
+  const { checker_runs, events } = projectSubmissionTelemetry(mission, projected, diskEvents);
   return {
     ...projected,
+    checker_runs,
     mission: {
       ...projected.mission,
       impact: mission.impact || null,
@@ -132,7 +345,7 @@ export function buildMissionSnapshot(mission, prSnap = null) {
     ready: true,
     snapshot_at: new Date().toISOString(),
     pr_sync: prSnap ? { ok: prSnap.ok, fetched_at: prSnap.fetched_at } : { ok: false, fetched_at: null },
-    just_in: events.find((e) => ["checker_accepted", "claim_refuted", "approach_dead", "lemma_audited"].includes(e.type)) || null,
+    just_in: events.find((e) => ["checker_accepted", "record_accepted", "record_bound", "claim_refuted", "approach_dead", "lemma_audited"].includes(e.type)) || null,
     events,
   };
 }
