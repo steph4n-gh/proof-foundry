@@ -1,0 +1,26 @@
+{
+  "schema": "fleet-submission/2",
+  "mission": "p-vs-np",
+  "lemma_id": "L-syn-002",
+  "kind": "refutation",
+  "at": "2026-11-23T23:56:58.128Z",
+  "file": "lean/PnP/Lemmas/L_syn_002.lean",
+  "theorem": "PnP.Lemmas.L_syn_002.maj5_ge_10_contest",
+  "refutation": {
+    "by_seat": "donor-steph4n-gh",
+    "duration_ms": 1487,
+    "axioms": [
+      "propext",
+      "Quot.sound"
+    ],
+    "file_hash": "1380483be0377e854ee345deb01abf665a9b5bdb806810fa4c3281cca47cf9e5",
+    "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
+    "statement_frozen": true,
+    "statement_hash": "6cff55c3a965880fb6d74f4efa0a4c25478b929113484041fb15ce65cf57404c",
+    "summary": "9-gate B2 circuit computing MAJ5 refutes B2Size(MAJ5) >= 10",
+    "counterexample_file": "lean/PnP/Lemmas/L_syn_002.lean",
+    "theorem_name": "PnP.Lemmas.L_syn_002.maj5_ge_10_contest",
+    "signature": "PnP.Lemmas.L_syn_002.maj5_ge_10_contest :\n  ¬PnP.Statements.L_syn_002.Claim",
+    "at": "2026-11-23T23:56:58.128Z"
+  }
+}

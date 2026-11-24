@@ -1,0 +1,28 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "erdos-combinatorics",
+  "lemma_id": "E-rec-200",
+  "kind": "record",
+  "score": 10,
+  "file": "missions/erdos-combinatorics/lean/Erdos/Claims/E_rec_200_s10.lean",
+  "theorem": "Erdos.Claims.E_rec_200_s10.record",
+  "signature": "Erdos.Claims.E_rec_200_s10.record :\n  Erdos.Statements.E_rec_200.Record 10",
+  "at": "2026-11-24T00:04:17.737Z",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-24T00:04:17.738Z",
+    "duration_ms": 2581,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "5d1ff576ed0280832fb801ebd354c154572a769a418d7d19f68cd5e4f80de2ca",
+    "core_hash": "d340c0dbbf11c6f8b34fdffed7b9b6a14a1587a2a516de89911dc5a93235a3d8",
+    "statement_frozen": true,
+    "statement_hash": "03d9ea977775a975b72daa1dd6b98b1666351133c24aee5caf971100563a1c3f"
+  }
+}

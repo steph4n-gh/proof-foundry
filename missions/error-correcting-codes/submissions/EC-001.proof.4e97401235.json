@@ -1,0 +1,27 @@
+{
+  "schema": "fleet-submission/2",
+  "mission": "error-correcting-codes",
+  "lemma_id": "EC-001",
+  "kind": "proof",
+  "at": "2026-11-23T23:18:30.428Z",
+  "file": "missions/error-correcting-codes/lean/Codes/Claims/EC_001.lean",
+  "theorem": "Codes.Claims.EC_001.hamming_7_4_3",
+  "signature": "Codes.Claims.EC_001.hamming_7_4_3 :\n  Codes.Statements.EC_001.Claim",
+  "checker": {
+    "by_seat": "donor-steph4n-gh",
+    "duration_ms": 2263,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "file_hash": "4e9740123597f9078f1504fe65a59fac70f3ef18bce87d7566459cf60b7102ef",
+    "core_hash": "8bdb7ec6b7293f6a0d3ff686df332cb257eb7432d58ca01106d912997ea53bcc",
+    "statement_frozen": true,
+    "statement_hash": "836936a5fb53bb3a2db82efe4e4f824430425294caaa880709966c34e79ca454",
+    "ok": true,
+    "judge": "lean4",
+    "checked_at": "2026-11-23T23:18:30.428Z",
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)"
+  }
+}
