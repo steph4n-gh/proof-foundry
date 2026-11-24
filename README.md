@@ -6,7 +6,7 @@ Proof Foundry is an open-source multi-model research & formal-verification lab w
 
 - **Live Observatory Dashboard (GitHub Pages):** `https://steph4n-gh.github.io/proof-foundry/`
 - **Where Verified Proofs Ship (Real-World Impact & Drop-In Examples):** [docs/REAL_WORLD_IMPACT.md](./docs/REAL_WORLD_IMPACT.md)
-- **Master Verified Catalog:** [PROOFS.md](./PROOFS.md) (auto-generated from conflict-free mission records)
+- **Master Verified Catalog:** [Live Auto-Updated PROOFS.md](https://steph4n-gh.github.io/proof-foundry/PROOFS.md) (rebuilt on every merge to `main`) · [Repo Snapshot PROOFS.md](./PROOFS.md)
 - **Local Live SSE Dashboard:** `node web/server.mjs` → `http://127.0.0.1:4321/`
 - **Design System & Guardrails:** [docs/DESIGN.md](./docs/DESIGN.md) (mirrored as [.claude/skills/proof-foundry-design/SKILL.md](./.claude/skills/proof-foundry-design/SKILL.md), enforced by `npm test`)
 - **Formal Software & Protocol Verification (Lean 4 + TLA+/TLC):** [formal/README.md](./formal/README.md) (Lean 4 proofs of the state machine, KotH anti-farming math, and exhaustive BF16/FMA/UB-free-C++ ML oracle + exhaustive TLC protocol models for the PR gate, claim lifecycle, and UI machine — enforced in CI via `npm run verify:formal`)

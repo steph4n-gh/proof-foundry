@@ -561,16 +561,23 @@ console.log("\n— Snapshot adapters (real mission data) —");
     assert(r.gap == null || r.gap >= 0, `${r.id}: gap is non-negative`);
     assert(Array.isArray(ratchetSeries(r)), `${r.id}: ratchet series renders (baseline when unclaimed)`);
   }
-  const sorted = sortRecords(synth.records, "gap").filter((r) => r.gap != null);
-  assert(sorted.every((r, i) => i === 0 || sorted[i - 1].gap <= r.gap), "sortRecords('gap') orders by smallest open gap");
+  const sortedAll = sortRecords(synth.records, "gap");
+  const sortedOpen = sortedAll.filter((r) => !r.closed && !r.contradiction && r.gap != null);
+  const firstClosedIdx = sortedAll.findIndex((r) => r.closed || r.contradiction);
+  assert(
+    sortedOpen.every((r, i) => i === 0 || sortedOpen[i - 1].gap <= r.gap) &&
+      (firstClosedIdx === -1 || sortedAll.slice(firstClosedIdx).every((r) => r.closed || r.contradiction)),
+    "sortRecords('gap') orders open hunts by smallest gap and places closed/contradiction hunts last"
+  );
+  const openRecordCount = synth.records.filter((r) => !r.closed && !r.contradiction).length;
   const hot = pickHotRecords(synth.records, 5);
-  assert(hot.length === Math.min(5, expectedRecords), "pickHotRecords returns the 5 hottest hunts");
-  // Hunts that already hit literature_bound (e.g. L-rec-maj5=10) route to optimality bounds and do not jump ahead of open construction hunts!
+  assert(hot.length === Math.min(5, openRecordCount), "pickHotRecords returns up to 5 open hottest hunts");
+  // Hunts that already hit literature_bound (e.g. L-rec-maj5) route to optimality bounds and do not jump ahead of open construction hunts!
   const maj5 = synth.records.find((r) => r.id === "L-rec-maj5");
-  if (maj5 && maj5.best_score === 10 && maj5.proven_bound == null) {
-    assert(needsOptimalityBound(maj5) === true, "L-rec-maj5 at best=10 is flagged as needing an optimality bound");
+  if (maj5 && !maj5.closed && maj5.best_score != null && maj5.literature_bound != null && maj5.best_score <= maj5.literature_bound && maj5.proven_bound == null) {
+    assert(needsOptimalityBound(maj5) === true, `L-rec-maj5 at best=${maj5.best_score} is flagged as needing an optimality bound`);
     const recAct = recommendedRecordAction(maj5);
-    assert(recAct.kind === "record_bound" && recAct.score === 9, "L-rec-maj5 defaults Attempt to record_bound (¬ Record 9)", JSON.stringify(recAct));
+    assert(recAct.kind === "record_bound" && recAct.score === maj5.best_score - 1, `L-rec-maj5 defaults Attempt to record_bound (¬ Record ${maj5.best_score - 1})`, JSON.stringify(recAct));
     assert(recordFrontierPhase(maj5).phase === "needs_bound", "L-rec-maj5 frontier phase is needs_bound");
     assert(!hot.slice(0, 2).some((r) => r.id === "L-rec-maj5"), "L-rec-maj5 does not take top-2 construction slots on front page");
   }
