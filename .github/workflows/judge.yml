@@ -65,7 +65,7 @@ jobs:
             echo "same_repo=false" >> "$GITHUB_OUTPUT"
           fi
 
-          git fetch --no-tags origin "refs/pull/$PR_NUM/head:pr-head"
+          git fetch --no-tags origin "$BASE_SHA" "refs/pull/$PR_NUM/head:pr-head"
           if [ "$(git rev-parse pr-head)" != "$HEAD_SHA" ]; then
             echo "PR head moved since this workflow was queued (expected $HEAD_SHA)." >&2
             exit 1
@@ -100,10 +100,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout trusted base
+      - name: Checkout trusted base (donor lane) or pinned PR head (same-repo infra lane)
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ needs.classify.outputs.lane == 'infra' && needs.classify.outputs.same_repo == 'true' && github.event.pull_request.head.sha || github.event.pull_request.base.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -112,20 +112,24 @@ jobs:
         with:
           node-version: "22.23.5"
 
-      - name: Stage ONLY verified allowlisted 100644 files via Node
+      - name: Compute pinned git raw -z diff and stage allowlisted 100644 files (donor lane)
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_NUM: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LANE: ${{ needs.classify.outputs.lane }}
+          SAME_REPO: ${{ needs.classify.outputs.same_repo }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "refs/pull/$PR_NUM/head:pr-head"
+          git fetch --no-tags origin "$BASE_SHA" "refs/pull/$PR_NUM/head:pr-head"
           if [ "$(git rev-parse pr-head)" != "$HEAD_SHA" ]; then
             echo "PR head moved since this workflow was queued (expected $HEAD_SHA)." >&2
             exit 1
           fi
           git diff -z --no-renames --raw "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/diff.rawz"
-          node hub/fleet.mjs stage-pr --git-raw-z "$RUNNER_TEMP/diff.rawz" --ref "$HEAD_SHA"
+          if [ "$LANE" != "infra" ] || [ "$SAME_REPO" != "true" ]; then
+            node hub/fleet.mjs stage-pr --git-raw-z "$RUNNER_TEMP/diff.rawz" --ref "$HEAD_SHA"
+          fi
 
       - name: Install Lean 4 (elan) if needed
         if: needs.classify.outputs.needs_lean == 'true'
