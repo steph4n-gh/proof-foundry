@@ -1031,6 +1031,45 @@ try {
     "PR Gate KotH: freezes Statements/SN_rec_013.lean once record history > 0",
     JSON.stringify(stmtMut)
   );
+
+  // Deleting a single frozen statement inside a surviving mission STILL fails closed!
+  const stmtDelSingle = classifyEntries(parseGitRawZ(rawEntry("000000", "D", "missions/sorting-networks/lean/SortNet/Statements/SN_rec_013.lean")));
+  assert(
+    stmtDelSingle.lane === "infra" && stmtDelSingle.frozenStatementMutations.length === 1 && stmtDelSingle.retiredMissions.length === 0,
+    "PR Gate KotH: deleting a frozen statement in a surviving mission is blocked",
+    JSON.stringify(stmtDelSingle)
+  );
+
+  // Partial mission retirement (deleting mission.json + state.json while modifying a frozen statement) STILL fails closed!
+  const partialRetire = classifyEntries(
+    parseGitRawZ(
+      rawEntry("000000", "D", "missions/sorting-networks/mission.json") +
+        rawEntry("000000", "D", "missions/sorting-networks/state.json") +
+        rawEntry("100644", "M", "missions/sorting-networks/lean/SortNet/Statements/SN_rec_013.lean")
+    )
+  );
+  assert(
+    partialRetire.lane === "infra" && partialRetire.frozenStatementMutations.length === 1 && partialRetire.retiredMissions.length === 0,
+    "PR Gate KotH: partial mission retirement with modified frozen statement is blocked",
+    JSON.stringify(partialRetire)
+  );
+
+  // Whole-mission retirement (deleting mission.json + state.json + all touched mission files) routes to infra lane cleanly!
+  const fullRetire = classifyEntries(
+    parseGitRawZ(
+      rawEntry("000000", "D", "missions/sorting-networks/mission.json") +
+        rawEntry("000000", "D", "missions/sorting-networks/state.json") +
+        rawEntry("000000", "D", "missions/sorting-networks/lean/SortNet/Statements/SN_rec_013.lean")
+    )
+  );
+  assert(
+    fullRetire.lane === "infra" &&
+      fullRetire.frozenStatementMutations.length === 0 &&
+      fullRetire.retiredMissions.length === 1 &&
+      fullRetire.retiredMissions[0] === "sorting-networks",
+    "PR Gate KotH: whole-mission retirement routes to maintainer infra lane with 0 frozen mutations",
+    JSON.stringify(fullRetire)
+  );
 } finally {
   for (const f of tmpKoth) {
     try { fs.unlinkSync(f); } catch {}

@@ -81,7 +81,30 @@ export function classifyEntries(entries) {
       artifactEntries: [],
       needsLean: false,
       frozenStatementMutations: [],
+      retiredMissions: [],
     };
+  }
+
+  // Whole-mission retirement (maintainer infra-only):
+  // A mission is wholly retired ONLY when both `missions/<ms>/mission.json` and
+  // `missions/<ms>/state.json` are deleted (status "D") AND every touched file
+  // under that mission has status "D". Because `mission.json` and status "D" both
+  // fail the donor allowlist, retirement always lands on the maintainer `infra` lane.
+  const entriesByMission = new Map();
+  for (const e of entries) {
+    const ms = missionSlugFromPath(e.path);
+    if (!ms) continue;
+    if (!entriesByMission.has(ms)) entriesByMission.set(ms, []);
+    entriesByMission.get(ms).push(e);
+  }
+  const retiredMissions = new Set();
+  for (const [ms, msEntries] of entriesByMission.entries()) {
+    const deletesManifest = msEntries.some((e) => e.status === "D" && e.path === `missions/${ms}/mission.json`);
+    const deletesState = msEntries.some((e) => e.status === "D" && e.path === `missions/${ms}/state.json`);
+    const allDeleted = msEntries.length > 0 && msEntries.every((e) => e.status === "D");
+    if (deletesManifest && deletesState && allDeleted) {
+      retiredMissions.add(ms);
+    }
   }
 
   for (const e of entries) {
@@ -89,7 +112,11 @@ export function classifyEntries(entries) {
     const ms = missionSlugFromPath(p);
     if (ms) missionsTouched.add(ms);
 
-    if ((/\/Statements\/[A-Za-z0-9_]+\.lean$/.test(p) || /\/specs\/[A-Za-z0-9_]+\.json$/.test(p)) && e.status !== "A") {
+    if (
+      (/\/Statements\/[A-Za-z0-9_]+\.lean$/.test(p) || /\/specs\/[A-Za-z0-9_]+\.json$/.test(p)) &&
+      e.status !== "A" &&
+      !(e.status === "D" && ms && retiredMissions.has(ms))
+    ) {
       if (ms) {
         try {
           const { state } = deriveMissionState(ms);
@@ -155,6 +182,7 @@ export function classifyEntries(entries) {
     artifactEntries,
     needsLean,
     frozenStatementMutations,
+    retiredMissions: [...retiredMissions].sort(),
   };
 }
 
