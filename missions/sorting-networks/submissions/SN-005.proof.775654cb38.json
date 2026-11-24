@@ -1,0 +1,26 @@
+{
+  "schema": "fleet-submission/2",
+  "mission": "sorting-networks",
+  "lemma_id": "SN-005",
+  "kind": "proof",
+  "at": "2026-11-24T22:45:13.287Z",
+  "file": "missions/sorting-networks/lean/SortNet/Claims/SN_005.lean",
+  "theorem": "SortNet.Claims.SN_005.optimal_9_sorter",
+  "signature": "SortNet.Claims.SN_005.optimal_9_sorter :\n  SortNet.Statements.SN_005.Claim",
+  "checker": {
+    "by_seat": "donor-steph4n-gh",
+    "duration_ms": 5480,
+    "axioms": [
+      "propext",
+      "Quot.sound"
+    ],
+    "file_hash": "775654cb38806f12eff9aa88128a1bb157feab2c8583b09ccde0c2a9f2519f33",
+    "core_hash": "e7ae7b165b4ade57aa829588afa794927e0b77fde9f5738c4923c2d52410637d",
+    "statement_frozen": true,
+    "statement_hash": "4e482b70f74c163ba3ad7a9017a8e142ff5b1cb630bae9eb6f2060a20f9a0953",
+    "ok": true,
+    "judge": "lean4",
+    "checked_at": "2026-11-24T22:45:13.287Z",
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)"
+  }
+}
