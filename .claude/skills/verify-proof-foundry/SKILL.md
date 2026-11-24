@@ -9,7 +9,7 @@ This skill guards the six software boundaries in Proof Foundry where a bug corru
 
 ## Sync Commit & Coverage Record
 
-- **Last confirmed sync commit:** `undefined`
+- **Last confirmed sync commit:** `ad675e8`
 - Move this commit forward **only** after confirming every covered check describes the code at the new commit and passes cleanly.
 
 | Covered Code | Plain-English Promise & Harm if Broken | Verification Artifact | How to Check |
