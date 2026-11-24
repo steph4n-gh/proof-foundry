@@ -128,7 +128,7 @@
         ],
         "lean_version": "Deterministic IEEE-754 Stress Judge v1",
         "file_hash": "b4b66491cbda9816e0cfcca652d6febeb2d3aa615eee9238c911d489523f61b8",
-        "core_hash": "a36bd33c425d706b323e0defe78324da5ec48c18a4ddadff402c3e27ac125f68",
+        "core_hash": "d1d3c67e614d182a0bd52bbc2879b85a4854e271e4c2c2193aee316304662f3c",
         "by_seat": "donor-smoke"
       },
       "refutation": null,

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -11,8 +12,10 @@ import {
   assignSeatClaim,
   computeClaimFreshness,
   computeRecordTargets,
+  isRungConquered,
   projectClaimView,
   projectGlobalRecords,
+  projectMissionSnapshot,
   releaseSeatClaim,
   sha256RelFile,
   transitionClaim,
@@ -130,11 +133,22 @@ test("freshness checks both frozen statements and Core or harness receipts", (t)
 
   fs.appendFileSync(core, "\nnew Core definitions");
   const refreshedRecord = projectClaimView(recordMission, record);
+  const refreshedFixed = projectClaimView(fixedMission, fixed);
   assert.equal(computeClaimFreshness(fixedMission, fixed), "stale_core");
+  assert.equal(refreshedFixed.seal, "stale");
+  assert.equal(isRungConquered(refreshedFixed), false);
   assert.equal(refreshedRecord.freshness, "stale_core");
+  assert.equal(isRungConquered(refreshedRecord, "record_any"), false);
   assert.equal(refreshedRecord.record_meta.best_score, 5);
   assert.deepEqual(refreshedRecord.record_state.history, [{ state: "accepted" }]);
   assert.equal(computeClaimFreshness(recordMission, boundOnly), "stale_core");
+
+  // Snapshot counts & latest_verified exclude stale_core claims
+  const snap = projectMissionSnapshot(fixedMission, { meta: {}, programs: [], seats: [], lemmas: [fixed] }, []);
+  assert.equal(snap.counts.trusted, 0);
+  assert.equal(snap.counts.frozen_matched, 0);
+  assert.equal(projectGlobalRecords([snap], at).totals.trusted_proofs, 0);
+  assert.equal(projectGlobalRecords([snap], at).latest_verified, null);
 
   fs.appendFileSync(statement, "\nstatement edit");
   assert.equal(computeClaimFreshness(fixedMission, fixed), "stale_statement");
@@ -570,4 +584,73 @@ test("fleet next supports --mission all, --exclude, --exclude-file, ranking, PR 
 
   // `next` never mutated any tracked state.json
   assert.deepEqual(stateFiles.map((f) => sha256RelFile(f)), hashesBefore);
+});
+
+test("direct replay transitionClaim enforces top-level contradiction guard before transitionRecord (P3-4)", () => {
+  const lemma = {
+    id: "R",
+    kind: "record",
+    status: "contradiction",
+    statement_file: "record.lean",
+    record: { direction: "min", start_target: 10, bound_floor: 0 },
+    record_state: { direction: "min", best: null, refuted: null, next_target: 10, closed: false, contradiction: false, history: [], points_by_seat: {} },
+  };
+  const targets = computeRecordTargets("test", lemma, "record", 8);
+  const ev = {
+    kind: "record",
+    score: 8,
+    lemma_id: "R",
+    _sub_file: targets.submissionBasename,
+    file: targets.artifactFile,
+    theorem: targets.theoremName,
+    checker: { ok: true, statement_hash: "S1", core_hash: "C1", by_seat: "donor-a" },
+  };
+  const res = transitionClaim(lemma, ev, { mode: "replay", missionSlug: "test", statementHash: "S1", coreHash: "C1" });
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /status is "contradiction"/);
+  assert.deepEqual(res.lemma, lemma);
+});
+
+test("web server rejects missing Host, supports IPv6 [::1]:port, and blocks symlinks in web/public (P3-1/P3-2)", { timeout: 15_000 }, async (t) => {
+  const server = spawn(process.execPath, ["web/server.mjs"], { cwd: ROOT, env: { ...process.env, PORT: "0" }, stdio: ["ignore", "pipe", "pipe"] });
+  const serverExit = once(server, "exit");
+  t.after(async () => {
+    server.kill();
+    await serverExit;
+  });
+  const [started] = await once(server.stdout, "data", { signal: AbortSignal.timeout(5000) });
+  const port = Number(started.toString().match(/http:\/\/127\.0\.0\.1:(\d+)/)?.[1]);
+  assert.ok(Number.isInteger(port) && port > 0, started.toString());
+
+  async function rawHttp(rawReq) {
+    return new Promise((resolve, reject) => {
+      const sock = net.createConnection({ host: "127.0.0.1", port }, () => sock.write(rawReq));
+      let data = "";
+      sock.setEncoding("utf8");
+      sock.on("data", (chunk) => { data += chunk; });
+      sock.on("end", () => resolve(data));
+      sock.on("error", reject);
+      sock.setTimeout(3000, () => { sock.destroy(); reject(new Error("rawHttp timeout")); });
+    });
+  }
+
+  // Missing Host header on HTTP/1.0 -> 403 Forbidden (fail closed!)
+  const noHost = await rawHttp("GET /api/records HTTP/1.0\r\nConnection: close\r\n\r\n");
+  assert.match(noHost, /^HTTP\/1\.1 403 /);
+
+  // Non-loopback Host header -> 403 Forbidden
+  const evilHost = await rawHttp("GET /api/records HTTP/1.1\r\nHost: evil.example:443\r\nConnection: close\r\n\r\n");
+  assert.match(evilHost, /^HTTP\/1\.1 403 /);
+
+  // Bracketed IPv6 loopback Host: [::1]:<port> -> 200 OK
+  const ipv6Host = await rawHttp(`GET /api/records HTTP/1.1\r\nHost: [::1]:${port}\r\nConnection: close\r\n\r\n`);
+  assert.match(ipv6Host, /^HTTP\/1\.1 200 /);
+
+  // Symlink inside web/public -> 403 Forbidden (never follows symlink outside web/public!)
+  const symName = `.test-symlink-${process.pid}-${Date.now()}.txt`;
+  const symPath = path.join(ROOT, "web/public", symName);
+  fs.symlinkSync(path.join(ROOT, "package.json"), symPath);
+  t.after(() => { try { fs.unlinkSync(symPath); } catch {} });
+  const symRes = await fetch(`http://127.0.0.1:${port}/${symName}`, { signal: AbortSignal.timeout(5000) });
+  assert.equal(symRes.status, 403);
 });

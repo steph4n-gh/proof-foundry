@@ -17,7 +17,7 @@
     ],
     "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
     "file_hash": "742d0ea6a692ceef9b2d9664ca6df19831ca00d003c607ee906ca21ea3999fd6",
-    "core_hash": "c66bb11af66a1933de3bc3b60d78b3f6ed195e15da46a6d90cd8dd60e0e44657",
+    "core_hash": "d340c0dbbf11c6f8b34fdffed7b9b6a14a1587a2a516de89911dc5a93235a3d8",
     "by_seat": "seat-redteam-1"
   }
 }

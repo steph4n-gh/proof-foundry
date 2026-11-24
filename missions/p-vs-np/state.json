@@ -282,7 +282,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "0f522adda1137ef0b714289b2ca89d1295de5b23f1876e67f386715f482881b4",
         "by_seat": "seat-strat-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -323,7 +323,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "d87422c5a70c5cdf89d0f72c5df30f90f1ecd6d2dd0e989e52cc7727a12287d9",
         "by_seat": "seat-lib-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -366,7 +366,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "311fd21935c18a0cf6bfa668dddc820b916b7f3ce3f5417b5431fb8e05c35087",
         "by_seat": "seat-lib-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -408,7 +408,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "5acf3da10bca4238f21886386a579d7d3779f5e6b11a3641eb6a91f578dd4312",
         "by_seat": "seat-lib-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -452,7 +452,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "30acc6c5be473e3f0d92c0c923c843a4f7cb13c7f28c574be06ffc3354fdfb89",
         "by_seat": "seat-clb-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -495,7 +495,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "3565d828841890ac61a95de825c7f6081f170180db637066b21ec6d036509509",
         "by_seat": "seat-clb-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -540,7 +540,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "623811acefff5f45124a65054c69cf68a659f7fa0ba110ae2457927ada061f3a",
         "by_seat": "seat-clb-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -584,7 +584,7 @@
         ],
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "4704eba9678ab2fbb9973cf18fb29f57824b482c9351fbb991a5ee5c1cccbcd6",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "by_seat": "seat-meta-1",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
@@ -627,7 +627,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "4ad0f14cc4ef1f113cbeaf0735a69fe6c29939285f6dba8050cc8d01716048ce",
         "by_seat": "seat-pcx-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -671,7 +671,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "05db04ac93be010c5acc1a9382411f14913d7143a3c5593590a4b6e480e7d2d6",
         "by_seat": "seat-pcx-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -715,7 +715,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "ab517d937bd28f710b01b4752bd65f1e27e90934328bc74efe84d6a552ed2b69",
         "by_seat": "seat-pcx-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -760,7 +760,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "9c65f00941c9ca8da36e6c940a2cfbf0f863359ebb66b65d555082e839b0827a",
         "by_seat": "seat-meta-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -804,7 +804,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "825a84f689d8d5f60ce5ba3ece97a138f437509b0b8a2cd6d1cdd2e963791ddc",
         "by_seat": "seat-meta-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -846,7 +846,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "eb738e0d90473875d3571765b6fdc115a402ea04597864f966ce6c5bd628b175",
         "by_seat": "seat-alg-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -892,7 +892,7 @@
         "file_hash": "fe302b01dd3985d83a9e9156b3969d72f9065b4e8849a8ae244cab69b886eece",
         "duration_ms": 10990,
         "at": "2026-11-23T05:46:57.691Z",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc"
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6"
       },
       "epitaph": null,
       "audit": {
@@ -936,7 +936,7 @@
         "file_hash": "0642b93cc9add0cb835d9e50879715ab3b9be17cf80241e0ecc9b27c4cb757c0",
         "duration_ms": 7571,
         "at": "2026-11-23T05:48:52.448Z",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc"
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6"
       },
       "epitaph": null,
       "audit": {
@@ -1029,7 +1029,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "10382a6312f5123e37a812dcc94b837b9b2e2968f53b32bb6549c21638d2e840",
         "by_seat": "seat-lib-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -1074,7 +1074,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "417fad10a9ae717acc45edf9941108284c17ad7c7521fa1e3e5ac3f4fdaf0a24",
         "by_seat": "seat-clb-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -1119,7 +1119,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "04c954ac4a674cc82b9e8139234b1a8b81eb940747a87acf05b15e2646ca1042",
         "by_seat": "seat-clb-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -1187,7 +1187,7 @@
         ],
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "ff984a1c141b2528f67d56dd1f852bc15f75c1a2d5783756158bb9b2961ca769",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "by_seat": "seat-meta-1",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
@@ -1235,7 +1235,7 @@
         "file_hash": "47a7f9bcce3e2c43f5efdb8878c9b5fa00cd9b5f52ba9085445fc22a5e2682cf",
         "duration_ms": 14003,
         "at": "2026-11-23T05:59:35.631Z",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc"
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6"
       },
       "epitaph": null,
       "audit": {
@@ -1275,7 +1275,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "cfa12c75287fb49e49dd1089f479b8d87b916370d110acff706efa11a3c56ffc",
         "by_seat": "seat-alg-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -1320,7 +1320,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "269a64c739457c123a9de30c443b8cda4e319350b07e18e6932815d10677b800",
         "by_seat": "seat-pcx-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -1365,7 +1365,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "c1d587f86af67fecc464cbb673c5019f2cea00868a81ff6ea463e074ec357c1f",
         "by_seat": "seat-pcx-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,
@@ -1406,7 +1406,7 @@
         "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
         "file_hash": "1537cd2f65f7e725b8b1e907524b341e7b688cecad8806a03b839101d0d71f54",
         "by_seat": "seat-barrier-1",
-        "core_hash": "b7723ba3870ec65eca25cbd2de496df93d34346d2396d9bfea2942d0d373fefc",
+        "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
         "rechecked_by_metaprogram_at": "2026-11-23T06:21:38.349Z"
       },
       "refutation": null,

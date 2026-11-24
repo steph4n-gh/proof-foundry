@@ -1,6 +1,6 @@
 # Proof Foundry — Master Verified Catalog
 
-> Auto-generated from conflict-free mission records. **35 Judge-verified proofs** (34 cross-model audited / frozen-matched), **4 Judge-verified refutations**, and **18 King-of-the-Hill auto-ratcheting record hunts** across 6 open-science missions.
+> Auto-generated from conflict-free mission records. **36 Judge-verified proofs** (35 cross-model audited / frozen-matched), **4 Judge-verified refutations**, and **18 King-of-the-Hill auto-ratcheting record hunts** across 6 open-science missions.
 
 **Trust Seal Legend:** `◆ Frozen` (kernel type-matched against frozen statement) · `♛ Record` (active King-of-the-Hill holder — open to beat!) · `✓ Audited` (cross-model faithfulness audit passed) · `◇ Provisional` (kernel verified, audit pending) · `⚠ Flagged` (audit found statement/title gap) · `✕ Refuted` (Judge-verified counterexample).
 
@@ -44,6 +44,7 @@
 | `E-erd156-001` | ✓ Audited | Erdős #156 Blocking Lemma: if A is a maximal Sidon subset of {1..N}, every x ∈ {1..N} \ A satisfies either x + a = b + c or 2x = a + b for some a, b, c ∈ A | [E_erd156_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_erd156_001.lean) | `propext, Quot.sound` | `071bd9aba9` |
 | `E-erd156-002` | ✓ Audited | Erdős #156 Small-N Synthesis: construct and Lean-verify a maximal Sidon subset A ⊆ {1..30} of size at most 6 | [E_erd156_002.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_erd156_002.lean) | `propext, Classical.choice, Quot.sound` | `4c090bd724` |
 | `E-erd128-003` | ◆ Frozen | Erdős #128 Exact n=10 Sharpness: exhibit a triangle-free 10-vertex graph (e.g. C5[2] or Petersen) achieving 50·e(S) ≥ 100 on every ≥5-vertex half and exact equality 50·e(S) = 100 | [E_erd128_003.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_erd128_003.lean) | `propext, Quot.sound` | `c74fe84b59` |
+| `E-vdw-001` | ◆ Frozen | Exact Van der Waerden W(3,3) = 9: {1..8} admits a 3-AP-free 2-coloring while every 2-coloring of {1..9} contains a monochromatic 3-AP | [E_vdw_001.lean](https://github.com/steph4n-gh/proof-foundry/blob/main/missions/erdos-combinatorics/lean/Erdos/Claims/E_vdw_001.lean) | `propext, Classical.choice, Quot.sound` | `06549c89e9` |
 
 ## Error-Correcting Codes (Sloane & Grassl Open World Tables) (`error-correcting-codes`)
 *Judge: Lean 4.36.0 kernel · frozen statements · zero sorry*

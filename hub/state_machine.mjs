@@ -59,9 +59,9 @@ function recordPaths(missionSlug, lemma) {
 
 /**
  * Compute explicit trust seal for a claim (keeps receipt trust, hunt availability, and objectives clean!):
- *   contradiction | flagged | frozen | record | audited | provisional | refuted | dead | in_work | open
+ *   contradiction | flagged | stale | frozen | record | audited | provisional | refuted | dead | in_work | open
  */
-export function computeTrustSeal(lemma) {
+export function computeTrustSeal(lemma, freshness = lemma?.freshness) {
   if (lemma.status === "contradiction" || lemma.record_state?.contradiction) return "contradiction";
   if (lemma.kind === "record") {
     const rs = lemma.record_state;
@@ -75,6 +75,8 @@ export function computeTrustSeal(lemma) {
   const auditHashMismatch = Boolean(lemma.audit?.file_hash) && lemma.audit.file_hash !== currentHash;
 
   if (lemma.audit?.status === "flagged" && !auditHashMismatch) return "flagged";
+  const isStale = freshness === "stale_core" || freshness === "stale_statement";
+  if (isStale && (lemma.status === "checked" || lemma.status === "refuted")) return "stale";
   if (lemma.status === "checked") {
     if (lemma.checker?.statement_frozen) return "frozen";
     if (lemma.audit?.status === "faithful" && !auditHashMismatch) return "audited";
@@ -100,8 +102,9 @@ export function normalizeObjectiveReqs(obj) {
 
 export function isRungConquered(lemma, expect = "proof") {
   if (!lemma) return false;
+  if (lemma.freshness === "stale_core" || lemma.freshness === "stale_statement") return false;
   const seal = computeTrustSeal(lemma);
-  if (seal === "flagged" || seal === "contradiction") return false;
+  if (seal === "flagged" || seal === "contradiction" || seal === "stale") return false;
   if (lemma.kind === "record") {
     const rs = lemma.record_state;
     if (!rs || rs.contradiction) return false;
@@ -137,8 +140,10 @@ export function transitionClaim(lemma, event, ctx = {}) {
 
   if (recordEvent && !isRecord) return deny("claim is not a record hunt");
   if (kind === "record_bound" && lemma.record?.allow_bound === false) return deny("bound proofs are not supported");
+  if (contradiction && kind !== "audit" && !(recordEvent && ctx.mode === "replay" && lemma.record_state?.contradiction)) {
+    return deny('status is "contradiction"');
+  }
   if (recordEvent && ctx.mode === "replay") return transitionRecord(lemma, event, ctx);
-  if (contradiction && kind !== "audit") return deny('status is "contradiction"');
 
   if (kind === "claim") {
     if (!openStatuses.has(lemma.status) || lemma.record_state?.closed) return deny();
@@ -267,12 +272,21 @@ function transitionRecord(lemma, event, { statementHash, coreHash, opposingScore
     git_ts: gitTs ?? null,
     at: event.at || null,
   };
-  if (!statementHash || event.checker.statement_hash !== statementHash || !coreHash || !event.checker.core_hash) {
+  if (!statementHash || event.checker.statement_hash !== statementHash) {
     const history = [...rs.history, {
       ...entry,
       statement_hash: event.checker.statement_hash ?? null,
       core_hash: event.checker.core_hash ?? null,
       state: "stale_statement",
+    }];
+    return { ok: true, lemma: { ...lemma, record_state: { ...rs, history } } };
+  }
+  if (!coreHash || event.checker.core_hash !== coreHash) {
+    const history = [...rs.history, {
+      ...entry,
+      statement_hash: event.checker.statement_hash ?? null,
+      core_hash: event.checker.core_hash ?? null,
+      state: "stale_core",
     }];
     return { ok: true, lemma: { ...lemma, record_state: { ...rs, history } } };
   }
@@ -365,7 +379,8 @@ export function replayRecordSubmissions(missionSlug, lemma, subs, { gitAddedTs, 
     });
     if (!result.ok) continue;
     next = result.lemma;
-    if (next.record_state.history.at(-1).state === "stale_statement") continue;
+    const lastState = next.record_state.history.at(-1).state;
+    if (lastState === "stale_statement" || lastState === "stale_core") continue;
     const score = Number(sub.score);
     const prev = strongest[sub.kind];
     if (prev == null || (score - prev) * (record ? step : -step) > 0) strongest[sub.kind] = score;
@@ -381,7 +396,7 @@ export function replayRecordSubmissions(missionSlug, lemma, subs, { gitAddedTs, 
 export function computeClaimFreshness(mission, lemma, currentCoreHash = sha256RelFile(mission.judge?.core_file || mission.judge?.harness_file)) {
   const rs = lemma.record_state;
   const receipts = (lemma.kind === "record" ? [rs?.best, rs?.refuted] : [lemma.checker, lemma.refutation]).filter(Boolean);
-  const staleHistory = rs?.history?.filter((h) => h.state === "stale_statement") || [];
+  const staleHistory = rs?.history?.filter((h) => h.state === "stale_statement" || h.state === "stale_core") || [];
   const evidence = receipts.length ? receipts : staleHistory;
   if (lemma.statement_file && evidence.length) {
     const statementHash = sha256RelFile(lemma.statement_file);
@@ -429,7 +444,8 @@ function projectRecordMeta(mission, lemma) {
 }
 
 export function projectClaimView(mission, lemma, currentCoreHash) {
-  const seal = computeTrustSeal(lemma);
+  const freshness = computeClaimFreshness(mission, lemma, currentCoreHash);
+  const seal = computeTrustSeal(lemma, freshness);
   const recordMeta = lemma.kind === "record" ? projectRecordMeta(mission, lemma) : null;
   const openPrs = lemma.open_prs || [];
   const prState = openPrs.some((pr) => pr.check_state === "passing") ? "passing"
@@ -448,7 +464,7 @@ export function projectClaimView(mission, lemma, currentCoreHash) {
   return {
     ...lemma,
     seal,
-    freshness: computeClaimFreshness(mission, lemma, currentCoreHash),
+    freshness,
     pr_state: prState,
     actions: { can_attempt: canAttempt, can_bound: canBound, can_refute: canRefute, can_audit: canAudit, reason },
     ...(frozenBody && { frozen_statement_body: frozenBody }),
@@ -521,7 +537,7 @@ export function projectMissionSnapshot(mission, state, openPrs = null) {
     if (seal === "frozen") counts.frozen_matched++;
     if (seal === "audited" || seal === "frozen") counts.trusted++;
     if (seal === "flagged") counts.flagged++;
-    if (l.status === "checked") {
+    if (l.status === "checked" && seal !== "stale") {
       if (l.aims_at === leftKey) counts.aims_left_checked++;
       else if (l.aims_at === rightKey) counts.aims_right_checked++;
       else counts.aims_neutral_checked++;
@@ -635,7 +651,7 @@ export function projectGlobalRecords(snapshots, generatedAt = snapshots.at(-1)?.
           history: lemma.record_state?.history || [],
         });
       }
-      if (lemma.status !== "checked" || lemma.seal === "flagged" || lemma.seal === "contradiction") continue;
+      if (lemma.status !== "checked" || lemma.seal === "flagged" || lemma.seal === "contradiction" || lemma.seal === "stale") continue;
       const best = lemma.record_state?.best;
       if (!best && !lemma.checker?.ok) continue;
       const at = (best ? best.at : lemma.checker?.checked_at) || lemma.updated_at;

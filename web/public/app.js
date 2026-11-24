@@ -55,6 +55,13 @@ function esc(s) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+function safeGithubUrl(raw) {
+  try {
+    const u = new URL(String(raw || ""));
+    if (u.protocol === "https:" && u.hostname === "github.com") return u.href;
+  } catch {}
+  return null;
+}
 function int(v) {
   const n = Number(v);
   return Number.isFinite(n) ? Math.round(n) : 0;
@@ -192,17 +199,18 @@ function flagsHTML(lemma) {
   else if (fresh === "stale_core") out.push(`<span class="pr-note" title="Core definitions changed since this check (advisory)">↻ stale core</span>`);
   const pr = prStateOf(lemma);
   const first = (lemma?.open_prs || [])[0];
+  const firstUrl = safeGithubUrl(first?.url);
   if (pr === "needs_fix") {
     out.push(
-      first
-        ? `<a class="flag-line" href="${esc(first.url)}" target="_blank" rel="noopener noreferrer" data-stop>PR ${int(first.number) ? `#${int(first.number)} ` : ""}needs fix</a>`
+      firstUrl
+        ? `<a class="flag-line" href="${esc(firstUrl)}" target="_blank" rel="noopener noreferrer" data-stop>PR ${int(first.number) ? `#${int(first.number)} ` : ""}needs fix</a>`
         : `<span class="flag-line">PR needs fix</span>`
     );
   } else if (pr !== "none") {
     const label = pr === "passing" ? "passing" : "open";
     out.push(
-      first
-        ? `<a class="pr-note" href="${esc(first.url)}" target="_blank" rel="noopener noreferrer" data-stop title="${esc(first.title || "")}">PR #${int(first.number)} · ${label}</a>`
+      firstUrl
+        ? `<a class="pr-note" href="${esc(firstUrl)}" target="_blank" rel="noopener noreferrer" data-stop title="${esc(first.title || "")}">PR #${int(first.number)} · ${label}</a>`
         : `<span class="pr-note">PR ${label}</span>`
     );
   }
@@ -1773,7 +1781,12 @@ function renderAttempt(o, p) {
     const warn = $("#attempt-pr-warn");
     warn.hidden = !prs.length;
     if (prs.length) {
-      const links = prs.map((pr) => `<a href="${esc(pr.url)}" target="_blank" rel="noopener noreferrer">#${int(pr.number)}</a>`).join(", ");
+      const links = prs
+        .map((pr) => {
+          const href = safeGithubUrl(pr.url);
+          return href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">#${int(pr.number)}</a>` : `<span>#${int(pr.number)}</span>`;
+        })
+        .join(", ");
       warn.innerHTML = isRec
         ? `<strong>Active competition.</strong> PR ${links} also targets <code>${esc(lemma.id)}</code>. Any strictly better score or bound still counts.`
         : `<strong>Heads up.</strong> PR ${links} already targets <code>${esc(lemma.id)}</code>; consider another problem to avoid duplicate work.`;

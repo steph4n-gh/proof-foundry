@@ -21,7 +21,7 @@
     ],
     "lean_version": "Deterministic 128-Bit BigInt Minimax Judge v4 (isolated child)",
     "file_hash": "ced0a9d898fbc329a1bdbaa19cd1950f2891068a65ff1922e084f0f1c3c59408",
-    "core_hash": "844bf277438d25212db480b9aa8a8e9776a75162d07f9dc78e11ad28a28aeac9",
+    "core_hash": "d1d3c67e614d182a0bd52bbc2879b85a4854e271e4c2c2193aee316304662f3c",
     "statement_frozen": true,
     "statement_hash": "8def42f438f6045c0c7e08553b33742afa5e6d7a0decaaf856e5ca9fc0201890"
   }

@@ -61,29 +61,20 @@ produces depends on its algorithm. Such submissions are refused anyway.
 | 10. Seat–claim bijection | `seat_claim_bijection_release`, `seat_claim_bijection_releaseClaim`, `seat_claim_bijection_assign`, `seat_claim_bijection_preserved`, `Bij.iff`, `Bij.single_owner` |
 | 11. Trust seal and conquest | `trust_seal_and_conquered_sound`, `trust_seal_contradiction_iff`, `conquered_false_of_bad_seal`, `conquered_record_default`, `conquered_replay_default` |
 
-## Findings in `hub/state_machine.mjs`
+## Hardened invariants in `hub/state_machine.mjs`
 
-1. **The points ledger reads inherited properties.** `transitionRecord` computes
-   `(rs.points_by_seat[entry.seat] || 0) + points` on a plain object, so a `by_seat` that names an
-   `Object.prototype` member (`constructor`, `toString`, `__proto__`, `valueOf`, …) starts from a
-   function or object instead of `0` and the ledger concatenates strings. Two `min` records at 9
-   then 7, with `start_target` 10 and `by_seat: "constructor"`, give
-   `{"constructor": "function Object() { [native code] }22"}` instead of `{"constructor": 4}`.
-   `missions.mjs` aggregates `recordPointsBySeat` the same way. `DONOR_SEAT_RE` blocks these names
-   on donor PRs, but `allowMeta` PRs and internal seats skip that check. This model specifies
-   own-property semantics (`pbsGet`), so the harness keeps such names out of the differential
-   domain and prints the divergence for information.
-2. **Stale-core receipts are still accepted.** `transitionRecord` requires the receipt's
-   `core_hash` to be truthy, but it does not compare it with the current `coreHash`.
-   `statement_hash` must match exactly. A record proved against an older judge core still earns
-   points and can close the hunt. Only the `stale_core` freshness flag in `projectClaimView`
-   reports it. The model and the theorems reproduce this behaviour.
-3. **Replay mode can bypass the contradiction guard.** `transitionClaim` sends record events in
-   `replay` mode straight to `transitionRecord`, before the `contradiction` guard. A record lemma
-   with `status = "contradiction"` but `record_state.contradiction = false` can then reach
-   `status = "checked"` through a direct `transitionClaim` call. `replayRecordSubmissions`
-   restores the verdict in its final override, and `conquered_replay_default` proves that its
-   outputs never show this state.
+All three findings surfaced during the initial formalization and Blue Team audit have been fixed in
+`hub/state_machine.mjs` and are proved directly in this model:
+
+1. **Own-property points ledger:** `points_by_seat` uses `Object.hasOwn` (and `missions.mjs` uses a
+   null-prototype accumulator), matching `pbsGet` even on prototype keys such as `"constructor"`.
+2. **Exact `core_hash` enforcement:** `transitionRecord` requires exact equality on both
+   `statement_hash` (`stale_statement`) and `core_hash` (`stale_core`), awarding zero points and
+   ignoring stale receipts during replay. Non-record claims with `freshness` in
+   `{"stale_core", "stale_statement"}` resolve to the `"stale"` trust seal and are never conquered.
+3. **Contradiction guard before replay dispatch:** `transitionClaim` blocks any direct replay call
+   on a `status = "contradiction"` lemma whose `record_state.contradiction` is `false`, while still
+   appending late contradictory receipts to history once `record_state.contradiction = true`.
 -/
 
 namespace PF
@@ -258,6 +249,7 @@ inductive HistState where
   | ignored_non_improving
   | contradiction
   | stale_statement
+  | stale_core
   deriving DecidableEq, Repr, Inhabited
 
 def HistState.name : HistState → String
@@ -265,6 +257,7 @@ def HistState.name : HistState → String
   | .ignored_non_improving => "ignored_non_improving"
   | .contradiction => "contradiction"
   | .stale_statement => "stale_statement"
+  | .stale_core => "stale_core"
 
 /-- A `record_state.history` entry. `staleHashes` holds the extra stale-entry fields. -/
 structure HistEntry where
@@ -309,6 +302,7 @@ structure Lemma where
   id : String
   kind : JStr := .undef
   status : Status
+  freshness : JStr := .undef
   claimedBy : JStr := .undef
   updatedAt : JStr := .undef
   epitaph : JOpt String := .undef
@@ -478,6 +472,7 @@ def computeRecordTargets (slug : JStr) (l : Lemma) (kind : EvKind) (score : Int)
 inductive Seal where
   | contradiction
   | flagged
+  | stale
   | frozen
   | record
   | audited
@@ -491,6 +486,7 @@ inductive Seal where
 def Seal.name : Seal → String
   | .contradiction => "contradiction"
   | .flagged => "flagged"
+  | .stale => "stale"
   | .frozen => "frozen"
   | .record => "record"
   | .audited => "audited"
@@ -542,6 +538,9 @@ def auditStatus (l : Lemma) : JStr :=
   | .val a => a.status
   | _ => .undef
 
+def isStaleFreshness (f : JStr) : Bool :=
+  f == .val "stale_core" || f == .val "stale_statement"
+
 /-- `computeTrustSeal(lemma)`. -/
 def computeTrustSeal (l : Lemma) : Seal :=
   if l.status = .contradiction ∨ rsContra l = true then .contradiction
@@ -553,6 +552,7 @@ def computeTrustSeal (l : Lemma) : Seal :=
     let currentHash := jor (checkerFileHash l) (jor (refutationFileHash l) .null)
     let mismatch := jtruthy (auditFileHash l) && auditFileHash l != currentHash
     if auditStatus l = .val "flagged" ∧ mismatch = false then .flagged
+    else if isStaleFreshness l.freshness && (l.status == .checked || l.status == .refuted) then .stale
     else if l.status = .checked then
       if checkerFrozen l then .frozen
       else if auditStatus l = .val "faithful" ∧ mismatch = false then .audited
@@ -575,23 +575,25 @@ def isRungConquered (lo : Option Lemma) (ex : Expect) : Bool :=
   match lo with
   | none => false
   | some l =>
-    let sl := computeTrustSeal l
-    if sl = .flagged ∨ sl = .contradiction then false
-    else if isRecordLemma l then
-      match l.recordState with
-      | .val rs =>
-        if rs.contradiction then false
-        else if ex = .str "record_any" then rs.best.isSome
-        else match ex with
-          | .obj (some n) _ =>
-            rs.direction == "min" && (match rs.best with | some b => decide (b.score ≤ n) | none => false)
-          | .obj none (some n) =>
-            rs.direction == "max" && (match rs.best with | some b => decide (b.score ≥ n) | none => false)
-          | _ => rs.closed
-      | _ => false
-    else if ex = .str "refutation" then l.status == .refuted
-    else if ex = .str "either" then sl == .audited || sl == .frozen || l.status == .refuted
-    else sl == .audited || sl == .frozen
+    if isStaleFreshness l.freshness then false
+    else
+      let sl := computeTrustSeal l
+      if sl = .flagged ∨ sl = .contradiction ∨ sl = .stale then false
+      else if isRecordLemma l then
+        match l.recordState with
+        | .val rs =>
+          if rs.contradiction then false
+          else if ex = .str "record_any" then rs.best.isSome
+          else match ex with
+            | .obj (some n) _ =>
+              rs.direction == "min" && (match rs.best with | some b => decide (b.score ≤ n) | none => false)
+            | .obj none (some n) =>
+              rs.direction == "max" && (match rs.best with | some b => decide (b.score ≥ n) | none => false)
+            | _ => rs.closed
+        | _ => false
+      else if ex = .str "refutation" then l.status == .refuted
+      else if ex = .str "either" then sl == .audited || sl == .frozen || l.status == .refuted
+      else sl == .audited || sl == .frozen
 
 /-! ## King-of-the-Hill core -/
 
@@ -711,11 +713,14 @@ def transitionRecord (l : Lemma) (e : Event) (ctx : Ctx) : Result :=
               file := t.artifactFile, fileHash := jor chk.fileHash .null
               submission := jorStr e.subFile "", points := 0, gitTs := ctx.gitTs
               atTime := jorNull e.atTime, staleHashes := none, state := .accepted }
-          if !jtruthy ctx.statementHash || chk.statementHash != ctx.statementHash ||
-              !jtruthy ctx.coreHash || !jtruthy chk.coreHash then
+          if !jtruthy ctx.statementHash || chk.statementHash != ctx.statementHash then
             ⟨true, keepLemma l rs { ent with
               staleHashes := some (chk.statementHash.nullish .null, chk.coreHash.nullish .null)
               state := .stale_statement }, ""⟩
+          else if !jtruthy ctx.coreHash || chk.coreHash != ctx.coreHash then
+            ⟨true, keepLemma l rs { ent with
+              staleHashes := some (chk.statementHash.nullish .null, chk.coreHash.nullish .null)
+              state := .stale_core }, ""⟩
           else if rs.contradiction then
             ⟨true, keepLemma l rs { ent with state := .contradiction }, ""⟩
           else
@@ -790,8 +795,8 @@ def transitionClaim (l : Lemma) (e : Event) (ctx : Ctx) : Result :=
   let contradiction := l.status == .contradiction || rsContra l
   if recordEvent && !isRec then denyMsg l e "claim is not a record hunt"
   else if e.kind = .record_bound ∧ allowBoundFalse l = true then denyMsg l e "bound proofs are not supported"
+  else if contradiction && e.kind != .audit && !(recordEvent && ctx.mode == .replay && rsContra l) then denyMsg l e "status is \"contradiction\""
   else if recordEvent && ctx.mode == .replay then transitionRecord l e ctx
-  else if contradiction && e.kind != .audit then denyMsg l e "status is \"contradiction\""
   else if e.kind = .claim then
     if !l.status.isOpen || rsClosed l then denyMsg l e (defaultReason l)
     else ⟨true, { l with status := .in_work, claimedBy := e.seat, updatedAt := e.atTime.nullish l.updatedAt }, ""⟩
@@ -924,12 +929,12 @@ structure ReplayEnv where
   st : Int
   deriving DecidableEq, Repr, Inhabited
 
-/-- `next.record_state.history.at(-1).state === "stale_statement"`. -/
+/-- `next.record_state.history.at(-1).state` is `"stale_statement"` or `"stale_core"`. -/
 def lastStale (l : Lemma) : Bool :=
   match l.recordState with
   | .val rs =>
     match rs.history.getLast? with
-    | some h => h.state == .stale_statement
+    | some h => h.state == .stale_statement || h.state == .stale_core
     | none => false
   | _ => false
 
@@ -1041,8 +1046,10 @@ theorem transitionRecord_outcome (l : Lemma) (e : Event) (ctx : Ctx) :
           · exact .keep _ _ hrs
           · split
             · exact .keep _ _ hrs
-            · rename_i hc
-              exact .core _ _ _ _ hrs (by simpa using hc) rfl
+            · split
+              · exact .keep _ _ hrs
+              · rename_i hc
+                exact .core _ _ _ _ hrs (by simpa using hc) rfl
         · exact .refused _
     · exact .refused _
   · exact .refused _
@@ -1052,21 +1059,22 @@ structure Frame (l l' : Lemma) : Prop where
   record : l'.record = l.record
   id : l'.id = l.id
   kind : l'.kind = l.kind
+  freshness : l'.freshness = l.freshness
 
-theorem Frame.refl (l : Lemma) : Frame l l := ⟨rfl, rfl, rfl⟩
+theorem Frame.refl (l : Lemma) : Frame l l := ⟨rfl, rfl, rfl, rfl⟩
 
 theorem Frame.trans {a b c : Lemma} (h1 : Frame a b) (h2 : Frame b c) : Frame a c :=
-  ⟨h2.record.trans h1.record, h2.id.trans h1.id, h2.kind.trans h1.kind⟩
+  ⟨h2.record.trans h1.record, h2.id.trans h1.id, h2.kind.trans h1.kind, h2.freshness.trans h1.freshness⟩
 
 theorem RecOutcome.frame {l e opp r} (h : RecOutcome l e opp r) : Frame l r.lemma := by
-  cases h <;> exact ⟨rfl, rfl, rfl⟩
+  cases h <;> exact ⟨rfl, rfl, rfl, rfl⟩
 
 theorem transitionVerdict_frame (l : Lemma) (e : Event) (ctx : Ctx) :
     (transitionVerdict l e ctx).lemma.recordState = l.recordState ∧ Frame l (transitionVerdict l e ctx).lemma := by
   unfold transitionVerdict denyMsg
   dsimp only
   repeat' split
-  all_goals exact ⟨rfl, rfl, rfl, rfl⟩
+  all_goals exact ⟨rfl, rfl, rfl, rfl, rfl⟩
 
 /-- `transitionClaim` either leaves the record state alone, or it is `transitionRecord`. -/
 theorem transitionClaim_cases (l : Lemma) (e : Event) (ctx : Ctx) :
@@ -1080,7 +1088,7 @@ theorem transitionClaim_cases (l : Lemma) (e : Event) (ctx : Ctx) :
       and_true, and_false]
   all_goals repeat' split
   all_goals first
-    | exact .inl ⟨rfl, rfl, rfl, rfl⟩
+    | exact .inl ⟨rfl, rfl, rfl, rfl, rfl⟩
     | exact .inl (transitionVerdict_frame l e ctx)
     | (right; simp_all)
 
@@ -1187,7 +1195,7 @@ def emptyRs (l : Lemma) : RecordState :=
     history := [], pointsBySeat := [] }
 
 theorem emptyHunt_rs (l : Lemma) : (emptyHunt l).recordState = .val (emptyRs l) := rfl
-theorem emptyHunt_frame (l : Lemma) : Frame l (emptyHunt l) := ⟨rfl, rfl, rfl⟩
+theorem emptyHunt_frame (l : Lemma) : Frame l (emptyHunt l) := ⟨rfl, rfl, rfl, rfl⟩
 
 theorem replayRecordSubmissions_eq (slug : JStr) (l : Lemma) (subs : List Event) (ts : List (String × Int)) (h : Hashes) :
     replayRecordSubmissions slug l subs ts h =
@@ -1217,7 +1225,7 @@ theorem replay_frame (slug : JStr) (l : Lemma) (subs : List Event) (ts : List (S
   generalize (replayLoop _ _ _).lemma = fin at this
   unfold finalizeReplay
   split
-  · exact ⟨this.record, this.id, this.kind⟩
+  · exact ⟨this.record, this.id, this.kind, this.freshness⟩
   · exact this
 
 
@@ -1611,18 +1619,24 @@ theorem transitionClaim_contradicted (l : Lemma) (e : Event) (ctx : Ctx)
     | (simp_all; done)
     | (exfalso; simp_all)
 
-/-- On the record replay path `transitionClaim` is `transitionRecord`, unless bounds are disabled. -/
+/-- On the record replay path `transitionClaim` is `transitionRecord`, unless bounds are disabled
+or the lemma is in `status = contradiction` without `record_state.contradiction = true`. -/
 theorem transitionClaim_replay_record (l : Lemma) (e : Event) (ctx : Ctx) (hk : e.kind.isRecordEvent = true)
     (hm : ctx.mode = .replay) (hl : isRecordLemma l = true) :
     transitionClaim l e ctx = transitionRecord l e ctx ∨
     (transitionClaim l e ctx).ok = false ∧ (transitionClaim l e ctx).lemma = l := by
   cases hkd : e.kind <;> simp only [hkd, EvKind.isRecordEvent, Bool.false_eq_true] at hk <;>
     simp only [transitionClaim, hkd, hl, hm, EvKind.isRecordEvent, Bool.not_true, Bool.and_false, Bool.false_eq_true,
-      ↓reduceIte, reduceCtorEq, false_and, Bool.true_and, beq_self_eq_true, true_and, denyMsg]
-  · exact .inl trivial
+      ↓reduceIte, reduceCtorEq, false_and, Bool.true_and, beq_self_eq_true, true_and, denyMsg,
+      bne_iff_ne, ne_eq, not_false_eq_true, decide_true, Bool.and_true]
+  · by_cases hcon : l.status = Status.contradiction ∧ rsContra l = false
+    · exact .inr (by simp [hcon.1, hcon.2])
+    · exact .inl (by by_cases hrc : rsContra l <;> simp_all)
   · by_cases hab : allowBoundFalse l = true
     · exact .inr (by simp [hab])
-    · exact .inl (by simp [hab])
+    · by_cases hcon : l.status = Status.contradiction ∧ rsContra l = false
+      · exact .inr (by simp [hab, hcon.1, hcon.2])
+      · exact .inl (by by_cases hrc : rsContra l <;> simp_all)
 
 /-- **Theorem 4 (step).** On a contradicted hunt, any event in any mode keeps
 `contradiction = true`, `closed = false`, `next_target = none` and an empty ledger. It never
@@ -1951,18 +1965,21 @@ theorem trust_seal_contradiction_iff (l : Lemma) :
       all_goals simp
   · intro h; simp [computeTrustSeal, h]
 
-/-- **Theorem 11b.** A rung whose seal is `contradiction` or `flagged` is never conquered, for
-any `expect`. -/
+/-- **Theorem 11b.** A rung whose seal is `contradiction`, `flagged`, or `stale` (or whose
+freshness is stale) is never conquered, for any `expect`. -/
 theorem conquered_false_of_bad_seal (l : Lemma) (ex : Expect)
-    (h : computeTrustSeal l = .contradiction ∨ computeTrustSeal l = .flagged) :
+    (h : computeTrustSeal l = .contradiction ∨ computeTrustSeal l = .flagged ∨ computeTrustSeal l = .stale) :
     isRungConquered (some l) ex = false := by
   unfold isRungConquered
-  rcases h with h | h <;> simp [h]
+  dsimp only
+  split
+  · rfl
+  · rcases h with h | h | h <;> simp [h]
 
 /-- A missing lemma is never conquered. -/
 theorem conquered_none (ex : Expect) : isRungConquered none ex = false := rfl
 
-/-- Record hunts are never `flagged`. -/
+/-- Record hunts are never `flagged` or `stale`. -/
 theorem record_seal_not_flagged (l : Lemma) (hl : isRecordLemma l = true) : computeTrustSeal l ≠ .flagged := by
   unfold computeTrustSeal
   dsimp only
@@ -1970,15 +1987,24 @@ theorem record_seal_not_flagged (l : Lemma) (hl : isRecordLemma l = true) : comp
   repeat' split
   all_goals simp
 
-/-- **Theorem 11c.** For a record hunt under the default `expect` (`"proof"`), and equally
+theorem record_seal_not_stale (l : Lemma) (hl : isRecordLemma l = true) : computeTrustSeal l ≠ .stale := by
+  unfold computeTrustSeal
+  dsimp only
+  simp only [hl, ↓reduceIte]
+  repeat' split
+  all_goals simp
+
+/-- **Theorem 11c.** For a fresh record hunt under the default `expect` (`"proof"`), and equally
 `"record_closed"` or `null`, the rung is conquered exactly when the hunt is closed, its record
 state is not contradicted, and its status is not `contradiction`. -/
 theorem conquered_record_default (l : Lemma) (rs : RecordState) (hl : isRecordLemma l = true)
+    (hf : isStaleFreshness l.freshness = false)
     (hrs : l.recordState = .val rs) (ex : Expect) (hex : ex = .str "proof" ∨ ex = .str "record_closed" ∨ ex = .null) :
     isRungConquered (some l) ex = (rs.closed && !rs.contradiction && l.status != .contradiction) := by
   have hnf := record_seal_not_flagged l hl
+  have hns := record_seal_not_stale l hl
   unfold isRungConquered
-  simp only [hnf, false_or, hl, ↓reduceIte, hrs]
+  simp only [hf, Bool.false_eq_true, ↓reduceIte, hnf, hns, false_or, or_false, hl, hrs]
   by_cases hsc : computeTrustSeal l = .contradiction
   · have := (trust_seal_contradiction_iff l).1 hsc
     simp only [rsContra, hrs] at this
@@ -2047,10 +2073,10 @@ theorem replayLoop_statusInv (env : ReplayEnv) (es : List Event) :
       · exact h
       · exact transitionClaim_statusInv _ _ _ hl h
 
-/-- **Theorem 11d.** Every record hunt produced by `replayRecordSubmissions` is conquered under
+/-- **Theorem 11d.** Every fresh record hunt produced by `replayRecordSubmissions` is conquered under
 the default `expect` exactly when it is closed and not contradicted. -/
 theorem conquered_replay_default (slug : JStr) (l : Lemma) (subs : List Event) (ts : List (String × Int))
-    (h : Hashes) (hl : isRecordLemma l = true) :
+    (h : Hashes) (hl : isRecordLemma l = true) (hf : isStaleFreshness l.freshness = false) :
     ∃ rs, (replayRecordSubmissions slug l subs ts h).recordState = .val rs ∧
       (isRungConquered (some (replayRecordSubmissions slug l subs ts h)) (.str "proof") = true ↔
         rs.closed = true ∧ rs.contradiction = false) := by
@@ -2074,9 +2100,12 @@ theorem conquered_replay_default (slug : JStr) (l : Lemma) (subs : List Event) (
     · exact hloop
   obtain ⟨rs, hrs, _⟩ := replay_preserves slug l subs ts h htriv trivial (fun _ _ => trivial)
   refine ⟨rs, hrs, ?_⟩
+  have hfr := replay_frame slug l subs ts h
   have hl' : isRecordLemma (replayRecordSubmissions slug l subs ts h) = true := by
-    rw [isRecordLemma_congr (replay_frame slug l subs ts h)]; exact hl
-  rw [conquered_record_default _ rs hl' hrs _ (.inl rfl)]
+    rw [isRecordLemma_congr hfr]; exact hl
+  have hf' : isStaleFreshness (replayRecordSubmissions slug l subs ts h).freshness = false := by
+    rw [hfr.freshness]; exact hf
+  rw [conquered_record_default _ rs hl' hf' hrs _ (.inl rfl)]
   have : (replayRecordSubmissions slug l subs ts h).status = .contradiction → rs.contradiction = true := by
     intro hc; have := hsi hc; simpa [rsContra, hrs] using this
   by_cases hc : (replayRecordSubmissions slug l subs ts h).status = .contradiction
@@ -2094,7 +2123,7 @@ def Accepts (env : ReplayEnv) (l : Lemma) (e : Event) (score : Int) : Prop :=
       e.file != .val (computeRecordTargets env.slug l e.kind score).artifactFile ||
       e.thm != .val (computeRecordTargets env.slug l e.kind score).theoremName) = false ∧
     jtruthy env.statementHash = true ∧ chk.statementHash = env.statementHash ∧
-    jtruthy env.coreHash = true ∧ jtruthy chk.coreHash = true
+    jtruthy env.coreHash = true ∧ chk.coreHash = env.coreHash
 
 theorem Accepts.congr {env : ReplayEnv} {l l' : Lemma} {e : Event} {score : Int} (hf : Frame l l')
     (h : Accepts env l e score) : Accepts env l' e score := by
@@ -2123,12 +2152,12 @@ theorem transitionRecord_accept (env : ReplayEnv) (l : Lemma) (e : Event) (ctx :
   exact ⟨_, _, rfl, rfl⟩
 
 theorem transitionClaim_replay_record_eq (l : Lemma) (e : Event) (ctx : Ctx) (hk : e.kind.isRecordEvent = true)
-    (hm : ctx.mode = .replay) (hl : isRecordLemma l = true) (hab : allowBoundFalse l = false) :
+    (hm : ctx.mode = .replay) (hl : isRecordLemma l = true) (hab : allowBoundFalse l = false)
+    (hns : l.status ≠ .contradiction) :
     transitionClaim l e ctx = transitionRecord l e ctx := by
-  rcases transitionClaim_replay_record l e ctx hk hm hl with h | ⟨_, _⟩
-  · exact h
-  · cases hkd : e.kind <;> simp only [hkd, EvKind.isRecordEvent, Bool.false_eq_true] at hk <;>
-      simp [transitionClaim, hkd, hl, hm, hab, EvKind.isRecordEvent]
+  have hnc : (l.status == Status.contradiction) = false := by simp [hns]
+  cases hkd : e.kind <;> simp only [hkd, EvKind.isRecordEvent, Bool.false_eq_true] at hk <;>
+    simp [transitionClaim, hkd, hl, hm, hab, hnc, EvKind.isRecordEvent]
 
 theorem lastStale_coreLemma (l : Lemma) (c : RecCfg) (rs : RecordState) (isRec : Bool) (score : Int)
     (receipt : Receipt) (ent : HistEntry) (opp : Option Int) :
@@ -2141,6 +2170,7 @@ theorem replayStep_accept (env : ReplayEnv) (lp : Loop) (sub : Event) (score : I
     (hnew : ¬(jtruthy sub.subFile = true ∧ render sub.subFile ∈ lp.seen))
     (hk : sub.kind = .record ∨ sub.kind = .record_bound)
     (hl : isRecordLemma lp.lemma = true) (hab : allowBoundFalse lp.lemma = false)
+    (hns : lp.lemma.status ≠ .contradiction)
     (hacc : Accepts env lp.lemma sub score) (hrs : lp.lemma.recordState = .val rs) (hc : rs.contradiction = false) :
     ∃ receipt ent, receipt.score = score ∧
       (replayStep env lp sub).lemma =
@@ -2152,7 +2182,7 @@ theorem replayStep_accept (env : ReplayEnv) (lp : Loop) (sub : Event) (score : I
       (sub.kind = .record_bound → lp.strongBnd = none →
         (replayStep env lp sub).strongBnd = some score ∧ (replayStep env lp sub).strongRec = lp.strongRec) := by
   have hrk : sub.kind.isRecordEvent = true := by rcases hk with h | h <;> simp [h, EvKind.isRecordEvent]
-  have htc := transitionClaim_replay_record_eq lp.lemma sub (replayCtx env lp sub) hrk rfl hl hab
+  have htc := transitionClaim_replay_record_eq lp.lemma sub (replayCtx env lp sub) hrk rfl hl hab hns
   obtain ⟨receipt, ent, hsc, htr⟩ := transitionRecord_accept env lp.lemma sub (replayCtx env lp sub) score rs
     rfl rfl rfl hacc hrs hc
   have hnum := validScore_jsNumber hacc.1
@@ -2199,8 +2229,10 @@ theorem replay_two_crossing (env : ReplayEnv) (l : Lemma) (x y : Event) (sx sy :
   have hf0 := emptyHunt_frame l
   rw [show replayLoop env ⟨emptyHunt l, [], none, none⟩ [x, y] =
     replayStep env (replayStep env ⟨emptyHunt l, [], none, none⟩ x) y from rfl]
+  have hns0 : (emptyHunt l).status ≠ .contradiction := by
+    unfold emptyHunt; cases l.status <;> simp [Status.isOpen]
   obtain ⟨rc1, en1, _, hl1, hseen1, hsR, hsB⟩ := replayStep_accept env ⟨emptyHunt l, [], none, none⟩ x sx (emptyRs l)
-    (by simp) hkx hl hab (hx.congr hf0) (emptyHunt_rs l) rfl
+    (by simp) hkx hl hab hns0 (hx.congr hf0) (emptyHunt_rs l) rfl
   have hf1 : Frame l (replayStep env ⟨emptyHunt l, [], none, none⟩ x).lemma :=
     hf0.trans (replayStep_frame env ⟨emptyHunt l, [], none, none⟩ x)
   have hopp1 : (if x.kind = .record then (none : Option Int) else none) = none := by split <;> rfl
@@ -2210,6 +2242,11 @@ theorem replay_two_crossing (env : ReplayEnv) (l : Lemma) (x y : Event) (sx sy :
   generalize kothCore (getRecordConfig (emptyHunt l)) (emptyRs l) (x.kind == .record) sx rc1 en1 none = rs1 at hl1 hc1
   generalize replayStep env ⟨emptyHunt l, [], none, none⟩ x = lp1 at hl1 hseen1 hsR hsB hf1 ⊢
   have hrs1v : lp1.lemma.recordState = .val rs1 := by rw [hl1]; rfl
+  have hns1 : lp1.lemma.status ≠ .contradiction := by
+    rw [hl1]; simp only [coreLemma, hc1, Bool.false_eq_true, ↓reduceIte]
+    split
+    · decide
+    · exact hns0
   have hopp2 : (if y.kind = .record then lp1.strongBnd else lp1.strongRec) = some sx := by
     rcases hkx with hk | hk <;> rcases hky with hk' | hk'
     · exact absurd (hk.trans hk'.symm) hxy
@@ -2225,7 +2262,7 @@ theorem replay_two_crossing (env : ReplayEnv) (l : Lemma) (x y : Event) (sx sy :
       exact hdist htx hty hmem.symm
     · simp at hmem
   obtain ⟨rc2, en2, hsc2, hl2, _, _, _⟩ := replayStep_accept env lp1 y sy rs1 hnew2 hky
-    ((isRecordLemma_congr hf1).trans hl) ((allowBoundFalse_congr hf1).trans hab) (hy.congr hf1) hrs1v hc1
+    ((isRecordLemma_congr hf1).trans hl) ((allowBoundFalse_congr hf1).trans hab) hns1 (hy.congr hf1) hrs1v hc1
   rw [hopp2, getRecordConfig_congr hf1] at hl2
   have hc2 : (kothCore (getRecordConfig l) rs1 (y.kind == .record) sy rc2 en2 (some sx)).contradiction = true := by
     rw [kothCore_contradiction]; exact hcross
@@ -2678,16 +2715,18 @@ theorem seat_claim_bijection_preserved (ops : List SeatOp) :
    `rs.closed ∧ ¬rs.contradiction`. -/
 theorem trust_seal_and_conquered_sound :
     (∀ l : Lemma, computeTrustSeal l = .contradiction ↔ (l.status = .contradiction ∨ rsContra l = true)) ∧
-    (∀ (l : Lemma) (ex : Expect), (computeTrustSeal l = .contradiction ∨ computeTrustSeal l = .flagged) →
+    (∀ (l : Lemma) (ex : Expect),
+      (computeTrustSeal l = .contradiction ∨ computeTrustSeal l = .flagged ∨ computeTrustSeal l = .stale) →
       isRungConquered (some l) ex = false) ∧
-    (∀ (l : Lemma) (rs : RecordState), isRecordLemma l = true → l.recordState = .val rs →
+    (∀ (l : Lemma) (rs : RecordState), isRecordLemma l = true → isStaleFreshness l.freshness = false →
+      l.recordState = .val rs →
       isRungConquered (some l) (.str "proof") = (rs.closed && !rs.contradiction && l.status != .contradiction)) ∧
     (∀ (slug : JStr) (l : Lemma) (subs : List Event) (ts : List (String × Int)) (h : Hashes),
-      isRecordLemma l = true →
+      isRecordLemma l = true → isStaleFreshness l.freshness = false →
       ∃ rs, (replayRecordSubmissions slug l subs ts h).recordState = .val rs ∧
         (isRungConquered (some (replayRecordSubmissions slug l subs ts h)) (.str "proof") = true ↔
           rs.closed = true ∧ rs.contradiction = false)) :=
   ⟨trust_seal_contradiction_iff, conquered_false_of_bad_seal,
-    fun l rs hl hrs => conquered_record_default l rs hl hrs _ (.inl rfl), conquered_replay_default⟩
+    fun l rs hl hf hrs => conquered_record_default l rs hl hf hrs _ (.inl rfl), conquered_replay_default⟩
 
 end PF

@@ -10,8 +10,8 @@
  */
 import fs from "node:fs";
 import os from "node:os";
+import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
 
 const args = {};
 for (let i = 2; i < process.argv.length; i += 2) {
@@ -93,34 +93,193 @@ function nodePermissionFlag() {
   return major > 22 || (major === 22 && minor >= 13) ? "--permission" : "--experimental-permission";
 }
 
+/**
+ * Transform a pure-JS single-file kernel module (no imports/re-exports) into a strict-mode script
+ * that returns the requested exported function inside an isolated V8 `vm` context.
+ */
+function preparePureKernelSource(raw, fnName) {
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(String(fnName || ""))) {
+    return { ok: false, error: `Invalid target export identifier: ${fnName}` };
+  }
+  const noComments = stripJsCommentsStrict(raw);
+  if (noComments == null) {
+    return { ok: false, error: "Unclosed block comment in kernel artifact" };
+  }
+  if (/(^|[^A-Za-z0-9_$.])import\s*(?:[\s{*'"(]|from\b)/m.test(noComments)) {
+    return { ok: false, error: "Executable kernel artifacts cannot use import statements or dynamic import()" };
+  }
+  if (/\bexport\s+(?:\*|\{[^}]*\})\s+from\b/.test(noComments)) {
+    return { ok: false, error: "Executable kernel artifacts cannot re-export external modules" };
+  }
+  if (/\bexport\s+default\b/.test(noComments)) {
+    return { ok: false, error: `Use named export \`export function ${fnName}\` (default export unsupported)` };
+  }
+
+  // Track explicit exported identifiers so private helpers cannot impersonate an export.
+  const exported = new Set();
+  let body = noComments
+    .replace(/\bexport\s+(async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/g, (_m, asyncKw, name) => {
+      if (asyncKw) return `export ${asyncKw}function ${name}`; // will fail syntax check cleanly
+      exported.add(name);
+      return `function ${name}`;
+    })
+    .replace(/\bexport\s+(const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/g, (_m, decl, name) => {
+      exported.add(name);
+      return `${decl} ${name}`;
+    })
+    .replace(/\bexport\s*\{([^}]*)\}\s*;?/g, (_m, list) => {
+      const aliases = [];
+      for (const item of list.split(",")) {
+        const t = item.trim();
+        if (!t) continue;
+        const asMatch = t.match(/^([A-Za-z_$][A-Za-z0-9_$]*)(?:\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*))?$/);
+        if (!asMatch) return "/* invalid export list */ export {};";
+        exported.add(asMatch[2] || asMatch[1]);
+        if (asMatch[2] && asMatch[2] !== asMatch[1]) {
+          aliases.push(`const ${asMatch[2]} = ${asMatch[1]};`);
+        }
+      }
+      return aliases.join("\n");
+    });
+
+  if (/\bexport\b/.test(body)) {
+    return { ok: false, error: "Unsupported export syntax in kernel artifact" };
+  }
+  if (!exported.has(fnName)) {
+    return { ok: false, error: `Missing exported function ${fnName}` };
+  }
+  return {
+    ok: true,
+    script: `"use strict";\n(function() {\n${body}\nreturn (typeof ${fnName} === "function") ? ${fnName} : null;\n})();`,
+  };
+}
+
+/**
+ * Execute an untrusted pure-JS numerical kernel inside a double-isolated child process:
+ *  1. Node `--permission` with ZERO filesystem, child-process, worker, addon, or WASI permissions
+ *     plus `--max-old-space-size=256`.
+ *  2. Separate V8 `vm` context (`Object.create(null)`, `codeGeneration: { strings: false, wasm: false }`)
+ *     with NO `process`, `console`, `fetch`, `Buffer`, `require`, `import`, or host prototypes.
+ *  3. Per-run random 128-bit nonce envelope written by the outer host realm using pre-captured
+ *     `process.stdout.write` and `JSON.stringify` over strictly extracted primitive numbers/tuples.
+ */
 function runArtifactInChild(fnName, calls) {
-  let realArtifact;
+  let raw;
   try {
-    realArtifact = fs.realpathSync(artifactPath);
+    if (fs.lstatSync(artifactPath).isSymbolicLink()) {
+      return { ok: false, error: `Symlink artifacts are forbidden: ${artifactPath}` };
+    }
+    const realArtifact = fs.realpathSync(artifactPath);
+    const st = fs.statSync(realArtifact);
+    if (st.size > 256 * 1024) return { ok: false, error: "Kernel artifact exceeds 256 KiB limit" };
+    raw = fs.readFileSync(realArtifact, "utf8");
   } catch {
     return { ok: false, error: `Artifact not found: ${artifactPath}` };
   }
-  const modUrl = pathToFileURL(realArtifact).href;
+
+  const prep = preparePureKernelSource(raw, fnName);
+  if (!prep.ok) return { ok: false, error: prep.error };
+
+  const nonce = crypto.randomBytes(16).toString("hex");
   const runnerCode = `
+    import vm from "node:vm";
+    const _stdoutWrite = process.stdout.write.bind(process.stdout);
+    const _jsonStringify = JSON.stringify;
+    const _jsonParse = JSON.parse;
+    const _isFinite = Number.isFinite;
+
     const chunks = [];
     for await (const c of process.stdin) chunks.push(c);
-    const req = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    const mod = await import(req.modUrl);
-    const fn = mod[req.fnName];
-    if (typeof fn !== "function") {
-      process.stdout.write(JSON.stringify({ ok: false, error: "Missing exported function " + req.fnName }));
-      process.exit(0);
+    const req = _jsonParse(Buffer.concat(chunks).toString("utf8"));
+
+    try {
+      const ctx = vm.createContext(Object.create(null), {
+        codeGeneration: { strings: false, wasm: false },
+      });
+      // Capture pristine VM-realm intrinsics before any untrusted code executes.
+      // Extraction produces a primitive JSON string so no VM object ever touches host JS.
+      const vmRun = vm.runInContext(\`"use strict";
+        (function() {
+          const _parse = JSON.parse;
+          const _isFin = Number.isFinite;
+          const _isInt = Number.isInteger;
+          const _isArr = Array.isArray;
+          const _getOwn = Object.getOwnPropertyDescriptor;
+          const _numStr = Number.prototype.toString;
+          const _call = Function.prototype.call;
+          const _apply = Function.prototype.apply;
+          return function(fn, callsJson) {
+            const calls = _parse(callsJson);
+            let json = "[";
+            for (let i = 0; i < calls.length; i++) {
+              if (i > 0) json += ",";
+              const v = _call.call(_apply, fn, undefined, calls[i]);
+              if (typeof v === "number") {
+                if (!_isFin(v)) return "ERR:Non-finite output on case " + i;
+                json += _call.call(_numStr, v);
+              } else if (_isArr(v)) {
+                const len = v.length;
+                if (!_isInt(len) || len < 0 || len > 16) return "ERR:Invalid tuple length on case " + i;
+                json += "[";
+                for (let j = 0; j < len; j++) {
+                  if (j > 0) json += ",";
+                  const desc = _getOwn(v, j);
+                  if (!desc || !("value" in desc) || typeof desc.value !== "number" || !_isFin(desc.value)) {
+                    return "ERR:Non-numeric or accessor element on case " + i;
+                  }
+                  json += _call.call(_numStr, desc.value);
+                }
+                json += "]";
+              } else {
+                return "ERR:Non-finite or non-numeric output on case " + i;
+              }
+            }
+            return json + "]";
+          };
+        })();
+      \`, ctx, { timeout: 1000 });
+      const fn = vm.runInContext(req.script, ctx, { timeout: 2000, filename: "artifact.vm.js" });
+      if (typeof fn !== "function") {
+        _stdoutWrite(_jsonStringify({ nonce: req.nonce, ok: false, error: "Missing exported function " + req.fnName }));
+        process.exit(0);
+      }
+      const rawJson = vmRun(fn, _jsonStringify(req.calls));
+      if (typeof rawJson !== "string") {
+        _stdoutWrite(_jsonStringify({ nonce: req.nonce, ok: false, error: "Invalid output envelope from kernel" }));
+        process.exit(0);
+      }
+      if (rawJson.startsWith("ERR:")) {
+        _stdoutWrite(_jsonStringify({ nonce: req.nonce, ok: false, error: rawJson.slice(4) }));
+        process.exit(0);
+      }
+      const outputs = _jsonParse(rawJson);
+      if (!Array.isArray(outputs) || outputs.length !== req.calls.length) {
+        _stdoutWrite(_jsonStringify({ nonce: req.nonce, ok: false, error: "Invalid output vector from kernel" }));
+        process.exit(0);
+      }
+      for (let i = 0; i < outputs.length; i++) {
+        const v = outputs[i];
+        const okVal = typeof v === "number"
+          ? _isFinite(v)
+          : Array.isArray(v) && v.every((x) => typeof x === "number" && _isFinite(x));
+        if (!okVal) {
+          _stdoutWrite(_jsonStringify({ nonce: req.nonce, ok: false, error: "Non-finite output on case " + i }));
+          process.exit(0);
+        }
+      }
+      _stdoutWrite(_jsonStringify({ nonce: req.nonce, ok: true, outputs }));
+    } catch (err) {
+      const msg = err && typeof err.message === "string" ? err.message : String(err);
+      _stdoutWrite(_jsonStringify({ nonce: req.nonce, ok: false, error: "Sandboxed kernel error: " + msg.slice(0, 300) }));
     }
-    const outputs = req.calls.map((callArgs) => fn(...callArgs));
-    process.stdout.write(JSON.stringify({ ok: true, outputs }));
   `;
   const child = spawnSync(
     process.execPath,
-    [nodePermissionFlag(), `--allow-fs-read=${realArtifact}`, "--input-type=module", "-e", runnerCode],
+    [nodePermissionFlag(), "--max-old-space-size=256", "--input-type=module", "-e", runnerCode],
     {
-      input: JSON.stringify({ modUrl, fnName, calls }),
+      input: JSON.stringify({ nonce, script: prep.script, fnName, calls }),
       encoding: "utf8",
-      timeout: 15000,
+      timeout: 5000,
       env: {
         PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
         TMPDIR: os.tmpdir(),
@@ -131,7 +290,11 @@ function runArtifactInChild(fnName, calls) {
     return { ok: false, error: `Isolated artifact runner failed (exit=${child.status}): ${(child.stderr || "").slice(0, 400)}` };
   }
   try {
-    return JSON.parse(child.stdout);
+    const parsed = JSON.parse(child.stdout);
+    if (!parsed || parsed.nonce !== nonce) {
+      return { ok: false, error: "Runner protocol nonce mismatch (forged stdout rejected)" };
+    }
+    return parsed;
   } catch {
     return { ok: false, error: "Artifact polluted stdout or emitted invalid JSON" };
   }
@@ -381,6 +544,9 @@ function stripJsCommentsStrict(src) {
 function readDataExportInChild(exportName) {
   let raw;
   try {
+    if (fs.lstatSync(artifactPath).isSymbolicLink()) {
+      return { ok: false, error: `Symlink artifacts are forbidden: ${artifactPath}` };
+    }
     const realArtifact = fs.realpathSync(artifactPath);
     const st = fs.statSync(realArtifact);
     if (st.size > 256 * 1024) return { ok: false, error: "Data artifact exceeds 256 KiB limit" };
