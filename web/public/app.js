@@ -1577,8 +1577,13 @@ function extractDropInClient(missionSlug, lemma, src) {
         else if (nm === "itof") lines.push(`  const float ${r} = (float)${a[0]};`);
         else if (["iadd", "isub", "imul", "iand", "ior", "ixor", "ishl", "ishr_s", "ishr_u"].includes(nm)) {
           ot = "i32";
-          const sym = { iadd: "+", isub: "-", imul: "*", iand: "&", ior: "|", ixor: "^", ishl: "<<", ishr_s: ">>" }[nm];
-          lines.push(nm === "ishr_u" ? `  const int32_t ${r} = (int32_t)((uint32_t)${a[0]} >> (${a[1]} & 31));` : `  const int32_t ${r} = ${a[0]} ${sym} ${a[1]};`);
+          if (nm === "ishr_u") lines.push(`  const int32_t ${r} = (int32_t)((uint32_t)${a[0]} >> ((uint32_t)${a[1]} & 31u));`);
+          else if (nm === "ishl") lines.push(`  const int32_t ${r} = (int32_t)((uint32_t)${a[0]} << ((uint32_t)${a[1]} & 31u));`);
+          else if (nm === "ishr_s") lines.push(`  const int32_t ${r} = (int32_t)((((uint32_t)${a[1]} & 31u) == 0u) ? (uint32_t)${a[0]} : (((uint32_t)${a[0]} >> ((uint32_t)${a[1]} & 31u)) | (${a[0]} < 0 ? (~0u << (32u - ((uint32_t)${a[1]} & 31u))) : 0u)));`);
+          else {
+            const sym = { iadd: "+", isub: "-", imul: "*", iand: "&", ior: "|", ixor: "^" }[nm];
+            lines.push(`  const int32_t ${r} = (int32_t)((uint32_t)${a[0]} ${sym} (uint32_t)${a[1]});`);
+          }
         } else if (["lt", "le", "eq"].includes(nm)) {
           ot = "bool";
           const sym = { lt: "<", le: "<=", eq: "==" }[nm];

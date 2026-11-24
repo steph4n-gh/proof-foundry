@@ -22,7 +22,7 @@
     ],
     "lean_version": "Exhaustive 65,536-Input BF16 Pure-Data Judge v1 (zero JS execution)",
     "file_hash": "8f00a37a6e186324ceac1d5e15f98d7c936118fb34b4789316506296f6b4c3e7",
-    "core_hash": "383f3dd1aa991ace47ce22e56cf2d50c5f58c4fc56bfcda0b641c3bb8b93c0c7",
+    "core_hash": "276007a364602ae1a36637f3566debe757588a26987da256ad1017acac0c50ed",
     "statement_frozen": true,
     "statement_hash": "f88f2960e4ec3fe5ae5b327a35fa12a86cb2c88f77ad0ff1d6edcbe86f78a602"
   }
