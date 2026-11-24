@@ -675,7 +675,7 @@ function renderControl() {
   $("#strategy-mentions").innerHTML = (note?.mentions || [])
     .map((id) => `<button class="chip-link" type="button" data-open-claim="${esc(id)}">${esc(id)}</button>`)
     .join("");
-  const receipts = (STATE.events || []).filter((e) => ["checker_accepted", "claim_refuted", "lemma_audited", "approach_dead", "checker_rejected"].includes(e.type)).slice(0, 8);
+  const receipts = (STATE.events || []).filter((e) => ["checker_accepted", "record_accepted", "record_bound", "claim_refuted", "lemma_audited", "approach_dead", "checker_rejected"].includes(e.type)).slice(0, 8);
   $("#receipts-count").textContent = receipts.length ? `${receipts.length} latest` : "";
   $("#receipts-list").innerHTML = receipts.length ? receipts.map(eventItemHTML).join("") : `<li class="empty">No Judge receipts yet.</li>`;
 }
@@ -794,7 +794,7 @@ function renderLedger(tab) {
 }
 
 // --- proof map (canvas reads every colour from CSS tokens)
-const MAP = { nodes: [], cam: { x: 0, y: 0, z: 1 }, drag: null, bound: false };
+const MAP = { nodes: [], cam: { x: 0, y: 0, z: 1 }, drag: null, bound: false, missionSlug: null };
 function isMapVisible() {
   const r = ui().route;
   return r.view === "ledger" && r.ledgerTab === "map" && ui().overlay.kind === "none";
@@ -805,6 +805,11 @@ function tokens() {
   return { bg: t("--bg"), surface: t("--surface"), ink: t("--ink"), muted: t("--muted"), rule: t("--rule"), ruleStrong: t("--rule-strong"), accent: t("--accent"), alarm: t("--alarm") };
 }
 function renderMap() {
+  const curSlug = STATE.mission?.slug || null;
+  if (MAP.missionSlug !== curSlug) {
+    MAP.missionSlug = curSlug;
+    MAP.cam = { x: 0, y: 0, z: 1 };
+  }
   const progs = STATE.programs?.length ? STATE.programs : [{ id: null, title: "Claims" }];
   const lemmas = STATE.lemmas || [];
   MAP.nodes = [];
@@ -1197,18 +1202,22 @@ function renderFleet() {
     ? `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Seat ring"><circle class="ring-orbit" cx="${cx}" cy="${cy}" r="${R}"/><circle class="ring-judge" cx="${cx}" cy="${cy}" r="27"/><text class="ring-judge-label" x="${cx}" y="${cy + 4}" text-anchor="middle">JUDGE</text>${edges}${nodes}</svg>`
     : `<p class="empty">No seats registered.</p>`;
   $("#fleet-seats").innerHTML = seats
-    .map(
-      (s) => `<li><div><strong>${esc(s.name)}</strong> <span class="mono small muted">${esc(s.model || s.provider || "")}</span><div class="small muted">${esc(s.current_whisper || s.status || "")}</div></div><span class="mono small tabular muted">◆ ${int(s.counts?.checked)} · ✕ ${int(s.counts?.refuted)} · — ${int(s.counts?.blocked)}</span></li>`
-    )
+    .map((s) => {
+      const recPts = int(s.counts?.record_points);
+      const counts = [`◆ ${int(s.counts?.checked)}`, ...(recPts ? [`♛ ${recPts} pts`] : []), `✕ ${int(s.counts?.refuted)}`, `— ${int(s.counts?.blocked)}`].join(" · ");
+      return `<li><div><strong>${esc(s.name)}</strong> <span class="mono small muted">${esc(s.model || s.provider || "")}</span><div class="small muted">${esc(s.current_whisper || s.status || "")}</div></div><span class="mono small tabular muted">${counts}</span></li>`;
+    })
     .join("");
   $("#fleet-runs").innerHTML = runs.length
     ? runs
         .slice(0, 14)
-        .map(
-          (r) => `<li class="event-item" data-open-claim="${esc(r.lemma_id)}"><div><span class="event-type ${r.ok ? "accent" : ""}">${r.ok ? "ok" : "fail"}</span><strong class="mono small">${esc(r.lemma_id)}</strong><div class="event-detail">${esc(r.seat)} · ${int(r.duration_ms)}ms</div></div><span class="event-time">${esc(relTime(r.at))}</span></li>`
-        )
+        .map((r) => {
+          const scoreTag = r.score != null ? ` · ${r.kind === "record_bound" ? `¬${int(r.score)}` : `s=${int(r.score)}`}` : "";
+          const dur = r.duration_ms != null ? ` · ${int(r.duration_ms)}ms` : "";
+          return `<li class="event-item" data-open-claim="${esc(r.lemma_id)}" tabindex="0" role="button"><div><span class="event-type ${r.ok ? "accent" : ""}">${r.ok ? "ok" : "fail"}</span><strong class="mono small">${esc(r.lemma_id)}</strong><div class="event-detail">${esc(r.seat)}${scoreTag}${dur}</div></div><span class="event-time">${esc(relTime(r.at))}</span></li>`;
+        })
         .join("")
-    : `<li class="empty">No local Judge runs in this snapshot.</li>`;
+    : `<li class="empty">No Judge runs in this snapshot.</li>`;
   $("#fleet-messages").innerHTML = msgs.length
     ? msgs
         .slice(0, 14)
@@ -1222,6 +1231,8 @@ function renderFleet() {
 // --- audit log
 const EVENT_LABELS = {
   checker_accepted: ["Checked", "accent"],
+  record_accepted: ["Record", "accent"],
+  record_bound: ["Bound", "accent"],
   claim_refuted: ["Refuted", ""],
   lemma_audited: ["Audited", "accent"],
   approach_dead: ["Barrier", ""],
