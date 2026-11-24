@@ -1,0 +1,9 @@
+name = "pf_oracle"
+defaultTargets = ["PFOracle", "pf_oracle_check"]
+
+[[lean_lib]]
+name = "PFOracle"
+
+[[lean_exe]]
+name = "pf_oracle_check"
+root = "PFOracle.OracleCLI"

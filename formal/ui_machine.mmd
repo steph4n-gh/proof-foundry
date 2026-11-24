@@ -1,0 +1,72 @@
+---
+title: "Frontend transport, route, and single-overlay state machine"
+---
+stateDiagram-v2
+  direction LR
+  state "At the same time" as all {
+    state "Transport" as r0 {
+      t0: Booting catalog
+      t1: Connecting stream
+      t2: Live stream healthy
+      t3: Stream reconnecting
+      t4: Loading static snapshot
+      t5: Static snapshot ready
+      t6: Offline error
+      [*] --> t0
+      t0 --> t1: catalog loads (live)
+      t0 --> t4: catalog loads (static)
+      t0 --> t6: catalog fetch fails
+      t1 --> t6: initial mission fails
+      t4 --> t6: initial mission fails
+      t6 --> t0: retry boot
+      t1 --> t2: SSE stream opens
+      t2 --> t3: SSE stream drops
+      t3 --> t2: SSE stream opens
+      t2 --> t1: mission snapshot commits
+      t3 --> t1: mission snapshot commits
+      t4 --> t5: mission snapshot commits
+      t5 --> t5: mission snapshot commits
+    }
+    --
+    state "Route" as r1 {
+      rt0: Default mission, no claim
+      rt1: Committed mission, no claim
+      rt2: Committed mission, dossier claim
+      [*] --> rt0
+      rt0 --> rt1: mission snapshot commits
+      rt1 --> rt2: open routed dossier
+      rt2 --> rt1: close overlay or open search/attempt or history sync
+      rt2 --> rt1: mission snapshot commits
+    }
+    --
+    state "Overlay" as r2 {
+      o0: No overlay
+      o1: Dossier loading
+      o2: Dossier ready
+      o3: Dossier error
+      o4: Attempt modal
+      o5: Search palette
+      [*] --> o0
+      o0 --> o1: open dossier
+      o1 --> o2: current dossier receipt loads
+      o1 --> o3: current dossier load fails
+      o1 --> o1: reopen dossier (monotonic seq)
+      o2 --> o1: reopen dossier (monotonic seq)
+      o3 --> o1: reopen dossier (monotonic seq)
+      o0 --> o4: open attempt modal
+      o0 --> o5: open search palette
+      o1 --> o4: open attempt modal
+      o1 --> o5: open search palette
+      o2 --> o4: open attempt modal
+      o2 --> o5: open search palette
+      o4 --> o1: open dossier
+      o4 --> o5: open search palette
+      o5 --> o1: open dossier
+      o5 --> o4: open attempt modal
+      o1 --> o0: close overlay or history sync or cross-mission commit
+      o2 --> o0: close overlay or history sync or cross-mission commit
+      o3 --> o0: close overlay or history sync or cross-mission commit
+      o4 --> o0: close overlay or cross-mission commit
+      o5 --> o0: close overlay
+    }
+  }

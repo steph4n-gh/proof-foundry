@@ -88,8 +88,19 @@ function exactOrient2dSign(ax, ay, bx, by, cx, cy) {
   return dyadicSign(dyadicSub(dyadicMul(dx1, dy2), dyadicMul(dy1, dx2)));
 }
 
+function nodePermissionFlag() {
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  return major > 22 || (major === 22 && minor >= 13) ? "--permission" : "--experimental-permission";
+}
+
 function runArtifactInChild(fnName, calls) {
-  const modUrl = pathToFileURL(artifactPath).href;
+  let realArtifact;
+  try {
+    realArtifact = fs.realpathSync(artifactPath);
+  } catch {
+    return { ok: false, error: `Artifact not found: ${artifactPath}` };
+  }
+  const modUrl = pathToFileURL(realArtifact).href;
   const runnerCode = `
     const chunks = [];
     for await (const c of process.stdin) chunks.push(c);
@@ -103,15 +114,19 @@ function runArtifactInChild(fnName, calls) {
     const outputs = req.calls.map((callArgs) => fn(...callArgs));
     process.stdout.write(JSON.stringify({ ok: true, outputs }));
   `;
-  const child = spawnSync(process.execPath, ["--input-type=module", "-e", runnerCode], {
-    input: JSON.stringify({ modUrl, fnName, calls }),
-    encoding: "utf8",
-    timeout: 15000,
-    env: {
-      PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
-      TMPDIR: os.tmpdir(),
-    },
-  });
+  const child = spawnSync(
+    process.execPath,
+    [nodePermissionFlag(), `--allow-fs-read=${realArtifact}`, "--input-type=module", "-e", runnerCode],
+    {
+      input: JSON.stringify({ modUrl, fnName, calls }),
+      encoding: "utf8",
+      timeout: 15000,
+      env: {
+        PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
+        TMPDIR: os.tmpdir(),
+      },
+    }
+  );
   if (child.status !== 0 || !child.stdout) {
     return { ok: false, error: `Isolated artifact runner failed (exit=${child.status}): ${(child.stderr || "").slice(0, 400)}` };
   }
@@ -325,41 +340,99 @@ function fixed128Sin(xFix) {
   return sum;
 }
 
+/**
+ * Pure static parser for minimax polynomial coefficient artifacts (ZERO JS code execution!).
+ * Accepts either pure JSON (`[c0, c1, ...]` or `{"coeffs": [...]}`) or a strict data-only
+ * ES module (`export const <exportName> = [ <numeric literals> ];`). Rejects imports,
+ * expressions, identifiers, function calls, or any executable syntax.
+ */
+function stripJsCommentsStrict(src) {
+  let out = "";
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    const next = src[i + 1];
+    if (ch === "/" && next === "/") {
+      i += 2;
+      while (i < src.length && src[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      i += 2;
+      let closed = false;
+      while (i + 1 < src.length) {
+        if (src[i] === "*" && src[i + 1] === "/") {
+          i += 2;
+          closed = true;
+          break;
+        }
+        i++;
+      }
+      if (!closed) return null;
+      out += " ";
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
 function readDataExportInChild(exportName) {
-  const modUrl = pathToFileURL(artifactPath).href;
-  const runnerCode = `
-    const chunks = [];
-    for await (const c of process.stdin) chunks.push(c);
-    const req = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    const mod = await import(req.modUrl);
-    const val = mod[req.exportName];
-    if (!Array.isArray(val)) {
-      process.stdout.write(JSON.stringify({ ok: false, error: "Missing exported array " + req.exportName }));
-      process.exit(0);
-    }
-    if (!val.every((x) => typeof x === "number" && Number.isFinite(x))) {
-      process.stdout.write(JSON.stringify({ ok: false, error: "All elements of " + req.exportName + " must be finite float64 numbers" }));
-      process.exit(0);
-    }
-    process.stdout.write(JSON.stringify({ ok: true, value: val }));
-  `;
-  const child = spawnSync(process.execPath, ["--input-type=module", "-e", runnerCode], {
-    input: JSON.stringify({ modUrl, exportName }),
-    encoding: "utf8",
-    timeout: 10000,
-    env: {
-      PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
-      TMPDIR: os.tmpdir(),
-    },
-  });
-  if (child.status !== 0 || !child.stdout) {
-    return { ok: false, error: `Isolated data runner failed (exit=${child.status}): ${(child.stderr || "").slice(0, 400)}` };
-  }
+  let raw;
   try {
-    return JSON.parse(child.stdout);
-  } catch {
-    return { ok: false, error: "Artifact polluted stdout or emitted invalid JSON" };
+    const realArtifact = fs.realpathSync(artifactPath);
+    const st = fs.statSync(realArtifact);
+    if (st.size > 256 * 1024) return { ok: false, error: "Data artifact exceeds 256 KiB limit" };
+    raw = fs.readFileSync(realArtifact, "utf8");
+  } catch (err) {
+    return { ok: false, error: `Could not read artifact: ${err?.message || err}` };
   }
+
+  // Path 1: pure JSON array or { [exportName]: [...] }
+  const trimmedRaw = raw.trim();
+  if (trimmedRaw.startsWith("[") || trimmedRaw.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmedRaw);
+      const arr = Array.isArray(parsed) ? parsed : parsed?.[exportName];
+      if (!Array.isArray(arr)) return { ok: false, error: `JSON artifact missing array ${exportName}` };
+      if (!arr.every((x) => typeof x === "number" && Number.isFinite(x))) {
+        return { ok: false, error: `All elements of ${exportName} must be finite float64 numbers` };
+      }
+      return { ok: true, value: arr };
+    } catch {
+      return { ok: false, error: "Invalid JSON in pure-data artifact" };
+    }
+  }
+
+  // Path 2: strict data-only ESM (`export const <exportName> = [ <numeric literals> ];`) — zero eval/import!
+  const clean = stripJsCommentsStrict(raw);
+  if (clean == null) return { ok: false, error: "Unclosed block comment in pure-data artifact" };
+  const escName = String(exportName || "coeffs").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = clean.trim().match(new RegExp(`^export\\s+const\\s+${escName}\\s*=\\s*\\[([\\s\\S]*)\\]\\s*;?$`));
+  if (!m) {
+    return {
+      ok: false,
+      error: `Pure-data artifact must contain ONLY \`export const ${exportName} = [ <numeric literals> ];\` or a JSON array (code execution is forbidden)`,
+    };
+  }
+  const inner = m[1].trim();
+  if (!inner) return { ok: true, value: [] };
+  const parts = inner.split(",").map((p) => p.trim());
+  if (parts.length > 0 && parts[parts.length - 1] === "") parts.pop(); // allow trailing comma
+  const NUM_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+  const values = [];
+  for (const tok of parts) {
+    if (!NUM_RE.test(tok)) {
+      return { ok: false, error: `Disallowed non-literal token in ${exportName}: ${JSON.stringify(tok.slice(0, 40))}` };
+    }
+    const n = Number(tok);
+    if (!Number.isFinite(n)) {
+      return { ok: false, error: `Non-finite numeric literal in ${exportName}: ${tok}` };
+    }
+    values.push(n);
+  }
+  return { ok: true, value: values };
 }
 
 if (target === "minimax_exp_deg7" || target === "minimax_sin_deg7") {

@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { ROOT, loadMission, deriveMissionState, computeRecordTargets } from "./missions.mjs";
+import { sha256RelFile } from "./state_machine.mjs";
 import { runJudge } from "./judges/index.mjs";
 import { validateCanonicalNatScore } from "./judges/lean4.mjs";
 
@@ -103,7 +104,10 @@ export function classifyEntries(entries) {
           if (matched) {
             frozenStatementMutations.push({ path: p, lemma_id: matched.id });
           }
-        } catch {}
+        } catch (err) {
+          frozenStatementMutations.push({ path: p, lemma_id: "unverifiable-base-state" });
+          reasons.push(`Could not verify frozen-statement immutability for ${p}: ${err?.message || err}`);
+        }
       }
     }
 
@@ -304,7 +308,7 @@ export function evaluateAutoMergeDataOnly(entries, gitRef = "pr-head", rootDir =
       return { eligible: false, reasons: [`Record artifact ${af.path} must be newly added (status A)`] };
     }
     const scoreStr = validateCanonicalNatScore(sub.score);
-    if (scoreStr === null || String(sub.score) !== scoreStr) {
+    if (typeof sub.score !== "number" || !Number.isSafeInteger(sub.score) || scoreStr === null || String(sub.score) !== scoreStr) {
       return { eligible: false, reasons: [`Invalid canonical score ${JSON.stringify(sub.score)}`] };
     }
     const score = Number(scoreStr);
@@ -724,6 +728,8 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
       }
 
       referencedArtifacts.add(sub.file);
+      const judgeCoreRel = m.judge?.core_file || m.judge?.harness_file || null;
+      const preJudgeCoreHash = judgeCoreRel ? sha256RelFile(judgeCoreRel) : null;
       const verdict = runJudge(m, {
         file: sub.file,
         target: sub.theorem,
@@ -731,8 +737,12 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
         statementFile: registered.statement_file || null,
         statementDef: registered.statement_def || null,
       });
+      const postJudgeCoreHash = judgeCoreRel ? sha256RelFile(judgeCoreRel) : null;
 
       const bindErrors = [];
+      if (preJudgeCoreHash && postJudgeCoreHash !== preJudgeCoreHash) {
+        bindErrors.push(`Judge core/harness file "${judgeCoreRel}" changed during execution (tampering detected)`);
+      }
       if (verdict.ok) {
         const baseName = path.basename(sf);
         const expectedPrefix = `${sub.lemma_id}.${sub.kind}.${String(verdict.file_hash || "").slice(0, 10)}.json`;
@@ -750,6 +760,9 @@ export function verifyPrEntries(entries, { allowInfra = false, allowMeta = false
           }
           if (rec.file_hash !== verdict.file_hash) {
             bindErrors.push(`file_hash mismatch: JSON="${rec.file_hash}", computed="${verdict.file_hash}"`);
+          }
+          if (verdict.core_hash && ((!allowMeta && rec.core_hash !== verdict.core_hash) || (rec.core_hash != null && rec.core_hash !== verdict.core_hash))) {
+            bindErrors.push(`core_hash mismatch: JSON="${rec.core_hash}", computed="${verdict.core_hash}"`);
           }
           if (Boolean(rec.statement_frozen) !== Boolean(verdict.statement_frozen)) {
             bindErrors.push(`statement_frozen mismatch: JSON=${Boolean(rec.statement_frozen)}, judge=${Boolean(verdict.statement_frozen)}`);

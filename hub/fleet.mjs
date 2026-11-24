@@ -398,8 +398,20 @@ if (cmd === "next") {
     const isMax = pick.record?.direction === "max";
     const op = isMax ? "≥" : "≤";
     const isCmd = pick.record?.artifact_ext === ".mjs";
-    const targetScore = pick.record_state?.next_target ?? pick.record?.start_target;
-    const recTargets = computeRecordTargets(m.slug, pick, "record", targetScore);
+    const bestScore = pick.record_state?.best?.score ?? null;
+    const litBound = isMax ? pick.record?.literature_upper_bound : pick.record?.literature_lower_bound;
+    const needsOptBound =
+      !isCmd &&
+      pick.record?.allow_bound !== false &&
+      bestScore != null &&
+      litBound != null &&
+      pick.record_state?.refuted == null &&
+      (isMax ? bestScore >= litBound : bestScore <= litBound);
+    const recKind = needsOptBound ? "record_bound" : "record";
+    const targetScore = needsOptBound
+      ? (isMax ? bestScore + 1 : Math.max(0, bestScore - 1))
+      : (pick.record_state?.next_target ?? pick.record?.start_target);
+    const recTargets = computeRecordTargets(m.slug, pick, recKind, targetScore);
     branchHint = `donor/${pick.id.toLowerCase()}-${recTargets.tag}-HANDLE`;
     instructions = isCmd
       ? [
@@ -407,6 +419,14 @@ if (cmd === "next") {
           `2. Read ${m.judge?.harness_file} AND frozen spec ${pick.statement_file}`,
           `3. Export your candidate data in ${recTargets.artifactFile} targeting score ${op} ${targetScore} ${pick.record?.unit || ""}`,
           `4. Verify locally (replace HANDLE with your GitHub handle): node hub/fleet.mjs record --mission ${m.slug} --lemma ${pick.id} --score ${targetScore} --seat donor-HANDLE --export`,
+          `5. Revert any state/event edits (git restore --worktree --staged -- missions/*/state.json missions/*/events.ndjson), commit ONLY ${recTargets.artifactFile} and ${recTargets.submissionFile}, push, and open a PR against ${repo} referencing ${pick.id}.`,
+        ]
+      : needsOptBound
+      ? [
+          `1. Start from a clean base off upstream/main (or origin/main if not in a fork): git fetch upstream main 2>/dev/null || git fetch origin main; git checkout -B ${branchHint} upstream/main 2>/dev/null || git checkout -B ${branchHint} origin/main`,
+          `2. Read ${m.judge?.core_file} AND frozen record statement ${pick.statement_file} (construction already hits the known optimum ${bestScore} — prove optimality by refuting ${targetScore}!)`,
+          `3. Prove \`theorem ${recTargets.theoremName} : ¬ ${pick.statement_def} ${targetScore}\` in ${recTargets.artifactFile}`,
+          `4. Verify locally (replace HANDLE with your GitHub handle): node hub/fleet.mjs record-bound --mission ${m.slug} --lemma ${pick.id} --score ${targetScore} --seat donor-HANDLE --file ${recTargets.artifactFile} --export`,
           `5. Revert any state/event edits (git restore --worktree --staged -- missions/*/state.json missions/*/events.ndjson), commit ONLY ${recTargets.artifactFile} and ${recTargets.submissionFile}, push, and open a PR against ${repo} referencing ${pick.id}.`,
         ]
       : [
