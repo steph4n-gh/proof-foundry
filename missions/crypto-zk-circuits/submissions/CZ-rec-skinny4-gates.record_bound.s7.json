@@ -1,0 +1,28 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "crypto-zk-circuits",
+  "lemma_id": "CZ-rec-skinny4-gates",
+  "kind": "record_bound",
+  "score": 7,
+  "file": "missions/crypto-zk-circuits/lean/Crypto/Claims/CZ_rec_skinny4_gates_not_s7.lean",
+  "theorem": "Crypto.Claims.CZ_rec_skinny4_gates_not_s7.record",
+  "signature": "Crypto.Claims.CZ_rec_skinny4_gates_not_s7.record :\n  ¬Crypto.Statements.CZ_rec_skinny4_gates.Record 7",
+  "at": "2026-11-25T01:55:22.805Z",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-25T01:55:22.806Z",
+    "duration_ms": 24770,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "472c3fb1e61fb1a08a7a15af28bdfa5147bdf692199c405b040589a52dd7d8f8",
+    "core_hash": "1117ad754d7ae7f09cba4b3ed07a5d48d33fd1ba50523b3c84adaeab33d8b54b",
+    "statement_frozen": true,
+    "statement_hash": "e1e6f388b95b0220cf0a173682881f0c11ff9f3812b5bf88d541e43821cfc222"
+  }
+}
