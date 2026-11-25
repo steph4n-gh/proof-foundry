@@ -1,0 +1,29 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "ml-math-kernels",
+  "lemma_id": "ML-rec-bf16-silu",
+  "kind": "record",
+  "score": 13,
+  "file": "missions/ml-math-kernels/artifacts/ML_rec_bf16_silu_s13.json",
+  "theorem": "bf16_silu",
+  "signature": "bf16_silu ≤ 13 ops [actual=13 ops, max_ulp=1/1, exact=64739/65536]",
+  "at": "2026-11-25T02:25:16.296Z",
+  "checker": {
+    "ok": true,
+    "judge": "command",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-25T02:25:16.430Z",
+    "duration_ms": 5663,
+    "axioms": [
+      "exhaustive_65536_bf16",
+      "max_ulp_1_le_1",
+      "pure_data_json_zero_exec",
+      "exact_dyadic_fmaf"
+    ],
+    "lean_version": "Exhaustive 65,536-Input BF16 Pure-Data Judge v1 (zero JS execution)",
+    "file_hash": "a3d0cb8562b20d2ca72fd62f1bb059114ba78c5c6c86d8e0054c0f3963617c7c",
+    "core_hash": "81d4bbc04efc97ad4524f6ec2a3ff36cbcdc477fa65d6759362e3483c2fea9b8",
+    "statement_frozen": true,
+    "statement_hash": "6ec03bc8445c4f7db7b408044625f941914b9aefad45fd4b136d56ac165eeedb"
+  }
+}
