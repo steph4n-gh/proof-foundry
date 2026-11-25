@@ -1,0 +1,28 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "quantum-codes",
+  "lemma_id": "QC-rec-n20-d4-w6",
+  "kind": "record_bound",
+  "score": 10,
+  "file": "missions/quantum-codes/lean/Quantum/Claims/QC_rec_n20_d4_w6_not_s10.lean",
+  "theorem": "Quantum.Claims.QC_rec_n20_d4_w6_not_s10.record",
+  "signature": "Quantum.Claims.QC_rec_n20_d4_w6_not_s10.record :\n  ¬Quantum.Statements.QC_rec_n20_d4_w6.Record 10",
+  "at": "2026-11-25T04:11:14.547Z",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-25T04:11:14.553Z",
+    "duration_ms": 5675,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "6ce76083f30bc4431e9254df17175a6fb3fedbcb83aa64e2d77c24cbf3ef065d",
+    "core_hash": "0779146361dbf71df3d88cf8d9584a8178d6e788f67381fb021ba1a4cb7acf70",
+    "statement_frozen": true,
+    "statement_hash": "fc2b9461aad4f94fda3dc75f4591a57f141e84158e42019b4cd7d73b4c0a79c6"
+  }
+}
