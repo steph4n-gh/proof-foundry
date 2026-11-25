@@ -1,0 +1,28 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "crypto-zk-circuits",
+  "lemma_id": "CZ-rec-ascon-gates",
+  "kind": "record_bound",
+  "score": 14,
+  "file": "missions/crypto-zk-circuits/lean/Crypto/Claims/CZ_rec_ascon_gates_not_s14.lean",
+  "theorem": "Crypto.Claims.CZ_rec_ascon_gates_not_s14.record",
+  "signature": "Crypto.Claims.CZ_rec_ascon_gates_not_s14.record :\n  ¬Crypto.Statements.CZ_rec_ascon_gates.Record 14",
+  "at": "2026-11-25T00:46:49.043Z",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-25T00:46:49.047Z",
+    "duration_ms": 32125,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "7c90eb3188c9d0fcc9a2d0c6076d067e9100f484281a86fab6093aad51ab9e8f",
+    "core_hash": "1117ad754d7ae7f09cba4b3ed07a5d48d33fd1ba50523b3c84adaeab33d8b54b",
+    "statement_frozen": true,
+    "statement_hash": "610cef2698053e820306eb89a9b3c026651a4a6187908ceae1eb8c57d7bae427"
+  }
+}
