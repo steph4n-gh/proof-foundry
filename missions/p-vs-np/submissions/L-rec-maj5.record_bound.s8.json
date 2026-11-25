@@ -1,0 +1,28 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "p-vs-np",
+  "lemma_id": "L-rec-maj5",
+  "kind": "record_bound",
+  "score": 8,
+  "file": "lean/PnP/Lemmas/L_rec_maj5_not_s8.lean",
+  "theorem": "PnP.Lemmas.L_rec_maj5_not_s8.record",
+  "signature": "PnP.Lemmas.L_rec_maj5_not_s8.record :\n  ¬PnP.Statements.L_rec_maj5.Record 8",
+  "at": "2026-11-25T05:10:54.326Z",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-25T05:10:54.327Z",
+    "duration_ms": 34324,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "56cd6bdd9153233bd11afc7d71f36927cabbd6f3235b80f31e3bd4a8d19ba106",
+    "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
+    "statement_frozen": true,
+    "statement_hash": "ceb860e3b182170e93b15dd7741be7e8f605d901396b4f39111bf8ced82e8735"
+  }
+}
