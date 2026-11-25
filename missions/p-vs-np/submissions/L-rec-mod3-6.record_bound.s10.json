@@ -1,0 +1,28 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "p-vs-np",
+  "lemma_id": "L-rec-mod3-6",
+  "kind": "record_bound",
+  "score": 10,
+  "file": "lean/PnP/Lemmas/L_rec_mod3_6_not_s10.lean",
+  "theorem": "PnP.Lemmas.L_rec_mod3_6_not_s10.record",
+  "signature": "PnP.Lemmas.L_rec_mod3_6_not_s10.record :\n  ¬PnP.Statements.L_rec_mod3_6.Record 10",
+  "at": "2026-11-25T05:29:54.150Z",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-25T05:29:54.151Z",
+    "duration_ms": 33021,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "60b60922084ae110c1d84b13732cd44f4263b607c11a8ba2035412abc90bc23b",
+    "core_hash": "5b9cddf40c79e66d1d37926896c60c787049ec23cc6fc78531100890291794c6",
+    "statement_frozen": true,
+    "statement_hash": "f3e9938fbf21c77662e99063dd2e32f4d178f2149aaa914a5597f4a6dc02a236"
+  }
+}
