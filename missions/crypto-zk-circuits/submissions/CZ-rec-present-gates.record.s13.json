@@ -1,0 +1,28 @@
+{
+  "schema": "pf.record.v1",
+  "mission": "crypto-zk-circuits",
+  "lemma_id": "CZ-rec-present-gates",
+  "kind": "record",
+  "score": 13,
+  "file": "missions/crypto-zk-circuits/lean/Crypto/Claims/CZ_rec_present_gates_s13.lean",
+  "theorem": "Crypto.Claims.CZ_rec_present_gates_s13.record",
+  "signature": "Crypto.Claims.CZ_rec_present_gates_s13.record :\n  Crypto.Statements.CZ_rec_present_gates.Record 13",
+  "at": "2026-11-25T01:32:45.418Z",
+  "checker": {
+    "ok": true,
+    "judge": "lean4",
+    "by_seat": "donor-steph4n-gh",
+    "checked_at": "2026-11-25T01:32:45.422Z",
+    "duration_ms": 5307,
+    "axioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "lean_version": "Lean (version 4.36.0, arm64-apple-darwin24.6.0, commit 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9, Release)",
+    "file_hash": "497a3611490fac5c0a3e5a31448287de2e6a9ac824be93742fc23dce0a74f5e4",
+    "core_hash": "1117ad754d7ae7f09cba4b3ed07a5d48d33fd1ba50523b3c84adaeab33d8b54b",
+    "statement_frozen": true,
+    "statement_hash": "0737bcfe45c8c6456c3caeb1c3756ef40cfe807f3349c438879e7608aabcee35"
+  }
+}
